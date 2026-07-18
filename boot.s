@@ -29,3 +29,19 @@ halt_loop:
     cli
     hlt
     jmp halt_loop
+
+.global inb
+.type inb, @function
+inb:
+    mov 4(%esp) , %dx
+    in %dx , %al 
+    ret 
+
+.global outb
+.type outb, @function
+
+outb:
+    mov 4(%esp) , %dx
+    mov 8(%esp) , %al
+    out %al , %dx
+    ret
