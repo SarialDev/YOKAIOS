@@ -19,7 +19,7 @@ kernel.o: kernel.cpp
 	$(CXX) $(CXXFLAGS) -c kernel.cpp -o kernel.o
 
 kernel.bin: boot.o kernel.o linker.ld
-	$(CXX) -m32 -nostdlib -no-pie -Wl,-T,linker.ld -Wl,-e,_start -o kernel.bin boot.o kernel.o
+	$(CXX) -m32 -nostdlib -no-pie -Wl,--build-id=none -Wl,-T,linker.ld -Wl,-e,_start -o kernel.bin boot.o kernel.o
 
 run: kernel.bin
 	qemu-system-i386 -kernel kernel.bin

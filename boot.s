@@ -1,3 +1,4 @@
+
 # Multiboot constants
 .set ALIGN,    1<<0
 .set MEMINFO,  1<<1
@@ -45,3 +46,24 @@ outb:
     mov 8(%esp) , %al
     out %al , %dx
     ret
+
+.global incarcare_idt
+.type incarcare_idt, @function
+incarcare_idt:
+    mov 4(%esp) , %eax
+    lidt (%eax)
+    ret
+
+.global tastatura_handler_asm
+.extern tastatura_handler_cpp
+.type tastatura_handler_asm, @function
+tastatura_handler_asm:
+    pusha
+
+    call tastatura_handler_cpp
+
+    mov $0x20, %al 
+    out %al , $0x20
+
+    popa
+    iret
