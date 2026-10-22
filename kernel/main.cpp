@@ -3,6 +3,7 @@
 #include "drivers/vga.h"
 #include "drivers/serial.h"
 #include "lib/kprintf.h"
+#include "boot/multiboot2.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -237,14 +238,17 @@ void proceseaza_tasta(uint8_t scancode){
 }
 
 extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
-    (void)magic;
-    (void)mbi_phys;
     curata_ecran();
 
     if(serial_init()){
         kprintf("[OK] serial\n");
     }
     kprintf("YOKAI OS booting (x86-64, kernel %p)\n", (void*)&kernel_main);
+
+    if(multiboot2_parse(magic, mbi_phys)){
+        multiboot2_print();
+        kprintf("[OK] multiboot2\n");
+    }
 
     curata_ecran();
 
