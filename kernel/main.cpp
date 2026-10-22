@@ -1,6 +1,5 @@
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-typedef unsigned int uint32_t;
+#include "types.h"
+#include "io.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -15,36 +14,7 @@ int TERMINALBOOL = 0 ; // depinde de valoare poate reprezenta daca e pe aplicati
 
 //VARIABILE CULORI
 
-#pragma pack(push , 1)
-struct IDTentry {
-    uint16_t base_low;
-    uint16_t sel;
-    uint8_t always0;
-    uint8_t flags;
-    uint16_t base_high;
-};
-#pragma pack(pop)
-#pragma pack(push, 1)
-struct IDTptr {
-    uint16_t limit ;
-    uint32_t base;
-};
-#pragma pack(pop)
-
-struct IDTentry idt[256];
-struct IDTptr idtp;
-
-
-
-
-extern "C" {
-    uint8_t inb(uint16_t port);
-    void outb(uint16_t port , uint8_t date);
-    void incarcare_idt(uint32_t ptr_adresa);
-    void tastatura_handler_asm();
-}
-
-uint16_t* const VGA_BUFFER = (uint16_t*)0xB8000;
+uint16_t* const VGA_BUFFER = (uint16_t*)(KERNEL_VMA + 0xB8000);
 const int LATIME_ECRAN = 80;
 const int INALTIME_ECRAN = 25;
 const uint8_t culoare_alb_pe_negru = 0x0A;
@@ -95,28 +65,6 @@ uint8_t inscan(){
 
     }
     return inb(0x60);
-}
-
-void seteaza_poarta_idt(uint8_t numar , uint32_t baza , uint16_t sel , uint8_t flags){
-    idt[numar].base_low = baza & 0xFFFF;
-    idt[numar].base_high = (baza >> 16 ) & 0xFFFF;
-    idt[numar].sel = sel;
-    idt[numar].always0 = 0;
-    idt[numar].flags = flags;
-}
-
-void initializare_idt(){
-    idtp.limit = (sizeof(struct IDTentry) * 256) - 1;
-    idtp.base = (uint32_t)&idt;
-
-    for(int i = 0 ; i < 256 ;i++) {
-        seteaza_poarta_idt(i,0,0,0);
-        
-    }
-    incarcare_idt((uint32_t)&idtp);
-    seteaza_poarta_idt(33 , (uint32_t)tastatura_handler_asm , 0x08 , 0x8E) ;
-    incarcare_idt((uint32_t)&idtp);
-    
 }
 
 char scanASCII(uint8_t scancode){
@@ -289,8 +237,7 @@ void remapare_pic(){
 
 
 
-extern "C" void tastatura_handler_cpp(){
-    uint8_t scancode = inb(0x60);
+void proceseaza_tasta(uint8_t scancode){
 
     if(scancode < 0x80){
         if(scancode == 0x1C){
@@ -332,7 +279,9 @@ extern "C" void tastatura_handler_cpp(){
     }
 }
 
-extern "C" void kernel_main(){
+extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
+    (void)magic;
+    (void)mbi_phys;
     curata_ecran();
 
     out("YOKAI OS has booted succesfully !" , 2 , 2);
@@ -341,12 +290,10 @@ extern "C" void kernel_main(){
 
 
     remapare_pic();
-    initializare_idt();
 
-    __asm__ volatile("sti");
-
+    // Polling pana la IDT-ul 64-bit (T2)
     while(1){
-        __asm__ volatile("hlt");
+        proceseaza_tasta(inscan());
     }
 
      

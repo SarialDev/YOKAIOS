@@ -1,25 +1,31 @@
-OUTPUT_FORMAT(elf32-i386)
-OUTPUT_ARCH(i386)
+OUTPUT_FORMAT(elf64-x86-64)
 ENTRY(_start)
 
+KERNEL_VMA = 0xFFFFFFFF80000000;
+
 SECTIONS {
-    . = 1M;
+    . = KERNEL_VMA + 1M;
+    _kernel_start = .;
 
-    .text BLOCK(4K) : ALIGN(4K) {
-        *(.multiboot)
-        *(.text)
+    .text ALIGN(4K) : AT(ADDR(.text) - KERNEL_VMA) {
+        KEEP(*(.multiboot))
+        *(.text .text.*)
     }
 
-    .rodata BLOCK(4K) : ALIGN(4K) {
-        *(.rodata)
+    .rodata ALIGN(4K) : AT(ADDR(.rodata) - KERNEL_VMA) {
+        *(.rodata .rodata.*)
     }
 
-    .data BLOCK(4K) : ALIGN(4K) {
-        *(.data)
+    .data ALIGN(4K) : AT(ADDR(.data) - KERNEL_VMA) {
+        *(.data .data.*)
     }
 
-    .bss BLOCK(4K) : ALIGN(4K) {
+    .bss ALIGN(4K) : AT(ADDR(.bss) - KERNEL_VMA) {
         *(COMMON)
-        *(.bss)
+        *(.bss .bss.*)
     }
+
+    _kernel_end = .;
+
+    /DISCARD/ : { *(.eh_frame) *(.comment) *(.note*) }
 }

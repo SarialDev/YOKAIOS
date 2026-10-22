@@ -1,5 +1,4 @@
-# ARCH=i386 until the long-mode boot lands; then the default becomes x86_64.
-ARCH ?= i386
+ARCH ?= x86_64
 
 CC  = gcc
 CXX = g++
@@ -15,7 +14,7 @@ QEMU_EXTRA ?=
 
 COMMON = -ffreestanding -nostdlib -fno-stack-protector -fno-pic \
          -mno-sse -mno-mmx -mno-80387 -O2 -Wall -Wextra -Werror \
-         -Ikernel/include -MMD -MP
+         -Ikernel/include -MMD -MP -fno-asynchronous-unwind-tables
 
 ifeq ($(ARCH),x86_64)
 ARCHFLAGS = -m64 -mno-red-zone -mcmodel=kernel
@@ -28,7 +27,7 @@ endif
 CFLAGS   = $(ARCHFLAGS) $(COMMON)
 CXXFLAGS = $(ARCHFLAGS) $(COMMON) -fno-exceptions -fno-rtti
 ASFLAGS  = $(ARCHFLAGS) $(COMMON)
-LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack --build-id=none
+LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size=0x1000 --build-id=none
 
 SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
