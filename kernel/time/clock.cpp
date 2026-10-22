@@ -28,11 +28,12 @@ void clock_init(){
     void (*wait_ms)(uint32_t) = hpet ? hpet_wait_ms : pit_wait_ms;
 
     bool invariant = tsc_invariant();
+    bool hypervisor = cpu_hypervisor();
     tsc_hz = tsc_calibrate(wait_ms, CALIBRATE_MS);
     ns_mult = (1000000000UL << 32) / tsc_hz;
     tsc_base = rdtsc();
-    // Fara TSC invariant frecventa poate varia; atunci timpul vine din jiffies
-    use_tsc = invariant;
+    // Pe hardware fara TSC invariant frecventa poate varia; atunci timpul vine din jiffies
+    use_tsc = invariant || hypervisor;
 
     if(lapic_enabled()){
         uint32_t ticks = lapic_timer_measure(wait_ms, CALIBRATE_MS);
@@ -41,7 +42,7 @@ void clock_init(){
         kprintf("LAPIC timer: %u tick/ms, %u Hz\n", ticks / CALIBRATE_MS, TIMER_HZ);
     }
     kprintf("Ceas: referinta %s, TSC %s\n", hpet ? "HPET" : "PIT",
-            invariant ? "invariant" : "neinvariant (folosesc jiffies)");
+            invariant ? "invariant" : hypervisor ? "virtual (hypervisor)" : "neinvariant (folosesc jiffies)");
     kprintf("[OK] timer TSC=%lu MHz\n", tsc_hz / 1000000);
 }
 

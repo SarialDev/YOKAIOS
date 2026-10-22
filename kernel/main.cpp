@@ -12,6 +12,7 @@
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
 #include "time/clock.h"
+#include "tests/test_cpu.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -319,6 +320,11 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     clock_init();
     ps2kbd_init(shell_on_key);
     kprintf("[OK] keyboard\n");
+
+    const char* test = cmdline_get("test=");
+    if(test && test[0] == 'c' && test[1] == 'p' && test[2] == 'u' && (test[3] == ' ' || !test[3])){
+        test_cpu_run();
+    }
 
     kprintf("[OK] boot\n");
     if(cmdline_has("test")){

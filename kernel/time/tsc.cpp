@@ -18,6 +18,12 @@ bool tsc_invariant(){
     return d & (1 << 8);
 }
 
+bool cpu_hypervisor(){
+    uint32_t a, b, c, d;
+    cpuid(1, a, b, c, d);
+    return c & (1u << 31);
+}
+
 uint64_t tsc_calibrate(void (*wait_ms)(uint32_t), uint32_t ms){
     uint64_t start = rdtsc();
     wait_ms(ms);

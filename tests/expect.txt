@@ -7,4 +7,6 @@
 [OK] apic
 [OK] timer
 [OK] keyboard
+[OK] test_exceptions
+[OK] test_timer
 [OK] boot
