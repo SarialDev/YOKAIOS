@@ -3,5 +3,7 @@
 [OK] gdt
 [OK] idt
 [OK] pic
+[OK] acpi
+[OK] apic
 [OK] keyboard
 [OK] boot

@@ -8,6 +8,9 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/pic.h"
 #include "drivers/ps2kbd.h"
+#include "acpi/acpi.h"
+#include "arch/x86_64/lapic.h"
+#include "arch/x86_64/ioapic.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -253,6 +256,30 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
 
     pic_init();
     kprintf("[OK] pic\n");
+
+    if(acpi_init()){
+        kprintf("[OK] acpi\n");
+        int cpus = 0;
+        for(int i = 0; i < acpi_madt.cpu_count; i++){
+            const AcpiCpu& c = acpi_madt.cpus[i];
+            if(c.flags & 3){
+                cpus++;
+            }
+            kprintf("  CPU acpi=%u lapic=%u flags=%x\n", c.acpi_id, c.lapic_id, c.flags);
+        }
+        for(int i = 0; i < acpi_madt.ioapic_count; i++){
+            const AcpiIoApic& io = acpi_madt.ioapics[i];
+            kprintf("  IOAPIC id=%u addr=%x gsi=%u\n", io.id, io.addr, io.gsi_base);
+        }
+        for(int i = 0; i < acpi_madt.override_count; i++){
+            const AcpiOverride& o = acpi_madt.overrides[i];
+            kprintf("  ISO irq=%u -> gsi=%u flags=%x\n", o.irq, o.gsi, o.flags);
+        }
+        lapic_init(acpi_madt.lapic_addr);
+        ioapic_init();
+        kprintf("CPU-uri: %d, BSP lapic=%u\n", cpus, lapic_id());
+        kprintf("[OK] apic\n");
+    }
     ps2kbd_init(shell_on_key);
     kprintf("[OK] keyboard\n");
 

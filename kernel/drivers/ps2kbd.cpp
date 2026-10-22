@@ -1,5 +1,7 @@
 #include "drivers/ps2kbd.h"
 #include "arch/x86_64/pic.h"
+#include "arch/x86_64/lapic.h"
+#include "arch/x86_64/ioapic.h"
 #include "interrupt.h"
 #include "io.h"
 
@@ -27,5 +29,8 @@ void ps2kbd_init(KeyCallback cb){
         inb(KBD_DATA);
     }
     irq_register(PIC_IRQ_BASE + KBD_IRQ, kbd_irq);
-    pic_unmask(KBD_IRQ);
+    // Prin IOAPIC cand exista; PIC doar ca rezerva pentru masini fara APIC
+    if(!lapic_enabled() || !ioapic_route(KBD_IRQ, PIC_IRQ_BASE + KBD_IRQ, lapic_id())){
+        pic_unmask(KBD_IRQ);
+    }
 }

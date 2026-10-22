@@ -27,6 +27,7 @@ mb2_end:
 /* Boot page tables: 0-1 GiB identity and at KERNEL_VMA, 2 MiB pages */
 .section .data
 .align 4096
+.globl boot_pml4, boot_pdpt
 boot_pml4:
     .quad PHYS(boot_pdpt) + 3
     .fill 510, 8, 0
@@ -35,7 +36,7 @@ boot_pdpt:
     .quad PHYS(boot_pd) + 3
     .fill 509, 8, 0
     .quad PHYS(boot_pd) + 3
-    .quad 0
+    .quad 0                             /* MMIO window, filled by mmio_map */
 boot_pd:
     .set i, 0
     .rept 512

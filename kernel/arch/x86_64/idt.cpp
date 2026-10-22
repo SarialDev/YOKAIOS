@@ -1,6 +1,7 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/pic.h"
+#include "arch/x86_64/lapic.h"
 #include "core/panic.h"
 
 namespace {
@@ -55,7 +56,11 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         panic_frame(f, exception_name(f->vector));
     }
     if(f->vector >= PIC_IRQ_BASE && f->vector < PIC_IRQ_BASE + PIC_IRQ_COUNT){
-        pic_eoi(f->vector - PIC_IRQ_BASE);
+        if(lapic_enabled()){
+            lapic_eoi();
+        } else {
+            pic_eoi(f->vector - PIC_IRQ_BASE);
+        }
     }
 }
 
