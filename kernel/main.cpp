@@ -1,5 +1,8 @@
 #include "types.h"
 #include "io.h"
+#include "drivers/vga.h"
+#include "drivers/serial.h"
+#include "lib/kprintf.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -13,52 +16,6 @@ int TERMINALBOOL = 0 ; // depinde de valoare poate reprezenta daca e pe aplicati
 //GLOBAL VAR
 
 //VARIABILE CULORI
-
-uint16_t* const VGA_BUFFER = (uint16_t*)(KERNEL_VMA + 0xB8000);
-const int LATIME_ECRAN = 80;
-const int INALTIME_ECRAN = 25;
-const uint8_t culoare_alb_pe_negru = 0x0A;
-
-void curata_ecran(){
-    for(int y = 0 ; y < INALTIME_ECRAN ; y++){
-        for(int x = 0 ; x < LATIME_ECRAN; x++){
-            int index = y * LATIME_ECRAN + x ;
-            VGA_BUFFER[index] = (culoare_alb_pe_negru << 8) | ' ';
-        }
-    }
-}
-//
-//#ifdef _WIN32
-//	system("cls");
-//#else
-//  system("clear");
-//#endif
-//
-
-
-
-void out(const char* text, int x, int y){
-    int index = y * LATIME_ECRAN + x ;
-
-    for(int i = 0 ; text[i] != '\0'; i++){
-        VGA_BUFFER[index] = (culoare_alb_pe_negru << 8) | text[i] ;
-        index++;
-
-        if(index >= LATIME_ECRAN * INALTIME_ECRAN){
-            break;
-        }
-    }
-}
-
-
-void muta_cursor(int x , int y){
-    uint16_t poz = y * LATIME_ECRAN + x; 
-
-    outb(0x3D4 , 0x0F);
-    outb(0x3D5 , (uint8_t)(poz & 0xFF));
-    outb(0x3D4 , 0x0E);
-    outb(0x3D5 , (uint8_t)((poz >> 8) & 0xFF));
-}
 
 uint8_t inscan(){
     while((inb(0x64) & 1) == 0){
@@ -282,6 +239,13 @@ void proceseaza_tasta(uint8_t scancode){
 extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     (void)magic;
     (void)mbi_phys;
+    curata_ecran();
+
+    if(serial_init()){
+        kprintf("[OK] serial\n");
+    }
+    kprintf("YOKAI OS booting (x86-64, kernel %p)\n", (void*)&kernel_main);
+
     curata_ecran();
 
     out("YOKAI OS has booted succesfully !" , 2 , 2);

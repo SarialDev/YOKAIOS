@@ -2,7 +2,7 @@
     "configurations": [
         {
             "name": "YokaiOS x86_64",
-            "includePath": ["${workspaceFolder}/kernel/include"],
+            "includePath": ["${workspaceFolder}/kernel/include", "${workspaceFolder}/kernel"],
             "defines": [],
             "compilerArgs": ["-ffreestanding", "-m64"],
             "cStandard": "c11",

@@ -14,7 +14,7 @@ QEMU_EXTRA ?=
 
 COMMON = -ffreestanding -nostdlib -fno-stack-protector -fno-pic \
          -mno-sse -mno-mmx -mno-80387 -O2 -Wall -Wextra -Werror \
-         -Ikernel/include -MMD -MP -fno-asynchronous-unwind-tables
+         -Ikernel/include -Ikernel -MMD -MP -fno-asynchronous-unwind-tables
 
 ifeq ($(ARCH),x86_64)
 ARCHFLAGS = -m64 -mno-red-zone -mcmodel=kernel
