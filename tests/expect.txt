@@ -2,4 +2,6 @@
 [OK] multiboot2
 [OK] gdt
 [OK] idt
+[OK] pic
+[OK] keyboard
 [OK] boot

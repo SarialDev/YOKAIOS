@@ -6,6 +6,8 @@
 #include "boot/multiboot2.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/idt.h"
+#include "arch/x86_64/pic.h"
+#include "drivers/ps2kbd.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -19,13 +21,6 @@ int TERMINALBOOL = 0 ; // depinde de valoare poate reprezenta daca e pe aplicati
 //GLOBAL VAR
 
 //VARIABILE CULORI
-
-uint8_t inscan(){
-    while((inb(0x64) & 1) == 0){
-
-    }
-    return inb(0x60);
-}
 
 char scanASCII(uint8_t scancode){
     switch(scancode){
@@ -177,27 +172,8 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     
 }
 
-void remapare_pic(){
-    outb(0x20, 0x11);
-    outb(0xA0, 0x11);
-
-    outb(0x21, 0x20);
-    outb(0xA1, 0x28);
-    
-    outb(0x21, 0x04);
-    outb(0xA1, 0x02);
-    
-    outb(0x21, 0x01);
-    outb(0xA1, 0x01);
-    
-    outb(0x21, 0xFD);
-    outb(0xA1, 0xFF);
-}
-
-
-
-
-void proceseaza_tasta(uint8_t scancode){
+// Apelat din IRQ1 (ps2kbd) pentru fiecare scancode
+void shell_on_key(uint8_t scancode){
 
     if(scancode < 0x80){
         if(scancode == 0x1C){
@@ -275,6 +251,11 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         __asm__ volatile("xor %%ecx, %%ecx; mov $1, %%eax; xor %%edx, %%edx; div %%ecx" : : : "eax", "ecx", "edx");
     }
 
+    pic_init();
+    kprintf("[OK] pic\n");
+    ps2kbd_init(shell_on_key);
+    kprintf("[OK] keyboard\n");
+
     kprintf("[OK] boot\n");
     if(cmdline_has("test")){
         outb(0xF4, 0x10);   // isa-debug-exit: QEMU iese cu codul 33
@@ -287,11 +268,10 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     muta_cursor(cursor_x , cursor_y);
 
 
-    remapare_pic();
-
-    // Polling pana la IDT-ul 64-bit (T2)
+    // Tastele vin acum pe IRQ1; CPU-ul doarme intre intreruperi
+    __asm__ volatile("sti");
     while(1){
-        proceseaza_tasta(inscan());
+        __asm__ volatile("hlt");
     }
 
      

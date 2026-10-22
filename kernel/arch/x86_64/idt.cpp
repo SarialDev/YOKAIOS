@@ -1,5 +1,6 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/pic.h"
 #include "core/panic.h"
 
 namespace {
@@ -50,10 +51,11 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
     InterruptHandler h = handlers[f->vector];
     if(h){
         h(f);
-        return;
-    }
-    if(f->vector < 32){
+    } else if(f->vector < 32){
         panic_frame(f, exception_name(f->vector));
+    }
+    if(f->vector >= PIC_IRQ_BASE && f->vector < PIC_IRQ_BASE + PIC_IRQ_COUNT){
+        pic_eoi(f->vector - PIC_IRQ_BASE);
     }
 }
 
