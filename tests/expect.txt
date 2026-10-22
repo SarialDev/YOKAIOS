@@ -1,0 +1,3 @@
+[OK] serial
+[OK] multiboot2
+[OK] boot

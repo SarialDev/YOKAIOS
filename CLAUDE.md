@@ -15,6 +15,6 @@ OS hobby hibrid: x86-64 acum, ARM64 (dronă) mai târziu.
 - Răspunsurile finale: maxim 5 rânduri.
 
 ## Build
-- `make` (ISO în build/yokai.iso), `make run`, `make test` (smoke boot), `make debug` (GDB :1234), `make clean`.
+- `make` (ISO în build/yokai.iso), `make run`, `make test` (QEMU headless, verifică markerii din tests/expect.txt, log în build/test.log), `make debug` (GDB :1234), `make clean`.
 - Kernel x86-64 higher-half (0xFFFFFFFF80000000), boot Multiboot2. Flaguri adiționale QEMU: `QEMU_EXTRA="..."`.
 - Necesită pe Linux/WSL: gcc, g++, binutils, grub-pc-bin, xorriso, mtools, qemu-system-x86.

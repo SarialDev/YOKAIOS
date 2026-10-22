@@ -6,6 +6,7 @@ LD  = ld
 
 BUILD = build
 ISO   = $(BUILD)/yokai.iso
+TEST_ISO = $(BUILD)/yokai-test.iso
 KERNEL = $(BUILD)/kernel.bin
 
 QEMU = qemu-system-x86_64
@@ -60,11 +61,14 @@ $(ISO): $(KERNEL) boot/grub.cfg
 run: $(ISO)
 	$(QEMU) $(QEMU_FLAGS)
 
-# Smoke test until tests/run_qemu.sh exists (T1.T): QEMU must still be running after 10 s.
-test: $(ISO)
-	@if [ -x tests/run_qemu.sh ]; then tests/run_qemu.sh $(ISO); else \
-	timeout 10 $(QEMU) -cdrom $(ISO) -m 512M -display none -serial none -no-reboot $(QEMU_EXTRA); \
-	[ $$? -eq 124 ] && echo "[OK] smoke boot" || { echo "FAIL: QEMU exited early"; exit 1; }; fi
+$(TEST_ISO): $(KERNEL) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-test/boot/grub
+	cp $(KERNEL) $(BUILD)/iso-test/boot/kernel.bin
+	cp boot/grub-test.cfg $(BUILD)/iso-test/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
+
+test: $(TEST_ISO)
+	QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
 
 debug: $(ISO)
 	$(QEMU) $(QEMU_FLAGS) -s -S

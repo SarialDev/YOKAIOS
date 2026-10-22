@@ -250,6 +250,11 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         kprintf("[OK] multiboot2\n");
     }
 
+    kprintf("[OK] boot\n");
+    if(cmdline_has("test")){
+        outb(0xF4, 0x10);   // isa-debug-exit: QEMU iese cu codul 33
+    }
+
     curata_ecran();
 
     out("YOKAI OS has booted succesfully !" , 2 , 2);
