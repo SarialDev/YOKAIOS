@@ -2,7 +2,7 @@
 #include "io.h"
 
 static uint16_t* const VGA_BUFFER = (uint16_t*)(KERNEL_VMA + 0xB8000);
-static const uint8_t culoare_alb_pe_negru = 0x0A;
+static uint8_t culoare_alb_pe_negru = 0x0A;
 
 static int log_x = 0;
 static int log_y = 0;
@@ -38,6 +38,10 @@ void muta_cursor(int x , int y){
     outb(0x3D5 , (uint8_t)(poz & 0xFF));
     outb(0x3D4 , 0x0E);
     outb(0x3D5 , (uint8_t)((poz >> 8) & 0xFF));
+}
+
+void vga_set_color(uint8_t color){
+    culoare_alb_pe_negru = color;
 }
 
 static void scroll(){

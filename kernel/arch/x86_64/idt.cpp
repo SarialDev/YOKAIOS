@@ -1,6 +1,6 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/gdt.h"
-#include "lib/kprintf.h"
+#include "core/panic.h"
 
 namespace {
 
@@ -53,11 +53,7 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         return;
     }
     if(f->vector < 32){
-        // Panic complet vine in T2.3
-        kprintf("PANIC: exceptie %lu err=%lx rip=%lx\n", f->vector, f->error, f->rip);
-        for(;;){
-            __asm__ volatile("cli; hlt");
-        }
+        panic_frame(f, exception_name(f->vector));
     }
 }
 

@@ -269,6 +269,12 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         kprintf("[OK] idt\n");
     }
 
+    // Test manual pentru panic: cmdline "crash" forteaza #DE
+    if(cmdline_has("crash")){
+        // asm direct: gcc transforma 1/x in comparatii si nu mai emite div
+        __asm__ volatile("xor %%ecx, %%ecx; mov $1, %%eax; xor %%edx, %%edx; div %%ecx" : : : "eax", "ecx", "edx");
+    }
+
     kprintf("[OK] boot\n");
     if(cmdline_has("test")){
         outb(0xF4, 0x10);   // isa-debug-exit: QEMU iese cu codul 33

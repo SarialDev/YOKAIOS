@@ -132,6 +132,7 @@ long_mode_high:
 
     movl %edi, %edi                     /* magic */
     movl %esi, %esi                     /* mbi physical */
+    xorq %rbp, %rbp                     /* end of RBP chain for stack traces */
     call kernel_main
 2:  cli
     hlt
