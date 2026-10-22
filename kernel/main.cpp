@@ -11,6 +11,7 @@
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
+#include "time/clock.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -147,6 +148,38 @@ bool sunt_egale(const char* sir1 , const char* sir2){
     return sir1[i] == sir2[i];
 }
 
+// "up 12.345 s (jiffies 12345)"
+void afiseaza_uptime(int x, int y){
+    char buf[64];
+    int n = 0;
+    auto put_num = [&](uint64_t v, int min_digits){
+        char tmp[20];
+        int len = 0;
+        do {
+            tmp[len++] = '0' + v % 10;
+            v /= 10;
+        } while(v || len < min_digits);
+        while(len){
+            buf[n++] = tmp[--len];
+        }
+    };
+    auto put_str = [&](const char* s){
+        while(*s){
+            buf[n++] = *s++;
+        }
+    };
+    uint64_t ms = uptime_ms();
+    put_str("up ");
+    put_num(ms / 1000, 1);
+    put_str(".");
+    put_num(ms % 1000, 3);
+    put_str(" s (jiffies ");
+    put_num(jiffies, 1);
+    put_str(")");
+    buf[n] = '\0';
+    out(buf, x, y);
+}
+
 void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
     cursor_y++;
     cursor_x = 0;
@@ -154,7 +187,7 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -162,6 +195,9 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         cursor_y = 1;
     } else if (sunt_egale(comanda , "version")  ){
         out("YOKAI OS version 0.1" , cursor_x , cursor_y);
+        cursor_y++;
+    } else if (sunt_egale(comanda , "uptime")){
+        afiseaza_uptime(cursor_x , cursor_y);
         cursor_y++;
     } else if(sunt_egale(comanda , "color ")){
 
@@ -280,6 +316,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         kprintf("CPU-uri: %d, BSP lapic=%u\n", cpus, lapic_id());
         kprintf("[OK] apic\n");
     }
+    clock_init();
     ps2kbd_init(shell_on_key);
     kprintf("[OK] keyboard\n");
 

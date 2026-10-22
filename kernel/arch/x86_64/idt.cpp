@@ -55,10 +55,10 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
     } else if(f->vector < 32){
         panic_frame(f, exception_name(f->vector));
     }
-    if(f->vector >= PIC_IRQ_BASE && f->vector < PIC_IRQ_BASE + PIC_IRQ_COUNT){
+    if(f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END){
         if(lapic_enabled()){
             lapic_eoi();
-        } else {
+        } else if(f->vector < PIC_IRQ_BASE + PIC_IRQ_COUNT){
             pic_eoi(f->vector - PIC_IRQ_BASE);
         }
     }
