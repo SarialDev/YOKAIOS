@@ -1,4 +1,5 @@
 #include "mm/pmm.h"
+#include "mm/buddy.h"
 #include "boot/multiboot2.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
@@ -14,8 +15,7 @@ const uint64_t DIRECT_MAP_LIMIT = 1UL << 30;    // bitmap-ul trebuie sa fie in m
 uint64_t* bitmap = nullptr;
 uint64_t total_pages = 0;
 uint64_t bitmap_words = 0;
-uint64_t free_pages = 0;
-uint64_t next_word = 0;         // de aici incepe cautarea urmatoarei alocari
+uint64_t bitmap_free = 0;
 
 uint64_t align_up(uint64_t v){
     return (v + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
@@ -46,7 +46,7 @@ void reserve(uint64_t start, uint64_t end){
     for(uint64_t p = align_down(start) / PAGE_SIZE; p < last; p++){
         if(!test_bit(p)){
             set_bit(p);
-            free_pages--;
+            bitmap_free--;
         }
     }
 }
@@ -121,7 +121,7 @@ void pmm_init(){
         for(uint64_t p = align_up(r.base) / PAGE_SIZE; p < align_down(r.base + r.length) / PAGE_SIZE; p++){
             if(test_bit(p)){
                 clear_bit(p);
-                free_pages++;
+                bitmap_free++;
             }
         }
     }
@@ -136,64 +136,60 @@ void pmm_init(){
 
     kprintf("pmm: %lu pagini, bitmap %lu KiB la %lx, kernel %lu KiB\n", total_pages, bitmap_size >> 10,
             bitmap_phys, (uint64_t)(_kernel_end - _kernel_start) >> 10);
-    kprintf("[OK] pmm free=%lu MiB\n", free_pages * PAGE_SIZE >> 20);
+    kprintf("[OK] pmm free=%lu MiB\n", bitmap_free * PAGE_SIZE >> 20);
+    buddy_init();
 }
 
 uint64_t pmm_alloc_page(){
-    for(uint64_t n = 0; n < bitmap_words; n++){
-        uint64_t w = (next_word + n) % bitmap_words;
-        if(bitmap[w] == ~0UL){
-            continue;
-        }
-        uint64_t page = w * 64 + __builtin_ctzl(~bitmap[w]);
-        if(page >= total_pages){
-            continue;
-        }
-        set_bit(page);
-        free_pages--;
-        next_word = w;
-        return page * PAGE_SIZE;
-    }
-    return 0;
+    return alloc_pages(0);
 }
 
 void pmm_free_page(uint64_t phys){
-    uint64_t page = phys / PAGE_SIZE;
-    if(phys % PAGE_SIZE || page >= total_pages){
-        panic("pmm_free_page: adresa invalida %lx", phys);
-    }
-    if(!test_bit(page)){
-        panic("pmm_free_page: double free la %lx", phys);
-    }
-    clear_bit(page);
-    free_pages++;
-    if(page / 64 < next_word){
-        next_word = page / 64;
-    }
+    free_pages(phys, 0);
 }
 
 uint64_t pmm_alloc_contig(uint64_t n){
-    if(n == 0){
+    if(n == 0 || n > (1UL << BUDDY_MAX_ORDER)){
         return 0;
     }
-    uint64_t run = 0;
-    for(uint64_t p = 0; p < total_pages; p++){
-        if(test_bit(p)){
-            run = 0;
-            continue;
-        }
-        if(++run == n){
-            uint64_t first = p + 1 - n;
-            for(uint64_t q = first; q <= p; q++){
-                set_bit(q);
-            }
-            free_pages -= n;
-            return first * PAGE_SIZE;
-        }
+    int order = 0;
+    while((1UL << order) < n){
+        order++;
     }
-    return 0;
+    uint64_t phys = alloc_pages(order);
+    // Paginile in plus din bloc se intorc imediat in buddy
+    for(uint64_t i = n; phys && i < (1UL << order); i++){
+        free_pages(phys + i * PAGE_SIZE, 0);
+    }
+    return phys;
 }
 
 uint64_t pmm_free_count(){
-    return free_pages;
+    return buddy_free_count();
+}
+
+uint64_t pmm_total_pages(){
+    return total_pages;
+}
+
+uint64_t pmm_free_count_bitmap(){
+    return bitmap_free;
+}
+
+bool pmm_page_free(uint64_t page){
+    return page < total_pages && !test_bit(page);
+}
+
+void pmm_mark_used(uint64_t page, uint64_t count){
+    for(uint64_t p = page; p < page + count; p++){
+        set_bit(p);
+    }
+    bitmap_free -= count;
+}
+
+void pmm_mark_free(uint64_t page, uint64_t count){
+    for(uint64_t p = page; p < page + count; p++){
+        clear_bit(p);
+    }
+    bitmap_free += count;
 }

@@ -3,6 +3,7 @@
 [OK] gdt
 [OK] idt
 [OK] pmm
+[OK] buddy
 [OK] pic
 [OK] acpi
 [OK] apic
