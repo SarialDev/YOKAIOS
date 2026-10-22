@@ -3,6 +3,7 @@
 #include "arch/x86_64/paging.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
+#include "irqlock.h"
 
 namespace {
 
@@ -20,23 +21,6 @@ struct FreeBlock {
 FreeBlock* free_lists[BUDDY_MAX_ORDER + 1];
 uint64_t managed_pages = 0;
 uint64_t free_count = 0;
-
-// Lock simplu pe un singur CPU: dezactiveaza intreruperile si le reactiveaza doar daca erau active
-class IrqLock {
-public:
-    IrqLock(){
-        uint64_t rflags;
-        __asm__ volatile("pushfq; pop %0; cli" : "=r"(rflags) : : "memory");
-        was_enabled = rflags & (1 << 9);
-    }
-    ~IrqLock(){
-        if(was_enabled){
-            __asm__ volatile("sti" : : : "memory");
-        }
-    }
-private:
-    bool was_enabled;
-};
 
 uint64_t block_bytes(int order){
     return PAGE_SIZE << order;

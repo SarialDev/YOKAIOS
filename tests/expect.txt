@@ -5,6 +5,7 @@
 [OK] pmm
 [OK] buddy
 [OK] vmm
+[OK] heap
 [OK] pic
 [OK] acpi
 [OK] apic
@@ -12,5 +13,6 @@
 [OK] keyboard
 [OK] test_exceptions
 [OK] test_paging
+[OK] test_heap
 [OK] test_timer
 [OK] boot

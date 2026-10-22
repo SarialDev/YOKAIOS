@@ -5,6 +5,8 @@
 #include "time/clock.h"
 #include "mm/vmm.h"
 #include "mm/pmm.h"
+#include "mm/kmalloc.h"
+#include "mm/slab.h"
 
 namespace {
 
@@ -19,6 +21,16 @@ const uint64_t PF_PRESENT = 1 << 0;
 const uint64_t PF_WRITE = 1 << 1;
 const uint64_t PF_FETCH = 1 << 4;
 const uint64_t TEST_USER_VIRT = 0x400000;
+const int HEAP_ROUNDS = 1000;
+const int HEAP_LIVE = 64;
+
+// Obiecte de marimi diferite pentru testul de heap; constructorul marcheaza memoria
+template<int N>
+struct Blob {
+    uint8_t bytes[N];
+    Blob(){ bytes[0] = (uint8_t)N; bytes[N - 1] = 0xA5; }
+    bool intact() const { return bytes[0] == (uint8_t)N && bytes[N - 1] == 0xA5; }
+};
 
 // Un singur ret intr-o pagina RW+NX (.data): executia lui trebuie sa dea #PF
 volatile uint8_t data_code[16] = {0xC3};
@@ -148,6 +160,70 @@ void test_paging(){
     kprintf("[OK] test_paging\n");
 }
 
+void test_heap(){
+    // Cache dedicat, ca pentru Task/inode
+    KmemCache* cache = kmem_cache_create("test-obj", 40, 8);
+    void* a = kmem_cache_alloc(cache);
+    void* b = kmem_cache_alloc(cache);
+    if(!a || !b || a == b || kmem_cache_object_size(cache) < 40){
+        panic("test_heap: kmem_cache_create/alloc a esuat");
+    }
+    kmem_cache_free(cache, a);
+    kmem_cache_free(cache, b);
+
+    uint64_t free_before = pmm_free_count();
+    void* live[HEAP_LIVE] = {};
+    int kinds[HEAP_LIVE] = {};
+    uint32_t seed = 12345;
+    for(int i = 0; i < HEAP_ROUNDS; i++){
+        seed = seed * 1103515245 + 12345;
+        int slot = (seed >> 16) % HEAP_LIVE;
+        // Elibereaza ce era in slot, verificand ca obiectul nu a fost suprascris
+        switch(kinds[slot]){
+            case 1: if(!((Blob<24>*)live[slot])->intact()) panic("test_heap: Blob<24> corupt"); delete (Blob<24>*)live[slot]; break;
+            case 2: if(!((Blob<200>*)live[slot])->intact()) panic("test_heap: Blob<200> corupt"); delete (Blob<200>*)live[slot]; break;
+            case 3: if(!((Blob<1500>*)live[slot])->intact()) panic("test_heap: Blob<1500> corupt"); delete (Blob<1500>*)live[slot]; break;
+            case 4: delete[] (uint64_t*)live[slot]; break;
+            case 5: kfree(live[slot]); break;
+        }
+        int kind = 1 + (seed >> 8) % 5;
+        switch(kind){
+            case 1: live[slot] = new Blob<24>; break;
+            case 2: live[slot] = new Blob<200>; break;
+            case 3: live[slot] = new Blob<1500>; break;
+            case 4: live[slot] = new uint64_t[700]; break;     // 5600 bytes: din buddy
+            case 5: {
+                uint8_t* p = (uint8_t*)kzalloc(100);
+                for(int k = 0; k < 100; k++){
+                    if(p[k]) panic("test_heap: kzalloc nu a pus zero");
+                    p[k] = (uint8_t)k;
+                }
+                p = (uint8_t*)krealloc(p, 3000);
+                for(int k = 0; k < 100; k++){
+                    if(p[k] != (uint8_t)k) panic("test_heap: krealloc a pierdut datele");
+                }
+                live[slot] = p;
+                break;
+            }
+        }
+        kinds[slot] = kind;
+    }
+    for(int slot = 0; slot < HEAP_LIVE; slot++){
+        switch(kinds[slot]){
+            case 1: delete (Blob<24>*)live[slot]; break;
+            case 2: delete (Blob<200>*)live[slot]; break;
+            case 3: delete (Blob<1500>*)live[slot]; break;
+            case 4: delete[] (uint64_t*)live[slot]; break;
+            case 5: kfree(live[slot]); break;
+        }
+    }
+    uint64_t free_after = pmm_free_count();
+    if(free_after != free_before){
+        panic("test_heap: memoria folosita a crescut (%lu -> %lu pagini libere)", free_before, free_after);
+    }
+    kprintf("[OK] test_heap (%d operatii, %lu pagini libere inainte si dupa)\n", HEAP_ROUNDS, free_after);
+}
+
 void test_timer(){
     __asm__ volatile("sti");
     uint64_t prev = monotonic_ns();
@@ -174,5 +250,6 @@ void test_timer(){
 void test_cpu_run(){
     test_exceptions();
     test_paging();
+    test_heap();
     test_timer();
 }
