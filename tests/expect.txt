@@ -1,4 +1,5 @@
 [OK] serial
 [OK] multiboot2
 [OK] gdt
+[OK] idt
 [OK] boot

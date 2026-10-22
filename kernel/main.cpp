@@ -5,6 +5,7 @@
 #include "lib/kprintf.h"
 #include "boot/multiboot2.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/idt.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -238,6 +239,13 @@ void proceseaza_tasta(uint8_t scancode){
     }
 }
 
+volatile bool breakpoint_hit = false;
+
+void breakpoint_handler(InterruptFrame* f){
+    breakpoint_hit = true;
+    kprintf("int3 la rip=%lx\n", f->rip);
+}
+
 extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     curata_ecran();
 
@@ -253,6 +261,13 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
 
     gdt_init();
     kprintf("[OK] gdt\n");
+
+    idt_init();
+    irq_register(3, breakpoint_handler);
+    __asm__ volatile("int $3");
+    if(breakpoint_hit){
+        kprintf("[OK] idt\n");
+    }
 
     kprintf("[OK] boot\n");
     if(cmdline_has("test")){
