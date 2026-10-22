@@ -60,6 +60,7 @@ gdt64_ptr:
 .align 16
 stack_bottom:
     .skip 16384
+.globl stack_top
 stack_top:
 
 .section .text

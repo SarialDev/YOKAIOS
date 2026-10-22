@@ -4,6 +4,7 @@
 #include "drivers/serial.h"
 #include "lib/kprintf.h"
 #include "boot/multiboot2.h"
+#include "arch/x86_64/gdt.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -249,6 +250,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         multiboot2_print();
         kprintf("[OK] multiboot2\n");
     }
+
+    gdt_init();
+    kprintf("[OK] gdt\n");
 
     kprintf("[OK] boot\n");
     if(cmdline_has("test")){
