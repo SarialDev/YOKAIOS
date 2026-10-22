@@ -1,33 +1,76 @@
-CC = gcc
+# ARCH=i386 until the long-mode boot lands; then the default becomes x86_64.
+ARCH ?= i386
+
+CC  = gcc
 CXX = g++
-AS = as
-LD = ld
+LD  = ld
 
 BUILD = build
+ISO   = $(BUILD)/yokai.iso
+KERNEL = $(BUILD)/kernel.bin
 
-ASFLAGS = --32
-CFLAGS = -m32 -nostdlib -fno-builtin -fno-stack-protector -nostartfiles -nodefaultlibs
-CXXFLAGS = -m32 -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti -nostdlib -fno-stack-protector -fno-pie -no-pie
-LDFLAGS = -m elf_i386 -T boot/linker.ld -nostdlib -e _start
+QEMU = qemu-system-x86_64
+QEMU_FLAGS = -cdrom $(ISO) -m 512M -serial stdio $(QEMU_EXTRA)
+QEMU_EXTRA ?=
 
-.PHONY: all clean run
+COMMON = -ffreestanding -nostdlib -fno-stack-protector -fno-pic \
+         -mno-sse -mno-mmx -mno-80387 -O2 -Wall -Wextra -Werror \
+         -Ikernel/include -MMD -MP
 
-all: $(BUILD)/kernel.bin
+ifeq ($(ARCH),x86_64)
+ARCHFLAGS = -m64 -mno-red-zone -mcmodel=kernel
+LDARCH    = -m elf_x86_64
+else
+ARCHFLAGS = -m32
+LDARCH    = -m elf_i386
+endif
 
-$(BUILD):
-	mkdir -p $(BUILD)
+CFLAGS   = $(ARCHFLAGS) $(COMMON)
+CXXFLAGS = $(ARCHFLAGS) $(COMMON) -fno-exceptions -fno-rtti
+ASFLAGS  = $(ARCHFLAGS) $(COMMON)
+LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack --build-id=none
 
-$(BUILD)/boot.o: boot/boot.s | $(BUILD)
-	$(AS) $(ASFLAGS) boot/boot.s -o $(BUILD)/boot.o
+SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
+OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
-$(BUILD)/kernel.o: kernel/kernel.cpp | $(BUILD)
-	$(CXX) $(CXXFLAGS) -c kernel/kernel.cpp -o $(BUILD)/kernel.o
+.PHONY: all iso run test debug clean
 
-$(BUILD)/kernel.bin: $(BUILD)/boot.o $(BUILD)/kernel.o boot/linker.ld
-	$(CXX) -m32 -nostdlib -no-pie -Wl,--build-id=none -Wl,-T,boot/linker.ld -Wl,-e,_start -o $(BUILD)/kernel.bin $(BUILD)/boot.o $(BUILD)/kernel.o
+all: $(ISO)
 
-run: $(BUILD)/kernel.bin
-	qemu-system-i386 -kernel $(BUILD)/kernel.bin
+$(BUILD)/%.S.o: %.S
+	@mkdir -p $(dir $@)
+	$(CC) $(ASFLAGS) -c $< -o $@
+
+$(BUILD)/%.c.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/%.cpp.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(KERNEL): $(OBJS) boot/linker.ld
+	$(LD) $(LDFLAGS) -o $@ $(OBJS)
+
+$(ISO): $(KERNEL) boot/grub.cfg
+	@mkdir -p $(BUILD)/iso/boot/grub
+	cp $(KERNEL) $(BUILD)/iso/boot/kernel.bin
+	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso 2>/dev/null
+
+run: $(ISO)
+	$(QEMU) $(QEMU_FLAGS)
+
+# Smoke test until tests/run_qemu.sh exists (T1.T): QEMU must still be running after 10 s.
+test: $(ISO)
+	@if [ -x tests/run_qemu.sh ]; then tests/run_qemu.sh $(ISO); else \
+	timeout 10 $(QEMU) -cdrom $(ISO) -m 512M -display none -serial none -no-reboot $(QEMU_EXTRA); \
+	[ $$? -eq 124 ] && echo "[OK] smoke boot" || { echo "FAIL: QEMU exited early"; exit 1; }; fi
+
+debug: $(ISO)
+	$(QEMU) $(QEMU_FLAGS) -s -S
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(OBJS:.o=.d)
