@@ -2,6 +2,7 @@
 [OK] multiboot2
 [OK] gdt
 [OK] idt
+[OK] pmm
 [OK] pic
 [OK] acpi
 [OK] apic

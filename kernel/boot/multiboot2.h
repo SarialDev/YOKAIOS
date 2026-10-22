@@ -35,6 +35,8 @@ struct BootInfo {
     uint32_t module_count;
     const void* rsdp;       // copia RSDP din tag-ul 14/15
     uint8_t rsdp_version;   // 1 = ACPI 1.0, 2 = ACPI 2.0+
+    uint64_t mbi_phys;      // structura Multiboot2 (pmm o rezerva)
+    uint32_t mbi_size;
 };
 
 extern BootInfo boot_info;

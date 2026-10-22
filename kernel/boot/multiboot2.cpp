@@ -72,6 +72,8 @@ bool multiboot2_parse(uint32_t magic, uint64_t mbi_phys){
 
     const uint8_t* mbi = (const uint8_t*)(KERNEL_VMA + mbi_phys);
     uint32_t total = *(const uint32_t*)mbi;
+    boot_info.mbi_phys = mbi_phys;
+    boot_info.mbi_size = total;
 
     for(uint32_t off = 8; off + sizeof(Tag) <= total; ){
         const Tag* tag = (const Tag*)(mbi + off);
