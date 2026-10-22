@@ -3,26 +3,31 @@ CXX = g++
 AS = as
 LD = ld
 
+BUILD = build
+
 ASFLAGS = --32
 CFLAGS = -m32 -nostdlib -fno-builtin -fno-stack-protector -nostartfiles -nodefaultlibs
 CXXFLAGS = -m32 -ffreestanding -O2 -Wall -Wextra -fno-exceptions -fno-rtti -nostdlib -fno-stack-protector -fno-pie -no-pie
-LDFLAGS = -m elf_i386 -T linker.ld -nostdlib -e _start
+LDFLAGS = -m elf_i386 -T boot/linker.ld -nostdlib -e _start
 
 .PHONY: all clean run
 
-all: kernel.bin
+all: $(BUILD)/kernel.bin
 
-boot.o: boot.s
-	$(AS) $(ASFLAGS) boot.s -o boot.o
+$(BUILD):
+	mkdir -p $(BUILD)
 
-kernel.o: kernel.cpp
-	$(CXX) $(CXXFLAGS) -c kernel.cpp -o kernel.o
+$(BUILD)/boot.o: boot/boot.s | $(BUILD)
+	$(AS) $(ASFLAGS) boot/boot.s -o $(BUILD)/boot.o
 
-kernel.bin: boot.o kernel.o linker.ld
-	$(CXX) -m32 -nostdlib -no-pie -Wl,--build-id=none -Wl,-T,linker.ld -Wl,-e,_start -o kernel.bin boot.o kernel.o
+$(BUILD)/kernel.o: kernel/kernel.cpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -c kernel/kernel.cpp -o $(BUILD)/kernel.o
 
-run: kernel.bin
-	qemu-system-i386 -kernel kernel.bin
+$(BUILD)/kernel.bin: $(BUILD)/boot.o $(BUILD)/kernel.o boot/linker.ld
+	$(CXX) -m32 -nostdlib -no-pie -Wl,--build-id=none -Wl,-T,boot/linker.ld -Wl,-e,_start -o $(BUILD)/kernel.bin $(BUILD)/boot.o $(BUILD)/kernel.o
+
+run: $(BUILD)/kernel.bin
+	qemu-system-i386 -kernel $(BUILD)/kernel.bin
 
 clean:
-	rm -f *.o kernel.bin
+	rm -rf $(BUILD)
