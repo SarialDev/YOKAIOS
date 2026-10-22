@@ -4,11 +4,13 @@
 [OK] idt
 [OK] pmm
 [OK] buddy
+[OK] vmm
 [OK] pic
 [OK] acpi
 [OK] apic
 [OK] timer
 [OK] keyboard
 [OK] test_exceptions
+[OK] test_paging
 [OK] test_timer
 [OK] boot

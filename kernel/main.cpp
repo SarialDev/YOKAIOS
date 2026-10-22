@@ -14,6 +14,7 @@
 #include "time/clock.h"
 #include "tests/test_cpu.h"
 #include "mm/pmm.h"
+#include "mm/vmm.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -287,6 +288,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
 
     pmm_init();
+    vmm_init();
 
     // Test manual pentru panic: cmdline "crash" forteaza #DE
     if(cmdline_has("crash")){

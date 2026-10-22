@@ -3,6 +3,8 @@
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "time/clock.h"
+#include "mm/vmm.h"
+#include "mm/pmm.h"
 
 namespace {
 
@@ -13,6 +15,13 @@ const int MONOTONIC_READS = 10000;
 const uint32_t SLEEP_MS = 100;
 const uint64_t SLEEP_MIN_NS = 95000000;
 const uint64_t SLEEP_MAX_NS = 105000000;
+const uint64_t PF_PRESENT = 1 << 0;
+const uint64_t PF_WRITE = 1 << 1;
+const uint64_t PF_FETCH = 1 << 4;
+const uint64_t TEST_USER_VIRT = 0x400000;
+
+// Un singur ret intr-o pagina RW+NX (.data): executia lui trebuie sa dea #PF
+volatile uint8_t data_code[16] = {0xC3};
 
 volatile uint64_t resume_rip = 0;
 volatile uint64_t seen_vector = ~0UL;
@@ -58,6 +67,27 @@ void trigger_pf(){
         : "=&r"(tmp), "=m"(resume_rip) : "r"(UNMAPPED_ADDR) : "eax", "memory");
 }
 
+void trigger_text_write(uint64_t addr){
+    uint64_t tmp;
+    __asm__ volatile(
+        "lea 1f(%%rip), %0\n\t"
+        "mov %0, %1\n\t"
+        "movb $0x90, (%2)\n"
+        "1:"
+        : "=&r"(tmp), "=m"(resume_rip) : "r"(addr) : "memory");
+}
+
+// jmp (nu call) ca stiva sa ramana neschimbata cand handlerul sare la eticheta
+void trigger_nx_exec(uint64_t addr){
+    uint64_t tmp;
+    __asm__ volatile(
+        "lea 1f(%%rip), %0\n\t"
+        "mov %0, %1\n\t"
+        "jmp *%2\n"
+        "1:"
+        : "=&r"(tmp), "=m"(resume_rip) : "r"(addr) : "memory");
+}
+
 void test_exceptions(){
     irq_register(VEC_DE, record_and_skip);
     irq_register(VEC_PF, record_and_skip);
@@ -77,6 +107,45 @@ void test_exceptions(){
     irq_register(VEC_DE, nullptr);
     irq_register(VEC_PF, nullptr);
     kprintf("[OK] test_exceptions\n");
+}
+
+void test_paging(){
+    irq_register(VEC_PF, record_and_skip);
+
+    uint64_t text = (uint64_t)&test_cpu_run;
+    reset();
+    trigger_text_write(text);
+    if(seen_vector != VEC_PF || seen_cr2 != text || (seen_error & (PF_PRESENT | PF_WRITE)) != (PF_PRESENT | PF_WRITE)){
+        panic("test_paging: scriere in .text fara #PF (vector=%lx err=%lx)", seen_vector, seen_error);
+    }
+
+    uint64_t data = (uint64_t)data_code;
+    reset();
+    trigger_nx_exec(data);
+    if(seen_vector != VEC_PF || seen_cr2 != data || !(seen_error & PF_FETCH)){
+        panic("test_paging: executie din .data fara #PF (vector=%lx err=%lx)", seen_vector, seen_error);
+    }
+    irq_register(VEC_PF, nullptr);
+
+    // Spatiu de adrese nou: pagina proprie jos, kernelul vizibil sus
+    AddressSpace as = as_create();
+    uint64_t page = pmm_alloc_page();
+    if(!as.pml4_phys || !page || !vmm_map(as, TEST_USER_VIRT, page, PTE_RW | PTE_USER | PTE_NX)){
+        panic("test_paging: as_create/vmm_map a esuat");
+    }
+    as_switch(as);
+    *(volatile uint64_t*)TEST_USER_VIRT = 0x59AB;
+    as_switch(kernel_as);
+    uint64_t seen = *(volatile uint64_t*)phys_to_virt(page);
+    if(seen != 0x59AB || vmm_translate(as, TEST_USER_VIRT) != page || vmm_translate(kernel_as, TEST_USER_VIRT)){
+        panic("test_paging: spatiul de adrese nou nu e izolat (val=%lx)", seen);
+    }
+    vmm_unmap(as, TEST_USER_VIRT);
+    if(vmm_translate(as, TEST_USER_VIRT)){
+        panic("test_paging: vmm_unmap nu a sters maparea");
+    }
+    pmm_free_page(page);
+    kprintf("[OK] test_paging\n");
 }
 
 void test_timer(){
@@ -104,5 +173,6 @@ void test_timer(){
 
 void test_cpu_run(){
     test_exceptions();
+    test_paging();
     test_timer();
 }

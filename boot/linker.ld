@@ -13,10 +13,12 @@ SECTIONS {
     }
 
     .rodata ALIGN(4K) : AT(ADDR(.rodata) - KERNEL_VMA) {
+        _rodata_start = .;
         *(.rodata .rodata.*)
     }
 
     .data ALIGN(4K) : AT(ADDR(.data) - KERNEL_VMA) {
+        _data_start = .;
         *(.data .data.*)
     }
 

@@ -1,12 +1,11 @@
 #include "mm/buddy.h"
 #include "mm/pmm.h"
+#include "arch/x86_64/paging.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
 
 namespace {
 
-// Pana la HHDM (T3.3) doar primul GiB e mapat (la KERNEL_VMA), deci doar el intra in buddy
-const uint64_t ACCESS_LIMIT = 1UL << 30;
 const uint64_t LIMIT_4G = 1UL << 32;
 const uint32_t FREE_MAGIC = 0xB0DD1E5F;
 
@@ -43,12 +42,13 @@ uint64_t block_bytes(int order){
     return PAGE_SIZE << order;
 }
 
+// Listele folosesc adrese prin phys_map_base; dupa schimbarea ei se apeleaza buddy_rebuild
 FreeBlock* to_block(uint64_t phys){
-    return (FreeBlock*)(KERNEL_VMA + phys);
+    return (FreeBlock*)phys_to_virt(phys);
 }
 
 uint64_t to_phys(const FreeBlock* b){
-    return (uint64_t)b - KERNEL_VMA;
+    return (uint64_t)b - phys_map_base;
 }
 
 void push(uint64_t phys, int order){
@@ -86,9 +86,16 @@ bool range_free(uint64_t page, uint64_t count){
 
 }
 
-void buddy_init(){
+void buddy_rebuild(){
+    IrqLock lock;
+    for(int o = 0; o <= BUDDY_MAX_ORDER; o++){
+        free_lists[o] = nullptr;
+    }
+    free_count = 0;
+    // Doar memoria fizica accesibila prin maparea curenta poate tine antete de bloc
     uint64_t total = pmm_total_pages();
-    managed_pages = total < ACCESS_LIMIT / PAGE_SIZE ? total : ACCESS_LIMIT / PAGE_SIZE;
+    uint64_t limit = direct_map_limit / PAGE_SIZE;
+    managed_pages = total < limit ? total : limit;
 
     // Cel mai mare bloc aliniat si complet liber care incepe la fiecare pagina libera
     for(uint64_t p = 0; p < managed_pages; ){
@@ -108,9 +115,12 @@ void buddy_init(){
         free_count += 1UL << order;
         p += 1UL << order;
     }
+}
 
+void buddy_init(){
+    buddy_rebuild();
     uint64_t unmanaged = pmm_free_count_bitmap() - free_count;
-    kprintf("buddy: ordine 0..%d, %lu MiB peste 1 GiB asteapta HHDM (T3.3)\n", BUDDY_MAX_ORDER,
+    kprintf("buddy: ordine 0..%d, %lu MiB peste 1 GiB asteapta HHDM\n", BUDDY_MAX_ORDER,
             unmanaged * PAGE_SIZE >> 20);
     kprintf("[OK] buddy free=%lu MiB\n", free_count * PAGE_SIZE >> 20);
 }
