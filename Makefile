@@ -77,7 +77,7 @@ test: $(TEST_ISO)
 $(SMASH_ISO): $(KERNEL) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-smash/boot/grub
 	cp $(KERNEL) $(BUILD)/iso-smash/boot/kernel.bin
-	sed 's/test=cpu/test=smash/' boot/grub-test.cfg > $(BUILD)/iso-smash/boot/grub/grub.cfg
+	sed 's/test=[^ ]*/test=smash/' boot/grub-test.cfg > $(BUILD)/iso-smash/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-smash 2>/dev/null
 
 test-smash: $(SMASH_ISO)

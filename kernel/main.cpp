@@ -13,6 +13,7 @@
 #include "arch/x86_64/ioapic.h"
 #include "time/clock.h"
 #include "tests/test_cpu.h"
+#include "tests/test_mm.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
 #include "mm/kmalloc.h"
@@ -262,16 +263,25 @@ void shell_on_key(uint8_t scancode){
 
 volatile bool breakpoint_hit = false;
 
-// Valoarea din "test=" (pana la spatiu) este exact name
+// name apare in lista din "test=" (separata prin virgule, pana la spatiu), ex. "test=cpu,mm"
 bool test_named(const char* value, const char* name){
-    if(!value){
-        return false;
+    while(value && *value && *value != ' '){
+        const char* n = name;
+        while(*n && *value == *n){
+            value++;
+            n++;
+        }
+        if(!*n && (*value == ',' || *value == ' ' || !*value)){
+            return true;
+        }
+        while(*value && *value != ',' && *value != ' '){
+            value++;
+        }
+        if(*value == ','){
+            value++;
+        }
     }
-    while(*name && *value == *name){
-        value++;
-        name++;
-    }
-    return !*name && (*value == ' ' || !*value);
+    return false;
 }
 
 void breakpoint_handler(InterruptFrame* f){
@@ -350,6 +360,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     const char* test = cmdline_get("test=");
     if(test_named(test, "cpu")){
         test_cpu_run();
+    }
+    if(test_named(test, "mm")){
+        test_mm_run();
     }
     if(test_named(test, "smash")){
         test_stack_smash();

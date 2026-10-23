@@ -18,4 +18,7 @@
 [OK] test_paging
 [OK] test_heap
 [OK] test_timer
+[OK] test_buddy
+[OK] test_slab
+[OK] test_vmm
 [OK] boot
