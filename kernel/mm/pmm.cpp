@@ -3,6 +3,7 @@
 #include "boot/multiboot2.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
+#include "init.h"
 
 extern "C" char _kernel_start[];
 extern "C" char _kernel_end[];
@@ -91,7 +92,7 @@ uint64_t place_bitmap(uint64_t size){
 
 }
 
-void pmm_init(){
+__init void pmm_init(){
     uint64_t top = 0;
     for(uint32_t i = 0; i < boot_info.mmap_count; i++){
         const MemRegion& r = boot_info.mmap[i];

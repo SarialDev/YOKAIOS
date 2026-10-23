@@ -101,8 +101,8 @@ void trigger_nx_exec(uint64_t addr){
 }
 
 void test_exceptions(){
-    irq_register(VEC_DE, record_and_skip);
-    irq_register(VEC_PF, record_and_skip);
+    InterruptHandler old_de = irq_register(VEC_DE, record_and_skip);
+    InterruptHandler old_pf = irq_register(VEC_PF, record_and_skip);
 
     reset();
     trigger_de();
@@ -116,13 +116,13 @@ void test_exceptions(){
         panic("test_exceptions: #PF asteptat, vector=%lx cr2=%lx", seen_vector, seen_cr2);
     }
 
-    irq_register(VEC_DE, nullptr);
-    irq_register(VEC_PF, nullptr);
+    irq_register(VEC_DE, old_de);
+    irq_register(VEC_PF, old_pf);
     kprintf("[OK] test_exceptions\n");
 }
 
 void test_paging(){
-    irq_register(VEC_PF, record_and_skip);
+    InterruptHandler old_pf = irq_register(VEC_PF, record_and_skip);
 
     uint64_t text = (uint64_t)&test_cpu_run;
     reset();
@@ -137,7 +137,7 @@ void test_paging(){
     if(seen_vector != VEC_PF || seen_cr2 != data || !(seen_error & PF_FETCH)){
         panic("test_paging: executie din .data fara #PF (vector=%lx err=%lx)", seen_vector, seen_error);
     }
-    irq_register(VEC_PF, nullptr);
+    irq_register(VEC_PF, old_pf);
 
     // Spatiu de adrese nou: pagina proprie jos, kernelul vizibil sus
     AddressSpace as = as_create();
@@ -224,6 +224,15 @@ void test_heap(){
     kprintf("[OK] test_heap (%d operatii, %lu pagini libere inainte si dupa)\n", HEAP_ROUNDS, free_after);
 }
 
+// noinline + index volatil: compilatorul nu poate dovedi depasirea, deci nu o elimina si nu avertizeaza
+__attribute__((noinline)) void overflow_buffer(volatile int count){
+    char buf[16];
+    for(int i = 0; i < count; i++){
+        buf[i] = 'A';
+    }
+    __asm__ volatile("" : : "r"(buf) : "memory");
+}
+
 void test_timer(){
     __asm__ volatile("sti");
     uint64_t prev = monotonic_ns();
@@ -252,4 +261,10 @@ void test_cpu_run(){
     test_paging();
     test_heap();
     test_timer();
+}
+
+void test_stack_smash(){
+    kprintf("test_stack_smash: scriu 32 de bytes intr-un buffer de 16\n");
+    overflow_buffer(32);
+    panic("test_stack_smash: depasirea NU a fost detectata");
 }

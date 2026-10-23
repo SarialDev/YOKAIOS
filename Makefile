@@ -7,13 +7,15 @@ LD  = ld
 BUILD = build
 ISO   = $(BUILD)/yokai.iso
 TEST_ISO = $(BUILD)/yokai-test.iso
+SMASH_ISO = $(BUILD)/yokai-smash.iso
 KERNEL = $(BUILD)/kernel.bin
 
 QEMU = qemu-system-x86_64
 QEMU_FLAGS = -cdrom $(ISO) -m 512M -serial stdio $(QEMU_EXTRA)
 QEMU_EXTRA ?=
 
-COMMON = -ffreestanding -nostdlib -fno-stack-protector -fno-pic \
+# -march fix: altfel compilatorul poate tinti un CPU mai nou (BMI2 etc.) decat cel emulat de QEMU (#UD)
+COMMON = -march=x86-64 -mtune=generic -ffreestanding -nostdlib -fstack-protector-strong -mstack-protector-guard=global -fno-pic \
          -mno-sse -mno-mmx -mno-80387 -O2 -Wall -Wextra -Werror \
          -Ikernel/include -Ikernel -MMD -MP -fno-asynchronous-unwind-tables \
          -fno-omit-frame-pointer
@@ -34,7 +36,7 @@ LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size
 SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
-.PHONY: all iso run test debug clean
+.PHONY: all iso run test test-smash debug clean
 
 all: $(ISO)
 
@@ -70,6 +72,16 @@ $(TEST_ISO): $(KERNEL) boot/grub-test.cfg
 
 test: $(TEST_ISO)
 	QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
+
+# Acelasi kernel cu cmdline "test=smash": trebuie sa se opreasca in panic "stack smashing"
+$(SMASH_ISO): $(KERNEL) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-smash/boot/grub
+	cp $(KERNEL) $(BUILD)/iso-smash/boot/kernel.bin
+	sed 's/test=cpu/test=smash/' boot/grub-test.cfg > $(BUILD)/iso-smash/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-smash 2>/dev/null
+
+test-smash: $(SMASH_ISO)
+	EXPECT_PANIC="stack smashing" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(SMASH_ISO) $(BUILD)/smash.log
 
 debug: $(ISO)
 	$(QEMU) $(QEMU_FLAGS) -s -S

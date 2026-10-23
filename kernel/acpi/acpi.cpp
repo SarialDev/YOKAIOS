@@ -2,6 +2,7 @@
 #include "arch/x86_64/mmio.h"
 #include "boot/multiboot2.h"
 #include "lib/kprintf.h"
+#include "init.h"
 
 AcpiMadt acpi_madt;
 
@@ -159,7 +160,7 @@ const AcpiHeader* acpi_find_table(const char* signature){
     return nullptr;
 }
 
-bool acpi_init(){
+__init bool acpi_init(){
     const Rsdp* rsdp = find_rsdp();
     if(!rsdp){
         kprintf("ACPI: RSDP lipseste\n");

@@ -15,6 +15,8 @@ bool vmm_map(AddressSpace& as, uint64_t virt, uint64_t phys, uint64_t flags);
 void vmm_unmap(AddressSpace& as, uint64_t virt);
 // Adresa fizica pentru virt, 0 daca nu e mapata
 uint64_t vmm_translate(const AddressSpace& as, uint64_t virt);
+// Intrarea finala (PTE, sau PDE/PDPTE pentru pagini mari) cu tot cu flaguri, 0 daca nu e mapata
+uint64_t vmm_entry(const AddressSpace& as, uint64_t virt);
 
 // Spatiu nou cu jumatatea inferioara goala si jumatatea superioara (kernel) copiata; pml4_phys 0 la eroare
 AddressSpace as_create();

@@ -131,9 +131,12 @@ long_mode_high:
     movq %cr3, %rax
     movq %rax, %cr3
 
-    movl %edi, %edi                     /* magic */
-    movl %esi, %esi                     /* mbi physical */
+    movl %edi, %r12d                    /* magic */
+    movl %esi, %r13d                    /* mbi physical */
     xorq %rbp, %rbp                     /* end of RBP chain for stack traces */
+    call stack_guard_init               /* canary before any protected function runs */
+    movl %r12d, %edi
+    movl %r13d, %esi
     call kernel_main
 2:  cli
     hlt

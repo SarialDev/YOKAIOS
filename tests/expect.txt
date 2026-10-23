@@ -2,6 +2,8 @@
 [OK] multiboot2
 [OK] gdt
 [OK] idt
+[OK] pagefault
+[OK] stackguard
 [OK] pmm
 [OK] buddy
 [OK] vmm
@@ -11,6 +13,7 @@
 [OK] apic
 [OK] timer
 [OK] keyboard
+[OK] protect
 [OK] test_exceptions
 [OK] test_paging
 [OK] test_heap

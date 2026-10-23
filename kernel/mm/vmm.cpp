@@ -5,6 +5,7 @@
 #include "boot/multiboot2.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
+#include "init.h"
 
 extern "C" char _kernel_start[];
 extern "C" char _rodata_start[];
@@ -62,6 +63,27 @@ uint64_t* next_level(uint64_t& entry, uint64_t flags){
     }
     entry = phys | PTE_PRESENT | PTE_RW | (flags & PTE_USER);
     return table(phys);
+}
+
+// Intrarea finala pentru virt si marimea paginii pe care o mapeaza; 0 daca nu e mapata
+uint64_t walk(const AddressSpace& as, uint64_t virt, uint64_t& size){
+    uint64_t e = table(as.pml4_phys)[pml4_index(virt)];
+    if(!(e & PTE_PRESENT)){
+        return 0;
+    }
+    e = table(e & PTE_ADDR_MASK)[pdpt_index(virt)];
+    size = PAGE_1G;
+    if(!(e & PTE_PRESENT) || (e & PTE_HUGE)){
+        return e & PTE_PRESENT ? e : 0;
+    }
+    e = table(e & PTE_ADDR_MASK)[pd_index(virt)];
+    size = PAGE_2M;
+    if(!(e & PTE_PRESENT) || (e & PTE_HUGE)){
+        return e & PTE_PRESENT ? e : 0;
+    }
+    e = table(e & PTE_ADDR_MASK)[pt_index(virt)];
+    size = PAGE_4K;
+    return e & PTE_PRESENT ? e : 0;
 }
 
 uint64_t section_flags(uint64_t phys){
@@ -134,7 +156,7 @@ bool map_hhdm(uint64_t top, bool gb_pages){
 
 }
 
-void vmm_init(){
+__init void vmm_init(){
     uint32_t a, b, c, d;
     cpuid(0x80000001, a, b, c, d);
     bool has_nx = d & (1u << 20);
@@ -228,30 +250,18 @@ void vmm_unmap(AddressSpace& as, uint64_t virt){
     }
 }
 
+uint64_t vmm_entry(const AddressSpace& as, uint64_t virt){
+    uint64_t size;
+    return walk(as, virt, size);
+}
+
 uint64_t vmm_translate(const AddressSpace& as, uint64_t virt){
-    uint64_t e = table(as.pml4_phys)[pml4_index(virt)];
-    if(!(e & PTE_PRESENT)){
+    uint64_t size;
+    uint64_t e = walk(as, virt, size);
+    if(!e){
         return 0;
     }
-    e = table(e & PTE_ADDR_MASK)[pdpt_index(virt)];
-    if(!(e & PTE_PRESENT)){
-        return 0;
-    }
-    if(e & PTE_HUGE){
-        return (e & PTE_ADDR_MASK & ~(PAGE_1G - 1)) + (virt & (PAGE_1G - 1));
-    }
-    e = table(e & PTE_ADDR_MASK)[pd_index(virt)];
-    if(!(e & PTE_PRESENT)){
-        return 0;
-    }
-    if(e & PTE_HUGE){
-        return (e & PTE_ADDR_MASK & ~(PAGE_2M - 1)) + (virt & (PAGE_2M - 1));
-    }
-    e = table(e & PTE_ADDR_MASK)[pt_index(virt)];
-    if(!(e & PTE_PRESENT)){
-        return 0;
-    }
-    return (e & PTE_ADDR_MASK) + (virt & (PAGE_4K - 1));
+    return (e & PTE_ADDR_MASK & ~(size - 1)) + (virt & (size - 1));
 }
 
 AddressSpace as_create(){

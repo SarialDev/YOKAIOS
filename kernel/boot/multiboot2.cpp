@@ -1,5 +1,6 @@
 #include "boot/multiboot2.h"
 #include "lib/kprintf.h"
+#include "init.h"
 
 BootInfo boot_info;
 
@@ -63,7 +64,7 @@ bool token_starts_with(const char* tok, const char* key, bool exact){
 
 }
 
-bool multiboot2_parse(uint32_t magic, uint64_t mbi_phys){
+__init bool multiboot2_parse(uint32_t magic, uint64_t mbi_phys){
     boot_info.cmdline = empty;
     if(magic != MB2_BOOTLOADER_MAGIC){
         kprintf("multiboot2: magic gresit %x\n", magic);
@@ -144,7 +145,7 @@ uint64_t multiboot2_usable_ram(){
     return total;
 }
 
-void multiboot2_print(){
+__init void multiboot2_print(){
     kprintf("cmdline: \"%s\"\n", boot_info.cmdline);
     kprintf("mmap (%u regiuni):\n", boot_info.mmap_count);
     for(uint32_t i = 0; i < boot_info.mmap_count; i++){

@@ -44,8 +44,10 @@ void set_gate(uint8_t vec, uint64_t addr, uint8_t ist, uint8_t type_attr){
 
 extern "C" const uint64_t isr_stub_table[256];
 
-void irq_register(uint8_t vec, InterruptHandler h){
+InterruptHandler irq_register(uint8_t vec, InterruptHandler h){
+    InterruptHandler old = handlers[vec];
     handlers[vec] = h;
+    return old;
 }
 
 extern "C" void interrupt_dispatch(InterruptFrame* f){
@@ -53,7 +55,7 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
     if(h){
         h(f);
     } else if(f->vector < 32){
-        panic_frame(f, exception_name(f->vector));
+        panic_frame(f, "%s", exception_name(f->vector));
     }
     if(f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END){
         if(lapic_enabled()){

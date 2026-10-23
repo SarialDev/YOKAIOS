@@ -16,6 +16,8 @@
 #include "mm/pmm.h"
 #include "mm/vmm.h"
 #include "mm/kmalloc.h"
+#include "mm/fault.h"
+#include "core/panic.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -260,6 +262,18 @@ void shell_on_key(uint8_t scancode){
 
 volatile bool breakpoint_hit = false;
 
+// Valoarea din "test=" (pana la spatiu) este exact name
+bool test_named(const char* value, const char* name){
+    if(!value){
+        return false;
+    }
+    while(*name && *value == *name){
+        value++;
+        name++;
+    }
+    return !*name && (*value == ' ' || !*value);
+}
+
 void breakpoint_handler(InterruptFrame* f){
     breakpoint_hit = true;
     kprintf("int3 la rip=%lx\n", f->rip);
@@ -287,6 +301,8 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(breakpoint_hit){
         kprintf("[OK] idt\n");
     }
+    fault_init();
+    kprintf("[OK] stackguard (%s)\n", stack_guard_source());
 
     pmm_init();
     vmm_init();
@@ -328,9 +344,15 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     ps2kbd_init(shell_on_key);
     kprintf("[OK] keyboard\n");
 
+    // De aici nu se mai apeleaza cod __init
+    fault_protect_kernel();
+
     const char* test = cmdline_get("test=");
-    if(test && test[0] == 'c' && test[1] == 'p' && test[2] == 'u' && (test[3] == ' ' || !test[3])){
+    if(test_named(test, "cpu")){
         test_cpu_run();
+    }
+    if(test_named(test, "smash")){
+        test_stack_smash();
     }
 
     kprintf("[OK] boot\n");

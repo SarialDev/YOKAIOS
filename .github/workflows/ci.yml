@@ -15,6 +15,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 grub-pc-bin grub-common xorriso mtools
 
+      - name: Toolchain info
+        run: |
+          gcc --version | head -1
+          qemu-system-x86_64 --version | head -1
+          gcc -Q --help=target | grep -E '^\s+-march=|^\s+-mbmi2'
+
       - name: Build
         run: make
 

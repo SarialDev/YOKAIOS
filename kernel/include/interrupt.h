@@ -12,4 +12,5 @@ struct InterruptFrame {
 
 typedef void (*InterruptHandler)(InterruptFrame*);
 
-void irq_register(uint8_t vec, InterruptHandler h);
+// Intoarce handlerul anterior, ca testele sa-l poata pune la loc
+InterruptHandler irq_register(uint8_t vec, InterruptHandler h);

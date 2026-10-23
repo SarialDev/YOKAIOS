@@ -22,6 +22,24 @@ const uint8_t EXIT_PANIC = 0x11;       // isa-debug-exit: QEMU iese cu codul 35
 const int MAX_FRAMES = 16;
 
 volatile bool in_panic = false;
+bool guard_from_rdrand = false;
+
+const int RDRAND_RETRIES = 10;
+const uint32_t CPUID_RDRAND = 1u << 30;     // CPUID.1:ECX
+
+// Fiecare apel poate esua (CF=0) daca generatorul e ocupat; se reincearca de cateva ori
+__attribute__((no_stack_protector)) bool rdrand64(uint64_t& out){
+    for(int i = 0; i < RDRAND_RETRIES; i++){
+        uint64_t v;
+        uint8_t ok;
+        __asm__ volatile("rdrand %0; setc %1" : "=r"(v), "=qm"(ok));
+        if(ok){
+            out = v;
+            return true;
+        }
+    }
+    return false;
+}
 
 uint64_t read_cr0(){ uint64_t v; __asm__ volatile("mov %%cr0, %0" : "=r"(v)); return v; }
 uint64_t read_cr2(){ uint64_t v; __asm__ volatile("mov %%cr2, %0" : "=r"(v)); return v; }
@@ -95,9 +113,14 @@ void panic(const char* fmt, ...){
     finish();
 }
 
-void panic_frame(InterruptFrame* f, const char* msg){
+void panic_frame(InterruptFrame* f, const char* fmt, ...){
     enter_panic();
-    kprintf("\nPANIC: %s\n", msg);
+    kprintf("\nPANIC: ");
+    va_list ap;
+    va_start(ap, fmt);
+    kvprintf(fmt, ap);
+    va_end(ap);
+    kprintf("\n");
     kprintf("vector=%lu (%s) error=%lx\n", f->vector, exception_name(f->vector), f->error);
     kprintf("RIP=%016lx CS=%04lx RFLAGS=%016lx\nRSP=%016lx SS=%04lx\n",
             f->rip, f->cs, f->rflags, f->rsp, f->ss);
@@ -110,4 +133,33 @@ void panic_frame(InterruptFrame* f, const char* msg){
     kprintf("Stack trace:\n  -> %016lx\n", f->rip);
     print_stack_trace(f->rbp);
     finish();
+}
+
+// Valoare fixa pana la stack_guard_init; byte-ul de jos 0 opreste copierile de stringuri
+uint64_t __stack_chk_guard = 0x595A4B4F49535300UL;
+
+// Ruleaza inaintea oricarei functii protejate, deci nu are voie sa aiba ea insasi canary
+extern "C" __attribute__((no_stack_protector)) void stack_guard_init(){
+    uint32_t a, b, c, d;
+    __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(1), "c"(0));
+    uint64_t guard = 0;
+    guard_from_rdrand = (c & CPUID_RDRAND) && rdrand64(guard);
+    if(!guard_from_rdrand){
+        // Fallback: TSC amestecat (splitmix64), mai bun decat o constanta
+        uint32_t lo, hi;
+        __asm__ volatile("rdtsc" : "=a"(lo), "=d"(hi));
+        guard = ((uint64_t)hi << 32 | lo) + 0x9E3779B97F4A7C15UL;
+        guard = (guard ^ (guard >> 30)) * 0xBF58476D1CE4E5B9UL;
+        guard = (guard ^ (guard >> 27)) * 0x94D049BB133111EBUL;
+        guard ^= guard >> 31;
+    }
+    __stack_chk_guard = guard & ~0xFFUL;
+}
+
+extern "C" void __stack_chk_fail(){
+    panic("stack smashing detected (canary suprascris)");
+}
+
+const char* stack_guard_source(){
+    return guard_from_rdrand ? "RDRAND" : "TSC";
 }

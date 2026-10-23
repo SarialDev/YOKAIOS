@@ -6,6 +6,7 @@
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "lib/string.h"
+#include "init.h"
 
 namespace {
 
@@ -62,7 +63,7 @@ size_t usable_size(const void* ptr){
 
 }
 
-void kmalloc_init(){
+__init void kmalloc_init(){
     for(int i = 0; i < CACHE_COUNT; i++){
         caches[i] = kmem_cache_create(CACHE_NAMES[i], CACHE_SIZES[i], 16);
         if(!caches[i]){
