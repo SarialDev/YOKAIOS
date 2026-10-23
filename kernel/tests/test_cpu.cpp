@@ -7,6 +7,7 @@
 #include "mm/pmm.h"
 #include "mm/kmalloc.h"
 #include "mm/slab.h"
+#include "sched/task.h"
 
 namespace {
 
@@ -224,6 +225,50 @@ void test_heap(){
     kprintf("[OK] test_heap (%d operatii, %lu pagini libere inainte si dupa)\n", HEAP_ROUNDS, free_after);
 }
 
+void dummy_thread(void*){
+}
+
+void test_tasks(){
+    Task* idle = task_current();
+    if(!idle || idle->tid != 0 || idle->state != TaskState::RUNNING){
+        panic("test_tasks: task 0 lipseste sau nu ruleaza");
+    }
+    const int N = 3;
+    Task* t[N];
+    uint64_t count_before = task_count();
+    uint64_t free_before = pmm_free_count();
+    int marker = 0;
+    for(int i = 0; i < N; i++){
+        t[i] = task_create_kernel("worker", dummy_thread, &marker, (uint8_t)i);
+        if(!t[i] || t[i]->state != TaskState::READY || t[i]->as != &kernel_as || t[i]->pid != 0){
+            panic("test_tasks: task_create_kernel a esuat la %d", i);
+        }
+        uint64_t top = (uint64_t)t[i]->kstack + TASK_KSTACK_SIZE;
+        if(t[i]->ctx.rsp != top || (t[i]->ctx.rsp & 15) || !t[i]->ctx.rip ||
+           t[i]->ctx.r12 != (uint64_t)dummy_thread || t[i]->ctx.r13 != (uint64_t)&marker){
+            panic("test_tasks: context initial gresit pentru tid %lu", t[i]->tid);
+        }
+        if(i && t[i]->tid <= t[i - 1]->tid){
+            panic("test_tasks: tid-uri necrescatoare (%lu dupa %lu)", t[i]->tid, t[i - 1]->tid);
+        }
+        // Stiva trebuie sa fie scriibila in intregime
+        t[i]->kstack[0] = 1;
+        t[i]->kstack[TASK_KSTACK_SIZE - 1] = 1;
+    }
+    if(task_count() != count_before + N){
+        panic("test_tasks: task_count %lu, asteptat %lu", task_count(), count_before + N);
+    }
+    uint64_t first = t[0]->tid;
+    for(int i = 0; i < N; i++){
+        task_destroy(t[i]);
+    }
+    if(task_count() != count_before || pmm_free_count() != free_before){
+        panic("test_tasks: task_destroy nu a eliberat tot (task-uri %lu, pagini %lu -> %lu)",
+              task_count(), free_before, pmm_free_count());
+    }
+    kprintf("[OK] test_tasks (%d thread-uri, tid %lu..%lu)\n", N, first, first + N - 1);
+}
+
 // noinline + index volatil: compilatorul nu poate dovedi depasirea, deci nu o elimina si nu avertizeaza
 __attribute__((noinline)) void overflow_buffer(volatile int count){
     char buf[16];
@@ -260,6 +305,7 @@ void test_cpu_run(){
     test_exceptions();
     test_paging();
     test_heap();
+    test_tasks();
     test_timer();
 }
 

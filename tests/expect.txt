@@ -8,6 +8,7 @@
 [OK] buddy
 [OK] vmm
 [OK] heap
+[OK] tasks
 [OK] pic
 [OK] acpi
 [OK] apic
@@ -17,6 +18,7 @@
 [OK] test_exceptions
 [OK] test_paging
 [OK] test_heap
+[OK] test_tasks
 [OK] test_timer
 [OK] test_buddy
 [OK] test_slab

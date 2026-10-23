@@ -59,6 +59,7 @@ gdt64_ptr:
 
 .section .bss
 .align 16
+.globl stack_bottom
 stack_bottom:
     .skip 16384
 .globl stack_top

@@ -19,6 +19,7 @@
 #include "mm/kmalloc.h"
 #include "mm/fault.h"
 #include "core/panic.h"
+#include "sched/task.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -317,6 +318,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     pmm_init();
     vmm_init();
     kmalloc_init();
+    tasks_init();
 
     // Test manual pentru panic: cmdline "crash" forteaza #DE
     if(cmdline_has("crash")){
