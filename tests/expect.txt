@@ -9,6 +9,7 @@
 [OK] vmm
 [OK] heap
 [OK] tasks
+[OK] sched
 [OK] pic
 [OK] acpi
 [OK] apic
@@ -23,4 +24,5 @@
 [OK] test_buddy
 [OK] test_slab
 [OK] test_vmm
+[OK] test_sched
 [OK] boot

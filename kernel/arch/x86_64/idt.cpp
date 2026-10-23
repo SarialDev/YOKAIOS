@@ -3,6 +3,7 @@
 #include "arch/x86_64/pic.h"
 #include "arch/x86_64/lapic.h"
 #include "core/panic.h"
+#include "sched/sched.h"
 
 namespace {
 
@@ -63,6 +64,8 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         } else if(f->vector < PIC_IRQ_BASE + PIC_IRQ_COUNT){
             pic_eoi(f->vector - PIC_IRQ_BASE);
         }
+        // Preemptie doar la iesirea din IRQ, dupa EOI, ca tick-ul urmator sa poata veni
+        sched_irq_exit();
     }
 }
 

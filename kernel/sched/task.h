@@ -32,6 +32,8 @@ struct Task {
     uint8_t* kstack;            // baza stivei de kernel (TASK_KSTACK_SIZE bytes)
     AddressSpace* as;
     char name[TASK_NAME_LEN];
+    uint32_t slice_left;        // tick-uri ramase din timeslice
+    uint64_t wake_ns;           // pentru task-urile adormite (sched_sleep_until)
     ListLink queue;             // coada de rulare / asteptare
     ListLink all;               // lista tuturor task-urilor
 };
@@ -47,4 +49,6 @@ Task* task_create_kernel(const char* name, TaskFn fn, void* arg, uint8_t prio = 
 void task_destroy(Task* t);
 
 Task* task_current();
+// Folosita doar de scheduler la comutare
+void task_set_current(Task* t);
 uint64_t task_count();

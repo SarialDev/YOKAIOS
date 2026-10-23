@@ -1,4 +1,5 @@
 #include "sched/task.h"
+#include "sched/sched.h"
 #include "mm/slab.h"
 #include "mm/buddy.h"
 #include "mm/pmm.h"
@@ -48,6 +49,8 @@ Task* new_task(const char* name, uint8_t prio){
     t->ctx = Context{};
     t->kstack = nullptr;
     t->as = &kernel_as;
+    t->slice_left = 0;
+    t->wake_ns = 0;
     int i = 0;
     for(; i < TASK_NAME_LEN - 1 && name[i]; i++){
         t->name[i] = name[i];
@@ -75,8 +78,7 @@ __asm__(
 extern "C" void task_trampoline();
 
 extern "C" [[noreturn]] void task_exit_current(){
-    // T4.2/T4.4: marcheaza ZOMBIE si comuta pe alt task
-    panic("task %lu (%s) a iesit, dar comutarea vine in T4.2", current->tid, current->name);
+    task_exit();
 }
 
 __init void tasks_init(){
@@ -133,6 +135,10 @@ void task_destroy(Task* t){
 
 Task* task_current(){
     return current;
+}
+
+void task_set_current(Task* t){
+    current = t;
 }
 
 uint64_t task_count(){

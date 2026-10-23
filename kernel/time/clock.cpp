@@ -5,6 +5,7 @@
 #include "arch/x86_64/lapic.h"
 #include "interrupt.h"
 #include "lib/kprintf.h"
+#include "sched/sched.h"
 
 volatile uint64_t jiffies = 0;
 
@@ -19,6 +20,7 @@ bool use_tsc = false;
 
 void timer_tick(InterruptFrame*){
     jiffies++;
+    sched_tick();
 }
 
 }
@@ -60,6 +62,10 @@ uint64_t uptime_ms(){
 
 void sleep_ms(uint32_t ms){
     uint64_t end = monotonic_ns() + (uint64_t)ms * 1000000;
+    if(sched_sleep_until(end)){
+        return;
+    }
+    // Task 0 (idle) sau fara tick: asteptare cu hlt
     while(monotonic_ns() < end){
         __asm__ volatile("hlt");
     }

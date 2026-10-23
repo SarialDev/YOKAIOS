@@ -10,5 +10,5 @@ extern volatile uint64_t jiffies;
 void clock_init();
 uint64_t monotonic_ns();
 uint64_t uptime_ms();
-// Asteptare activa cu hlt; trebuie apelata cu intreruperile active
+// Blocheaza task-ul curent (scheduler); in task 0 asteapta cu hlt. Cere intreruperile active
 void sleep_ms(uint32_t ms);

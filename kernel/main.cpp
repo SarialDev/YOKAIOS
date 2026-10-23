@@ -20,6 +20,8 @@
 #include "mm/fault.h"
 #include "core/panic.h"
 #include "sched/task.h"
+#include "sched/sched.h"
+#include "tests/test_sched.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -319,6 +321,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     vmm_init();
     kmalloc_init();
     tasks_init();
+    sched_init();
 
     // Test manual pentru panic: cmdline "crash" forteaza #DE
     if(cmdline_has("crash")){
@@ -366,6 +369,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(test_named(test, "mm")){
         test_mm_run();
     }
+    if(test_named(test, "sched")){
+        test_sched_run();
+    }
     if(test_named(test, "smash")){
         test_stack_smash();
     }
@@ -382,11 +388,8 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     muta_cursor(cursor_x , cursor_y);
 
 
-    // Tastele vin acum pe IRQ1; CPU-ul doarme intre intreruperi
-    __asm__ volatile("sti");
-    while(1){
-        __asm__ volatile("hlt");
-    }
+    // Tastele vin acum pe IRQ1; task 0 devine idle si doarme intre intreruperi
+    sched_idle();
 
      
 /*
