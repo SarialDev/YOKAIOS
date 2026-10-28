@@ -1,6 +1,7 @@
 #include "sched/task.h"
 #include "sched/sched.h"
 #include "sched/rt.h"
+#include "proc/process.h"
 #include "mm/slab.h"
 #include "mm/buddy.h"
 #include "mm/pmm.h"
@@ -54,6 +55,7 @@ Task* new_task(const char* name, uint8_t prio){
     t->slice_left = 0;
     t->wake_ns = 0;
     t->rt = nullptr;
+    t->proc = nullptr;
     int i = 0;
     for(; i < TASK_NAME_LEN - 1 && name[i]; i++){
         t->name[i] = name[i];
@@ -133,6 +135,7 @@ void task_destroy(Task* t){
         all_count--;
     }
     rt_task_destroyed(t);
+    process_task_destroyed(t);
     if(t->as != &kernel_as){
         as_destroy(*t->as);
         kfree(t->as);

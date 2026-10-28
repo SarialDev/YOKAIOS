@@ -25,5 +25,8 @@ uint64_t vmm_entry(const AddressSpace& as, uint64_t virt);
 // Spatiu nou cu jumatatea inferioara goala si jumatatea superioara (kernel) copiata; pml4_phys 0 la eroare
 AddressSpace as_create();
 void as_switch(const AddressSpace& as);
+// Copiaza fiecare pagina user din src in pagini noi din dst (gol), cu aceleasi flaguri (fork, fara CoW).
+// false fara memorie; ce s-a copiat deja se elibereaza cu as_destroy(dst)
+bool as_copy_user(AddressSpace& dst, const AddressSpace& src);
 // Elibereaza paginile si tabelele din jumatatea user, apoi PML4-ul (as nu trebuie sa fie cel activ)
 void as_destroy(AddressSpace& as);

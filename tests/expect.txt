@@ -31,6 +31,11 @@
 [OK] test_pi
 hello from ring 3
 [OK] test_user
+[OK] test_pipe
+[OK] test_msgq
+mesaj prin pipe de la copil
+orfan: parintele s-a terminat, getppid = 0
+[OK] test_proc
 [OK] test_watchdog
 [OK] test_rt jitter
 [OK] test_rt

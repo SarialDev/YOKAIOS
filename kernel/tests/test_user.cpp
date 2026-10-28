@@ -1,6 +1,6 @@
 #include "tests/test_user.h"
 #include "exec/elf.h"
-#include "syscall/syscall.h"
+#include "proc/process.h"
 #include "sched/sched.h"
 #include "mm/pmm.h"
 #include "core/panic.h"

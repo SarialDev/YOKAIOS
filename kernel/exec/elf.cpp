@@ -7,6 +7,8 @@
 #include "mm/kmalloc.h"
 #include "lib/kprintf.h"
 #include "lib/string.h"
+#include "proc/process.h"
+#include "irqlock.h"
 
 namespace {
 
@@ -260,36 +262,94 @@ uint64_t elf_setup_stack(AddressSpace& as, const ElfImage& img, const char* cons
     return sp;
 }
 
-uint64_t exec_spawn_module(const char* name, const char* const* argv, const char* const* envp){
+namespace {
+
+// Spatiu de adrese nou cu modulul incarcat si stiva pregatita; nullptr si -errno in err la eroare
+AddressSpace* load_module(const char* name, const char* const* argv, const char* const* envp, UserStart& start,
+                          int64_t& err){
     const BootModule* m = find_module(name);
     if(!m){
-        kprintf("exec: modulul \"%s\" lipseste\n", name);
-        return 0;
+        err = -ENOENT;
+        return nullptr;
     }
     AddressSpace* as = (AddressSpace*)kmalloc(sizeof(AddressSpace));
     if(!as){
-        return 0;
+        err = -ENOMEM;
+        return nullptr;
     }
     *as = as_create();
-    UserStart* start = (UserStart*)kmalloc(sizeof(UserStart));
     ElfImage img;
-    int64_t err = as->pml4_phys && start ? elf_load(*as, (const uint8_t*)phys_to_virt(m->start), m->end - m->start, img) : -EFAULT;
+    err = as->pml4_phys ? elf_load(*as, (const uint8_t*)phys_to_virt(m->start), m->end - m->start, img) : -ENOMEM;
     uint64_t rsp = err ? 0 : elf_setup_stack(*as, img, argv, envp);
-    Task* t = rsp ? task_create_kernel(name, user_thread, start) : nullptr;
-    if(!t){
-        kprintf("exec: \"%s\" nu a putut fi incarcat (%ld)\n", name, err ? err : (int64_t)-EFAULT);
-        kfree(start);
+    if(!rsp){
+        err = err ? err : -E2BIG;
         if(as->pml4_phys){
             as_destroy(*as);
         }
         kfree(as);
+        return nullptr;
+    }
+    start.rip = img.entry;
+    start.rsp = rsp;
+    return as;
+}
+
+}
+
+uint64_t exec_spawn_module(const char* name, const char* const* argv, const char* const* envp){
+    UserStart* start = (UserStart*)kmalloc(sizeof(UserStart));
+    int64_t err = -ENOMEM;
+    AddressSpace* as = start ? load_module(name, argv, envp, *start, err) : nullptr;
+    Task* t = as ? task_create_kernel(name, user_thread, start) : nullptr;
+    Process* p = nullptr;
+    if(t){
+        t->as = as;
+        p = process_create(t, nullptr);
+    }
+    if(!p){
+        kprintf("exec: \"%s\" nu a putut fi incarcat (%ld)\n", name, err ? err : (int64_t)-ENOMEM);
+        if(t){
+            task_destroy(t);
+        } else if(as){
+            as_destroy(*as);
+            kfree(as);
+        }
+        kfree(start);
         return 0;
     }
-    start->rip = img.entry;
-    start->rsp = rsp;
-    t->as = as;
-    t->pid = t->tid;
-    uint64_t pid = t->pid;
+    fd_init_console(p->fds);
+    uint64_t pid = p->pid;
     sched_add(t);
     return pid;
+}
+
+int64_t exec_replace_module(const char* name, const char* const* argv, const char* const* envp, void* release){
+    UserStart start;
+    int64_t err;
+    AddressSpace* as = load_module(name, argv, envp, start, err);
+    if(!as){
+        return err;
+    }
+    // De aici nu mai exista cale de intoarcere: imaginea veche dispare
+    Task* t = task_current();
+    AddressSpace* old = t->as;
+    {
+        IrqLock lock;
+        t->as = as;
+        as_switch(*as);
+    }
+    if(old != &kernel_as){
+        as_destroy(*old);
+        kfree(old);
+    }
+    int i = 0;
+    for(; i < TASK_NAME_LEN - 1 && name[i]; i++){
+        t->name[i] = name[i];
+    }
+    t->name[i] = 0;
+    if(t->proc){
+        process_set_name(t->proc, name);
+    }
+    kfree(release);
+    enter_user(start.rip, start.rsp);
 }

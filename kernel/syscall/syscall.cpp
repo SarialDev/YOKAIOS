@@ -3,7 +3,6 @@
 #include "uapi/syscall_nr.h"
 #include "arch/x86_64/gdt.h"
 #include "sched/sched.h"
-#include "sync/spinlock.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "lib/string.h"
@@ -28,11 +27,6 @@ const uint64_t STAR_KERNEL = GDT_KCODE;
 const uint64_t STAR_USER = GDT_UDATA - 8;
 static_assert(GDT_KDATA == GDT_KCODE + 8 && GDT_UCODE == GDT_UDATA + 8, "ordinea din GDT ceruta de syscall/sysret");
 
-// Semnalul echivalent pentru codul de iesire al unui proces omorat (128 + semnal, ca in shell)
-const int SIGILL = 4;
-const int SIGFPE = 8;
-const int SIGSEGV = 11;
-
 // Citita din syscall.S prin %gs
 struct PerCpu {
     uint64_t kstack_top;
@@ -41,17 +35,7 @@ struct PerCpu {
 static_assert(__builtin_offsetof(PerCpu, kstack_top) == 0 && __builtin_offsetof(PerCpu, user_rsp) == 8,
               "PerCpu trebuie sa corespunda cu syscall.S");
 
-struct ExitRecord {
-    uint64_t pid;
-    int code;
-};
-
-const int EXIT_HISTORY = 16;
-
 PerCpu percpu;
-Spinlock exit_lock("exit");
-ExitRecord exits[EXIT_HISTORY];
-uint64_t exit_count = 0;
 
 uint64_t rdmsr(uint32_t msr){
     uint32_t lo, hi;
@@ -61,14 +45,6 @@ uint64_t rdmsr(uint32_t msr){
 
 void wrmsr(uint32_t msr, uint64_t v){
     __asm__ volatile("wrmsr" : : "c"(msr), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)));
-}
-
-int kill_signal(uint64_t vector){
-    switch(vector){
-        case 0: return SIGFPE;      // #DE
-        case 6: return SIGILL;      // #UD
-        default: return SIGSEGV;
-    }
 }
 
 }
@@ -122,32 +98,29 @@ bool copy_from_user(void* dst, uint64_t src, uint64_t len){
     return true;
 }
 
-void process_exit(int code){
-    Task* t = task_current();
-    if(t->pid == 0){
-        panic("process_exit: task-ul %lu (%s) nu e un proces", t->tid, t->name);
+bool copy_to_user(uint64_t dst, const void* src, uint64_t len){
+    if(!user_access_ok(dst, len, true)){
+        return false;
     }
-    {
-        SpinlockGuard lock(exit_lock);
-        exits[exit_count++ % EXIT_HISTORY] = ExitRecord{t->pid, code};
-    }
-    kprintf("proces %lu (%s): exit %d\n", t->pid, t->name, code);
-    task_exit();
+    memcpy((void*)dst, src, len);
+    return true;
 }
 
-void process_kill(InterruptFrame* f){
-    Task* t = task_current();
-    kprintf("proces %lu (%s) omorat: %s la rip=%lx\n", t->pid, t->name, exception_name(f->vector), f->rip);
-    process_exit(128 + kill_signal(f->vector));
-}
-
-bool process_exit_status(uint64_t pid, int& code){
-    SpinlockGuard lock(exit_lock);
-    for(int i = 0; i < EXIT_HISTORY; i++){
-        if(exits[i].pid == pid){
-            code = exits[i].code;
-            return true;
+int64_t copy_string_from_user(char* dst, uint64_t src, uint64_t max){
+    for(uint64_t i = 0; i < max; i++){
+        // O verificare pe pagina: restul paginii e accesibil daca primul byte e
+        if((i == 0 || ((src + i) & (PAGE_4K - 1)) == 0) && !user_access_ok(src + i, 1, false)){
+            return -EFAULT;
+        }
+        dst[i] = *(const char*)(src + i);
+        if(!dst[i]){
+            return (int64_t)i;
         }
     }
-    return false;
+    return -E2BIG;
+}
+
+InterruptFrame* syscall_frame(){
+    Task* t = task_current();
+    return (InterruptFrame*)(t->kstack + TASK_KSTACK_SIZE - sizeof(InterruptFrame));
 }

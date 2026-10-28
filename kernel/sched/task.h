@@ -23,6 +23,7 @@ struct ListLink {
 };
 
 struct RtPeriodic;
+struct Process;
 
 struct Task {
     uint64_t tid;
@@ -39,6 +40,7 @@ struct Task {
     ListLink queue;             // coada de rulare / asteptare
     ListLink all;               // lista tuturor task-urilor
     RtPeriodic* rt;             // task periodic (sched/rt.h), altfel nullptr
+    Process* proc;              // procesul al carui thread principal e (proc/process.h), altfel nullptr
 };
 
 typedef void (*TaskFn)(void* arg);

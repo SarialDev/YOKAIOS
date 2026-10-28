@@ -26,5 +26,10 @@ int64_t elf_load(AddressSpace& as, const uint8_t* data, uint64_t size, ElfImage&
 // Mapeaza stiva user si pune argc, argv, envp si auxv; rsp-ul initial (aliniat la 16), 0 la eroare
 uint64_t elf_setup_stack(AddressSpace& as, const ElfImage& img, const char* const* argv, const char* const* envp);
 
-// Proces nou din modulul Multiboot2 "name": spatiu de adrese, ELF, stiva, task READY. pid-ul sau 0
+// Proces nou (fara parinte, fd 0-2 = consola) din modulul Multiboot2 "name": spatiu de adrese, ELF, stiva,
+// task READY. pid-ul sau 0
 uint64_t exec_spawn_module(const char* name, const char* const* argv, const char* const* envp);
+// execve pana la VFS: inlocuieste imaginea procesului curent cu modulul "name" (fd-urile raman) si sare in ring 3.
+// argv/envp trebuie sa fie in memoria kernelului; release (kmalloc, poate fi nullptr) se elibereaza inainte de
+// salt. Revine doar la eroare, cu -errno, cu imaginea veche intacta (si release neeliberat)
+int64_t exec_replace_module(const char* name, const char* const* argv, const char* const* envp, void* release);

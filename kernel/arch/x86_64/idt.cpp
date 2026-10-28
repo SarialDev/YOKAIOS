@@ -5,7 +5,7 @@
 #include "core/panic.h"
 #include "sched/sched.h"
 #include "mm/fault.h"
-#include "syscall/syscall.h"
+#include "proc/process.h"
 
 namespace {
 

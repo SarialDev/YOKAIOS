@@ -66,6 +66,30 @@ syscall_entry:
     swapgs
     sysretq
 
+/* void user_return(InterruptFrame* f): revine in ring 3 cu toate registrele din f (copilul unui fork) */
+.globl user_return
+user_return:
+    cli
+    movq %rdi, %rsp
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rbp
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rbx
+    popq %rax
+    addq $16, %rsp      /* vector + cod de eroare */
+    swapgs
+    iretq
+
 /* void enter_user(uint64_t rip, uint64_t rsp): prima trecere in ring 3 a unui proces, cu registrele zero */
 .globl enter_user
 enter_user:

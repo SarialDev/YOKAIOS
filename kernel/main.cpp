@@ -25,6 +25,7 @@
 #include "tests/test_sync.h"
 #include "tests/test_user.h"
 #include "tests/test_rt.h"
+#include "tests/test_proc.h"
 #include "syscall/syscall.h"
 
 //DECLARARE VARIABILE GLOBALE
@@ -382,6 +383,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "user")){
         test_user_run();
+    }
+    if(test_named(test, "proc")){
+        test_proc_run();
     }
     if(test_named(test, "rt")){
         test_rt_run();

@@ -10,16 +10,15 @@ void syscall_set_kstack(uint64_t top);
 extern "C" void syscall_dispatch(InterruptFrame* f);
 // Prima intrare in ring 3 (syscall.S); nu revine
 extern "C" [[noreturn]] void enter_user(uint64_t rip, uint64_t rsp);
+// Intoarcere in ring 3 cu toate registrele din f (syscall.S); nu revine
+extern "C" [[noreturn]] void user_return(InterruptFrame* f);
+// Frame-ul syscall-ului in curs al task-ului curent (in varful stivei lui de kernel)
+InterruptFrame* syscall_frame();
 
 // [addr, addr + len) e sub USER_TOP si mapat in procesul curent cu USER (si RW daca write)
 bool user_access_ok(uint64_t addr, uint64_t len, bool write);
-// Copiaza din memoria user dupa validare; false daca intervalul nu e accesibil
+// Copiaza din / in memoria user dupa validare; false daca intervalul nu e accesibil
 bool copy_from_user(void* dst, uint64_t src, uint64_t len);
-
-// Termina procesul curent cu codul dat (exit sau fault fatal); task-ul devine ZOMBIE
-[[noreturn]] void process_exit(int code);
-// Exceptie din ring 3: omoara doar procesul curent (apelata din interrupt_dispatch)
-[[noreturn]] void process_kill(InterruptFrame* f);
-
-// Codul de iesire al unui proces terminat recent (ultimele 16), pentru teste; false daca nu e gasit
-bool process_exit_status(uint64_t pid, int& code);
+bool copy_to_user(uint64_t dst, const void* src, uint64_t len);
+// Sir terminat cu 0 din user, cu tot cu terminator in cel mult max bytes: lungimea, -EFAULT sau -E2BIG
+int64_t copy_string_from_user(char* dst, uint64_t src, uint64_t max);
