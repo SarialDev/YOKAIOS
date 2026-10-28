@@ -10,6 +10,7 @@
 [OK] heap
 [OK] tasks
 [OK] sched
+[OK] syscall
 [OK] pic
 [OK] acpi
 [OK] apic
@@ -25,4 +26,9 @@
 [OK] test_slab
 [OK] test_vmm
 [OK] test_sched
+[OK] test_mutex
+[OK] test_semaphore
+[OK] test_pi
+hello from ring 3
+[OK] test_user
 [OK] boot

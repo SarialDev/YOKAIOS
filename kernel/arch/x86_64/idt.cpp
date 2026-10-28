@@ -4,6 +4,8 @@
 #include "arch/x86_64/lapic.h"
 #include "core/panic.h"
 #include "sched/sched.h"
+#include "mm/fault.h"
+#include "syscall/syscall.h"
 
 namespace {
 
@@ -53,10 +55,16 @@ InterruptHandler irq_register(uint8_t vec, InterruptHandler h){
 
 extern "C" void interrupt_dispatch(InterruptFrame* f){
     InterruptHandler h = handlers[f->vector];
+    bool from_user = f->cs & 3;
     if(h){
         h(f);
-    } else if(f->vector < 32){
+    } else if(f->vector < 32 && !from_user){
         panic_frame(f, "%s", exception_name(f->vector));
+    }
+    // O exceptie din ring 3 fara rezolvare omoara doar procesul
+    if(from_user && f->vector < 32 && (!h || fault_kill_pending())){
+        fault_kill_clear();
+        process_kill(f);
     }
     if(f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END){
         if(lapic_enabled()){

@@ -280,3 +280,44 @@ void as_switch(const AddressSpace& as){
     current_pml4 = as.pml4_phys;
     __asm__ volatile("mov %0, %%cr3" : : "r"(as.pml4_phys) : "memory");
 }
+
+void as_destroy(AddressSpace& as){
+    if(!as.pml4_phys || as.pml4_phys == kernel_as.pml4_phys || as.pml4_phys == current_pml4){
+        panic("as_destroy: spatiu invalid sau activ (%lx)", as.pml4_phys);
+    }
+    uint64_t* pml4 = table(as.pml4_phys);
+    for(int i = 0; i < 256; i++){
+        if(!(pml4[i] & PTE_PRESENT)){
+            continue;
+        }
+        uint64_t* pdpt = table(pml4[i] & PTE_ADDR_MASK);
+        for(int j = 0; j < 512; j++){
+            if(!(pdpt[j] & PTE_PRESENT)){
+                continue;
+            }
+            if(pdpt[j] & PTE_HUGE){
+                panic("as_destroy: pagina de 1 GiB in jumatatea user");
+            }
+            uint64_t* pd = table(pdpt[j] & PTE_ADDR_MASK);
+            for(int k = 0; k < 512; k++){
+                if(!(pd[k] & PTE_PRESENT)){
+                    continue;
+                }
+                if(pd[k] & PTE_HUGE){
+                    panic("as_destroy: pagina de 2 MiB in jumatatea user");
+                }
+                uint64_t* pt = table(pd[k] & PTE_ADDR_MASK);
+                for(int l = 0; l < 512; l++){
+                    if(pt[l] & PTE_PRESENT){
+                        pmm_free_page(pt[l] & PTE_ADDR_MASK);
+                    }
+                }
+                pmm_free_page(pd[k] & PTE_ADDR_MASK);
+            }
+            pmm_free_page(pdpt[j] & PTE_ADDR_MASK);
+        }
+        pmm_free_page(pml4[i] & PTE_ADDR_MASK);
+    }
+    pmm_free_page(as.pml4_phys);
+    as.pml4_phys = 0;
+}

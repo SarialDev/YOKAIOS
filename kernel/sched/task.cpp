@@ -3,6 +3,7 @@
 #include "mm/slab.h"
 #include "mm/buddy.h"
 #include "mm/pmm.h"
+#include "mm/kmalloc.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "irqlock.h"
@@ -128,6 +129,10 @@ void task_destroy(Task* t){
             link_remove(t->queue);
         }
         all_count--;
+    }
+    if(t->as != &kernel_as){
+        as_destroy(*t->as);
+        kfree(t->as);
     }
     free_pages((uint64_t)t->kstack - phys_map_base, KSTACK_ORDER);
     kmem_cache_free(task_cache, t);

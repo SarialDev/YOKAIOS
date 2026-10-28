@@ -43,10 +43,10 @@ void page_fault(InterruptFrame* f){
     }
     const char* cause = err & PF_ERR_PRESENT ? "violare de protectie" : "pagina nemapata";
     if(err & PF_ERR_USER){
+        // interrupt_dispatch omoara procesul inainte de intoarcerea in ring 3
         kill_pending = true;
-        kprintf("page fault user: %s la %lx (%s), procesul va fi omorat\n", access_kind(err), addr, cause);
-        // T4.4: scheduler-ul omoara task-ul marcat; pana atunci nu exista nimeni care sa-l consume
-        panic_frame(f, "page fault in user fara scheduler: %s la %lx (%s)", access_kind(err), addr, cause);
+        kprintf("page fault user: %s la %lx (%s)\n", access_kind(err), addr, cause);
+        return;
     }
     panic_frame(f, "page fault in kernel: %s la %lx (%s) [P=%d W=%d U=%d I=%d]",
                 access_kind(err), addr, cause, (int)(err & PF_ERR_PRESENT), (int)((err & PF_ERR_WRITE) >> 1),

@@ -68,13 +68,20 @@ void run(const char* what, TaskFn fn, bool letter_arg){
     logged = 0;
     finished = 0;
     kprintf("test_sched %s: ", what);
+    Task* tasks[THREADS];
     for(int i = 0; i < THREADS; i++){
         uint64_t arg = letter_arg ? 'A' + i : i;
-        Task* t = task_create_kernel(what, fn, (void*)arg);
-        if(!t){
+        tasks[i] = task_create_kernel(what, fn, (void*)arg);
+        if(!tasks[i]){
             panic("test_sched: task_create_kernel a esuat");
         }
-        sched_add(t);
+    }
+    // Toate intra in coada deodata: un tick intre doua sched_add ar porni A singur
+    {
+        IrqLock lock;
+        for(int i = 0; i < THREADS; i++){
+            sched_add(tasks[i]);
+        }
     }
     while(finished < THREADS){
         yield();

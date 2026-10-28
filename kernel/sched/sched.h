@@ -16,6 +16,11 @@ void yield();
 // Blocheaza task-ul curent pana la monotonic_ns() >= wake_ns; false daca nu se poate (idle, fara tick)
 bool sched_sleep_until(uint64_t wake_ns);
 
+// Pentru WaitQueue: comuta de pe task-ul curent, deja marcat BLOCKED (cu intreruperile oprite)
+void sched_block();
+// Task BLOCKED -> READY, la coada runqueue-ului
+void sched_wake(Task* t);
+
 // Apelate din tick-ul LAPIC si la iesirea din IRQ (idt.cpp)
 void sched_tick();
 void sched_irq_exit();

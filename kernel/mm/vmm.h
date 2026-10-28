@@ -7,6 +7,10 @@ struct AddressSpace {
 
 extern AddressSpace kernel_as;
 
+// Jumatatea user e [0, USER_TOP). Ultima pagina de sub 0x0000800000000000 ramane nemapata,
+// ca sysret sa nu poata intoarce la o adresa necanonica
+const uint64_t USER_TOP = 0x00007FFFFFFFF000UL;
+
 // Construieste tabelele kernelului (HHDM + kernel pe sectiuni), comuta CR3 si extinde buddy
 void vmm_init();
 
@@ -21,3 +25,5 @@ uint64_t vmm_entry(const AddressSpace& as, uint64_t virt);
 // Spatiu nou cu jumatatea inferioara goala si jumatatea superioara (kernel) copiata; pml4_phys 0 la eroare
 AddressSpace as_create();
 void as_switch(const AddressSpace& as);
+// Elibereaza paginile si tabelele din jumatatea user, apoi PML4-ul (as nu trebuie sa fie cel activ)
+void as_destroy(AddressSpace& as);

@@ -3,7 +3,7 @@
 #include "mm/pmm.h"
 #include "arch/x86_64/paging.h"
 #include "core/panic.h"
-#include "irqlock.h"
+#include "sync/spinlock.h"
 
 // Header la inceputul fiecarei pagini de slab
 struct SlabHeader {
@@ -27,6 +27,9 @@ struct KmemCache {
 namespace {
 
 const uint32_t SLAB_MAGIC = 0x51AB51AB;
+
+// Un singur lock pentru toate cache-urile (inclusiv cache_cache); buddy are lock-ul lui
+Spinlock slab_lock("slab");
 
 // Cache-ul pentru structurile KmemCache insesi
 KmemCache cache_cache;
@@ -109,7 +112,7 @@ KmemCache* kmem_cache_create(const char* name, size_t size, size_t align){
 }
 
 void* kmem_cache_alloc(KmemCache* c){
-    IrqLock lock;
+    SpinlockGuard lock(slab_lock);
     SlabHeader* s = c->partial;
     if(!s){
         s = new_slab(c);
@@ -129,7 +132,7 @@ void* kmem_cache_alloc(KmemCache* c){
 }
 
 void kmem_cache_free(KmemCache* c, void* obj){
-    IrqLock lock;
+    SpinlockGuard lock(slab_lock);
     SlabHeader* s = header_of(obj);
     uint64_t offset = (uint64_t)obj - (uint64_t)s;
     if(s->magic != SLAB_MAGIC || s->cache != c || offset < c->first_offset ||

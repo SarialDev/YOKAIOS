@@ -7,7 +7,6 @@ LD  = ld
 BUILD = build
 ISO   = $(BUILD)/yokai.iso
 TEST_ISO = $(BUILD)/yokai-test.iso
-SMASH_ISO = $(BUILD)/yokai-smash.iso
 KERNEL = $(BUILD)/kernel.bin
 
 QEMU = qemu-system-x86_64
@@ -36,7 +35,14 @@ LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size
 SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
-.PHONY: all iso run test test-smash debug clean
+# Programe user statice, puse in ISO ca module Multiboot2
+USER_SRCS := $(wildcard user/test/*.S)
+USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS))
+USER_ASFLAGS = -m64 -ffreestanding -nostdlib -Ikernel/include
+USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000 \
+               -z max-page-size=0x1000 -z separate-code -z noexecstack --build-id=none
+
+.PHONY: all iso run test test-smash test-relock debug clean
 
 all: $(ISO)
 
@@ -55,33 +61,43 @@ $(BUILD)/%.cpp.o: %.cpp
 $(KERNEL): $(OBJS) boot/linker.ld
 	$(LD) $(LDFLAGS) -o $@ $(OBJS)
 
-$(ISO): $(KERNEL) boot/grub.cfg
+$(BUILD)/user/%.o: user/test/%.S
+	@mkdir -p $(dir $@)
+	$(CC) $(USER_ASFLAGS) -c $< -o $@
+
+$(BUILD)/user/%.elf: $(BUILD)/user/%.o
+	$(LD) $(USER_LDFLAGS) -o $@ $<
+
+$(ISO): $(KERNEL) $(USER_ELFS) boot/grub.cfg
 	@mkdir -p $(BUILD)/iso/boot/grub
-	cp $(KERNEL) $(BUILD)/iso/boot/kernel.bin
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso/boot/
 	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso 2>/dev/null
 
 run: $(ISO)
 	$(QEMU) $(QEMU_FLAGS)
 
-$(TEST_ISO): $(KERNEL) boot/grub-test.cfg
+$(TEST_ISO): $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-test/boot/grub
-	cp $(KERNEL) $(BUILD)/iso-test/boot/kernel.bin
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-test/boot/
 	cp boot/grub-test.cfg $(BUILD)/iso-test/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 test: $(TEST_ISO)
 	QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
 
-# Acelasi kernel cu cmdline "test=smash": trebuie sa se opreasca in panic "stack smashing"
-$(SMASH_ISO): $(KERNEL) boot/grub-test.cfg
-	@mkdir -p $(BUILD)/iso-smash/boot/grub
-	cp $(KERNEL) $(BUILD)/iso-smash/boot/kernel.bin
-	sed 's/test=[^ ]*/test=smash/' boot/grub-test.cfg > $(BUILD)/iso-smash/boot/grub/grub.cfg
-	grub-mkrescue -o $@ $(BUILD)/iso-smash 2>/dev/null
+# Acelasi kernel cu cmdline "test=<nume>": testul trebuie sa se termine intr-un panic anume
+$(BUILD)/panic-%.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-$*/boot/grub
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-$*/boot/
+	sed 's/test=[^ ]*/test=$*/' boot/grub-test.cfg > $(BUILD)/iso-$*/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-$* 2>/dev/null
 
-test-smash: $(SMASH_ISO)
-	EXPECT_PANIC="stack smashing" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(SMASH_ISO) $(BUILD)/smash.log
+test-smash: $(BUILD)/panic-smash.iso
+	EXPECT_PANIC="stack smashing" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/smash.log
+
+test-relock: $(BUILD)/panic-relock.iso
+	EXPECT_PANIC="re-lock" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/relock.log
 
 debug: $(ISO)
 	$(QEMU) $(QEMU_FLAGS) -s -S

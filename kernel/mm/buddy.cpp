@@ -3,7 +3,7 @@
 #include "arch/x86_64/paging.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
-#include "irqlock.h"
+#include "sync/spinlock.h"
 
 namespace {
 
@@ -21,6 +21,7 @@ struct FreeBlock {
 FreeBlock* free_lists[BUDDY_MAX_ORDER + 1];
 uint64_t managed_pages = 0;
 uint64_t free_count = 0;
+Spinlock buddy_lock("buddy");
 
 uint64_t block_bytes(int order){
     return PAGE_SIZE << order;
@@ -71,7 +72,7 @@ bool range_free(uint64_t page, uint64_t count){
 }
 
 void buddy_rebuild(){
-    IrqLock lock;
+    SpinlockGuard lock(buddy_lock);
     for(int o = 0; o <= BUDDY_MAX_ORDER; o++){
         free_lists[o] = nullptr;
     }
@@ -113,7 +114,7 @@ uint64_t alloc_pages(int order, uint32_t flags){
     if(order < 0 || order > BUDDY_MAX_ORDER){
         return 0;
     }
-    IrqLock lock;
+    SpinlockGuard lock(buddy_lock);
     FreeBlock* found = nullptr;
     int o = order;
     for(; o <= BUDDY_MAX_ORDER && !found; o++){
@@ -146,7 +147,7 @@ void free_pages(uint64_t phys, int order){
     if(order < 0 || order > BUDDY_MAX_ORDER || phys % block_bytes(order) || page + count > managed_pages){
         panic("free_pages: bloc invalid %lx ordin %d", phys, order);
     }
-    IrqLock lock;
+    SpinlockGuard lock(buddy_lock);
     for(uint64_t i = 0; i < count; i++){
         if(pmm_page_free(page + i)){
             panic("free_pages: double free la %lx", (page + i) * PAGE_SIZE);

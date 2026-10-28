@@ -14,7 +14,7 @@ void fault_init();
 // Hook pentru memoria virtuala a proceselor (lazy alloc, CoW, stiva): true daca a rezolvat faultul
 bool vma_fault(AddressSpace& as, uint64_t addr, uint64_t err);
 
-// Fault nerecuperabil din user: procesul curent trebuie omorat (consumat de scheduler in T4.4)
+// Fault nerecuperabil din user: procesul curent trebuie omorat (consumat de interrupt_dispatch)
 bool fault_kill_pending();
 void fault_kill_clear();
 

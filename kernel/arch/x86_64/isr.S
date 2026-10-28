@@ -16,6 +16,11 @@ isr_stub_\n:
 .endm
 
 isr_common:
+    /* Din ring 3 (CS in frame, peste vector si cod de eroare): GS-ul de kernel */
+    testb $3, 24(%rsp)
+    jz 1f
+    swapgs
+1:
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -50,6 +55,10 @@ isr_common:
     popq %rbx
     popq %rax
     addq $16, %rsp      /* vector + cod de eroare */
+    testb $3, 8(%rsp)
+    jz 2f
+    swapgs
+2:
     iretq
 
 /* Vectorii la care CPU-ul pune singur cod de eroare */

@@ -22,6 +22,9 @@
 #include "sched/task.h"
 #include "sched/sched.h"
 #include "tests/test_sched.h"
+#include "tests/test_sync.h"
+#include "tests/test_user.h"
+#include "syscall/syscall.h"
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -322,6 +325,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     kmalloc_init();
     tasks_init();
     sched_init();
+    syscall_init();
 
     // Test manual pentru panic: cmdline "crash" forteaza #DE
     if(cmdline_has("crash")){
@@ -371,6 +375,15 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "sched")){
         test_sched_run();
+    }
+    if(test_named(test, "sync")){
+        test_sync_run();
+    }
+    if(test_named(test, "user")){
+        test_user_run();
+    }
+    if(test_named(test, "relock")){
+        test_spin_relock();
     }
     if(test_named(test, "smash")){
         test_stack_smash();

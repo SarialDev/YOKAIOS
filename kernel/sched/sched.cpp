@@ -1,6 +1,7 @@
 #include "sched/sched.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/lapic.h"
+#include "syscall/syscall.h"
 #include "time/clock.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
@@ -102,6 +103,7 @@ void schedule(){
         as_switch(*next->as);
     }
     tss_set_rsp0(kstack_top(next));
+    syscall_set_kstack(kstack_top(next));
     task_set_current(next);
     switch_to(&prev->ctx, &next->ctx);
     // Aici se revine cand prev e ales din nou
@@ -154,6 +156,25 @@ bool sched_sleep_until(uint64_t wake_ns){
     insert_sleeper(t);
     schedule();
     return true;
+}
+
+void sched_block(){
+    if(task_current() == idle_task){
+        panic("sched_block: task 0 (idle) nu are voie sa se blocheze");
+    }
+    schedule();
+}
+
+void sched_wake(Task* t){
+    IrqLock lock;
+    if(t->state != TaskState::BLOCKED){
+        return;
+    }
+    t->state = TaskState::READY;
+    push_back(runqueue, t);
+    if(task_current() == idle_task){
+        need_resched = true;
+    }
 }
 
 void sched_tick(){
