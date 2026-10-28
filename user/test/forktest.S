@@ -151,6 +151,10 @@ _start:
     js fail_fork
     jz child_orphan
 
+    movl $1, %edi                   /* toate verificarile au trecut */
+    leaq ok_msg(%rip), %rsi
+    movl $ok_len, %edx
+    SYS SYS_WRITE
     xorl %edi, %edi
     jmp do_exit
 
@@ -233,6 +237,9 @@ do_exit:
 msg:
     .ascii "mesaj prin pipe de la copil\n"
 msg_len = . - msg
+ok_msg:
+    .ascii "[OK] forktest\n"
+ok_len = . - ok_msg
 orphan_msg:
     .ascii "orfan: parintele s-a terminat, getppid = 0\n"
 orphan_len = . - orphan_msg

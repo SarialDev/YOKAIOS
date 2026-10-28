@@ -2,13 +2,13 @@
 # Ruleaza ISO-ul de test headless si verifica markerii din tests/expect.txt.
 # Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
-# SMP=n alege numarul de CPU-uri (implicit 4)
+# SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
 set -u
 
 ISO=${1:?iso lipsa}
 LOG=${2:-build/test.log}
 EXPECT=${EXPECT_FILE:-$(dirname "$0")/expect.txt}
-TIMEOUT=${TEST_TIMEOUT:-60}
+TIMEOUT=${TEST_TIMEOUT:-120}
 SMP=${SMP:-4}
 
 mkdir -p "$(dirname "$LOG")"
@@ -49,6 +49,11 @@ esac
 
 while IFS= read -r line || [ -n "$line" ]; do
     [ -z "$line" ] && continue
+    # "@SMP@" = numarul de CPU-uri; liniile "@smp>1 " exista doar cu cel putin 2 CPU-uri
+    case "$line" in
+        "@smp>1 "*) [ "$SMP" -lt 2 ] && continue; line=${line#@smp>1 } ;;
+    esac
+    line=$(printf '%s' "$line" | sed "s/@SMP@/$SMP/g")
     if ! grep -qF -- "$line" "$LOG"; then
         echo "FAIL: lipseste \"$line\""
         fail=1

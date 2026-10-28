@@ -15,7 +15,7 @@
 [OK] acpi
 [OK] apic
 [OK] timer
-[OK] smp cpus=4
+[OK] smp cpus=@SMP@
 [OK] keyboard
 [OK] protect
 [OK] test_exceptions
@@ -26,13 +26,18 @@
 [OK] test_buddy
 [OK] test_slab
 [OK] test_vmm
-[OK] test_sched
+[OK] test_sched mutex
+[OK] test_sched rt
+[OK] test_sched watchdog
+[OK] forktest
+[OK] test_sched fork
+[OK] test_sched (
 [OK] test_mutex
 [OK] test_semaphore
 [OK] test_pi
-[OK] test_smp affinity
-[OK] test_smp pull
-[OK] test_smp tlb
+@smp>1 [OK] test_smp affinity
+@smp>1 [OK] test_smp pull
+@smp>1 [OK] test_smp tlb
 [OK] test_smp (
 hello from ring 3
 [OK] test_user
