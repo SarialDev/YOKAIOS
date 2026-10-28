@@ -2,6 +2,13 @@
 #include "io.h"
 #include "drivers/vga.h"
 #include "drivers/serial.h"
+#include "hal/hal.h"
+#include "hal/console.h"
+#include "hal/irqchip.h"
+#include "hal/input.h"
+#include "arch/x86_64/irqchip.h"
+#include "time/tsc.h"
+#include "tests/test_hal.h"
 #include "lib/kprintf.h"
 #include "boot/multiboot2.h"
 #include "arch/x86_64/gdt.h"
@@ -30,6 +37,27 @@
 #include "tests/test_proc.h"
 #include "tests/test_smp.h"
 #include "syscall/syscall.h"
+
+// Ecranul de text vine din HAL (VGA)
+Console* screen = nullptr;
+
+void out(const char* text, int x, int y){
+    if(screen){
+        screen->put_at(text, x, y);
+    }
+}
+
+void curata_ecran(){
+    if(screen){
+        screen->clear();
+    }
+}
+
+void muta_cursor(int x, int y){
+    if(screen){
+        screen->set_cursor(x, y);
+    }
+}
 
 //DECLARARE VARIABILE GLOBALE
 int cursor_x = 26;
@@ -272,6 +300,13 @@ void shell_on_key(uint8_t scancode){
     }
 }
 
+// Evenimentele de tastatura de pe event bus; shell-ul lucreaza pe scancode-uri de apasare
+void shell_on_input(const InputEvent& ev){
+    if(ev.type == InputType::Key && ev.value == 1){
+        shell_on_key((uint8_t)ev.code);
+    }
+}
+
 volatile bool breakpoint_hit = false;
 
 // name apare in lista din "test=" (separata prin virgule, pana la spatiu), ex. "test=cpu,mm"
@@ -303,7 +338,8 @@ void breakpoint_handler(InterruptFrame* f){
 extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     // Inaintea oricarui lock: cpu_id() si task_current() citesc PerCpu prin GS
     percpu_init(0, 0);
-    curata_ecran();
+    vga_init();
+    screen = hal_console_screen();
 
     if(serial_init()){
         kprintf("[OK] serial\n");
@@ -341,6 +377,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
 
     pic_init();
+    irqchip_pic_register();
     kprintf("[OK] pic\n");
 
     if(acpi_init()){
@@ -363,13 +400,18 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         }
         lapic_init(acpi_madt.lapic_addr);
         ioapic_init();
-        kprintf("CPU-uri: %d, BSP lapic=%u\n", cpus, lapic_id());
+        irqchip_apic_register();
+        kprintf("CPU-uri: %d, BSP lapic=%u\n", cpus, hal_irqchip()->cpu_id());
         kprintf("[OK] apic\n");
     }
+    tsc_register();
     clock_init();
     smp_init();
-    ps2kbd_init(shell_on_key);
+    input_subscribe(shell_on_input);
+    ps2kbd_init();
     kprintf("[OK] keyboard\n");
+    hal_list();
+    kprintf("[OK] hal\n");
 
     // De aici nu se mai apeleaza cod __init
     fault_protect_kernel();
@@ -398,6 +440,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "rt")){
         test_rt_run();
+    }
+    if(test_named(test, "hal")){
+        test_hal_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();

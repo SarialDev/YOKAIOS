@@ -1,6 +1,6 @@
 #include "sched/sched.h"
 #include "arch/x86_64/gdt.h"
-#include "arch/x86_64/lapic.h"
+#include "hal/irqchip.h"
 #include "arch/x86_64/smp.h"
 #include "syscall/syscall.h"
 #include "sched/rt.h"
@@ -398,7 +398,7 @@ void task_exit(){
 
 bool sched_sleep_until(uint64_t wake_ns){
     Task* t = task_current();
-    if(t == this_cpu()->idle || !lapic_enabled()){
+    if(t == this_cpu()->idle || !hal_irqchip_smp()){
         return false;
     }
     SpinlockGuard lock(sched_lock);

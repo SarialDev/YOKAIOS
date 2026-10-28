@@ -1,6 +1,5 @@
 #include "lib/kprintf.h"
-#include "drivers/serial.h"
-#include "drivers/vga.h"
+#include "hal/console.h"
 #include "types.h"
 #include "sync/atomic.h"
 #include "arch/x86_64/smp.h"
@@ -40,8 +39,7 @@ void console_unlock(uint64_t flags){
 }
 
 void putc_raw(char c){
-    serial_putc(c);
-    vga_putc(c);
+    hal_console_putc(c);
 }
 
 }

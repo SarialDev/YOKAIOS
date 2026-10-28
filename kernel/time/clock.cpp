@@ -1,8 +1,8 @@
 #include "time/clock.h"
 #include "time/hpet.h"
 #include "time/pit.h"
-#include "time/tsc.h"
-#include "arch/x86_64/lapic.h"
+#include "hal/timer.h"
+#include "hal/irqchip.h"
 #include "interrupt.h"
 #include "lib/kprintf.h"
 #include "sched/sched.h"
@@ -36,13 +36,13 @@ void program_event(){
         target = wake;
     }
     if(target == SCHED_NO_WAKE){
-        lapic_timer_stop();
+        hal_irqchip()->timer_stop();
         return;
     }
     uint64_t now = monotonic_ns();
     uint64_t delta = target > now ? target - now : 0;
     uint64_t ticks = delta * lapic_ticks_per_ms / 1000000;
-    lapic_timer_arm(ticks > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)ticks);
+    hal_irqchip()->timer_arm(ticks > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)ticks);
 }
 
 // Pe fiecare CPU; jiffies numara doar tick-urile BSP-ului
@@ -76,10 +76,10 @@ void timer_tick(InterruptFrame*){
 void start_local_timer(){
     if(oneshot){
         this_cpu()->next_tick_ns = monotonic_ns() + TICK_NS;
-        lapic_timer_oneshot(TIMER_VECTOR);
+        hal_irqchip()->timer_oneshot(TIMER_VECTOR);
         program_event();
     } else {
-        lapic_timer_periodic((uint32_t)(lapic_ticks_per_ms * 1000 / TIMER_HZ), TIMER_VECTOR);
+        hal_irqchip()->timer_periodic((uint32_t)(lapic_ticks_per_ms * 1000 / TIMER_HZ), TIMER_VECTOR);
     }
 }
 
@@ -89,16 +89,17 @@ void clock_init(){
     bool hpet = hpet_init();
     void (*wait_ms)(uint32_t) = hpet ? hpet_wait_ms : pit_wait_ms;
 
-    bool invariant = tsc_invariant();
-    bool hypervisor = cpu_hypervisor();
-    tsc_hz = tsc_calibrate(wait_ms, CALIBRATE_MS);
+    ClockSource* clk = hal_clock();
+    bool invariant = clk->flags() & CLOCK_INVARIANT;
+    bool hypervisor = clk->flags() & CLOCK_VIRTUAL;
+    tsc_hz = clk->calibrate(wait_ms, CALIBRATE_MS);
     ns_mult = (1000000000UL << 32) / tsc_hz;
-    tsc_base = rdtsc();
+    tsc_base = clk->read();
     // Pe hardware fara TSC invariant frecventa poate varia; atunci timpul vine din jiffies
     use_tsc = invariant || hypervisor;
 
-    if(lapic_enabled()){
-        uint32_t ticks = lapic_timer_measure(wait_ms, CALIBRATE_MS);
+    if(hal_irqchip_smp()){
+        uint32_t ticks = hal_irqchip()->timer_measure(wait_ms, CALIBRATE_MS);
         lapic_ticks_per_ms = ticks / CALIBRATE_MS;
         irq_register(TIMER_VECTOR, timer_tick);
         // One-shot are nevoie de un ceas care nu depinde de tick (TSC); altfel ramane periodic
@@ -121,7 +122,7 @@ void clock_init_ap(){
 
 uint64_t monotonic_ns(){
     if(use_tsc){
-        uint64_t delta = rdtsc() - tsc_base;
+        uint64_t delta = hal_clock()->read() - tsc_base;
         return (uint64_t)(((unsigned __int128)delta * ns_mult) >> 32);
     }
     return jiffies * (1000000000UL / TIMER_HZ);

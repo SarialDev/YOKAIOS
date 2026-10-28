@@ -1,7 +1,6 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/gdt.h"
-#include "arch/x86_64/pic.h"
-#include "arch/x86_64/lapic.h"
+#include "hal/irqchip.h"
 #include "core/panic.h"
 #include "sched/sched.h"
 #include "mm/fault.h"
@@ -67,10 +66,9 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         process_kill(f);
     }
     if(f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END){
-        if(lapic_enabled()){
-            lapic_eoi();
-        } else if(f->vector < PIC_IRQ_BASE + PIC_IRQ_COUNT){
-            pic_eoi(f->vector - PIC_IRQ_BASE);
+        InterruptController* chip = hal_irqchip();
+        if(chip){
+            chip->eoi(f->vector);
         }
         // Preemptie doar la iesirea din IRQ, dupa EOI, ca tick-ul urmator sa poata veni
         sched_irq_exit();

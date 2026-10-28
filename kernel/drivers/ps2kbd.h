@@ -3,7 +3,5 @@
 
 const uint8_t KBD_IRQ = 1;
 
-// Apelat din IRQ1 cu scancode-ul brut (set 1)
-typedef void (*KeyCallback)(uint8_t scancode);
-
-void ps2kbd_init(KeyCallback cb);
+// Goleste controlerul, inregistreaza tastatura in HAL si porneste IRQ1; scancode-urile ajung pe event bus (hal/input.h)
+void ps2kbd_init();

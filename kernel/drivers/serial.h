@@ -1,5 +1,4 @@
 #pragma once
 
+// Initializeaza COM1 si, daca raspunde, il inregistreaza in HAL ca Console
 bool serial_init();
-void serial_putc(char c);
-void serial_puts(const char* s);

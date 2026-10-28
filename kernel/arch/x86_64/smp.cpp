@@ -1,7 +1,7 @@
 #include "arch/x86_64/smp.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/idt.h"
-#include "arch/x86_64/lapic.h"
+#include "hal/irqchip.h"
 #include "acpi/acpi.h"
 #include "mm/vmm.h"
 #include "mm/buddy.h"
@@ -99,10 +99,10 @@ void patch(uint8_t* copy, const uint8_t* field, const void* value, size_t size){
 
 // INIT, 10 ms, SIPI, 200 us, SIPI daca nu a pornit; apoi asteapta online cu timeout
 bool start_ap(PerCpu& c){
-    lapic_send_init(c.lapic_id);
+    hal_irqchip()->send_init(c.lapic_id);
     delay_ns(INIT_DELAY_NS);
     for(int attempt = 0; attempt < 2 && !c.online; attempt++){
-        lapic_send_startup(c.lapic_id, (uint8_t)(TRAMPOLINE_PHYS >> 12));
+        hal_irqchip()->send_startup(c.lapic_id, (uint8_t)(TRAMPOLINE_PHYS >> 12));
         delay_ns(SIPI_DELAY_NS);
     }
     uint64_t deadline = monotonic_ns() + ONLINE_TIMEOUT_NS;
@@ -126,7 +126,7 @@ extern "C" [[noreturn]] void ap_main(uint32_t id){
     gdt_init_cpu(c);
     idt_load();
     syscall_init_cpu();
-    lapic_init_ap();
+    hal_irqchip()->init_ap();
     sched_init_cpu(c.idle);
     clock_init_ap();
     __atomic_fetch_add(&online_count, 1, __ATOMIC_SEQ_CST);
@@ -155,11 +155,11 @@ uint32_t smp_cpu_count(){
 
 void smp_init(){
     PerCpu& bsp = cpus[0];
-    bsp.lapic_id = lapic_id();
+    bsp.lapic_id = hal_irqchip()->cpu_id();
     irq_register(IDT_VEC_NMI, nmi);
     irq_register(IPI_TLB_VECTOR, tlb_ipi);
     irq_register(IPI_RESCHED_VECTOR, resched_ipi);
-    if(!lapic_enabled()){
+    if(!hal_irqchip_smp()){
         kprintf("[OK] smp cpus=1 (fara LAPIC)\n");
         return;
     }
@@ -222,7 +222,7 @@ void smp_init(){
 void smp_send_resched(uint32_t cpu){
     PerCpu& c = cpus[cpu];
     if(c.online && cpu != cpu_id()){
-        lapic_send_ipi(c.lapic_id, IPI_RESCHED_VECTOR);
+        hal_irqchip()->send_ipi(c.lapic_id, IPI_RESCHED_VECTOR);
     }
 }
 
@@ -244,7 +244,7 @@ uint32_t tlb_shootdown(uint64_t pml4_phys, uint64_t virt){
             continue;
         }
         __atomic_store_n(&c.tlb_pending, true, __ATOMIC_RELEASE);
-        lapic_send_ipi(c.lapic_id, IPI_TLB_VECTOR);
+        hal_irqchip()->send_ipi(c.lapic_id, IPI_TLB_VECTOR);
         mask |= 1u << i;
         sent++;
     }
@@ -277,5 +277,5 @@ void smp_stop_others(){
         return;
     }
     stopping = true;
-    lapic_send_nmi_others();
+    hal_irqchip()->nmi_others();
 }

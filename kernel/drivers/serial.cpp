@@ -1,8 +1,29 @@
 #include "drivers/serial.h"
+#include "hal/console.h"
 #include "io.h"
 
-static const uint16_t COM1 = 0x3F8;
-static bool serial_ok = false;
+namespace {
+
+const uint16_t COM1 = 0x3F8;
+
+class SerialConsole final : public Console {
+public:
+    constexpr SerialConsole() = default;
+    void putc(char c) override {
+        if(c == '\n'){
+            putc('\r');
+        }
+        while((inb(COM1 + 5) & 0x20) == 0){
+        }
+        outb(COM1, (uint8_t)c);
+    }
+    void clear() override {}
+    uint32_t flags() const override { return 0; }
+};
+
+SerialConsole serial_console;
+
+}
 
 bool serial_init(){
     outb(COM1 + 1, 0x00);   // fara IRQ
@@ -17,24 +38,5 @@ bool serial_init(){
         return false;
     }
     outb(COM1 + 4, 0x0F);   // mod normal
-    serial_ok = true;
-    return true;
-}
-
-void serial_putc(char c){
-    if(!serial_ok){
-        return;
-    }
-    if(c == '\n'){
-        serial_putc('\r');
-    }
-    while((inb(COM1 + 5) & 0x20) == 0){
-    }
-    outb(COM1, (uint8_t)c);
-}
-
-void serial_puts(const char* s){
-    while(*s){
-        serial_putc(*s++);
-    }
+    return hal_register(HalKind::Console, &serial_console, "serial");
 }

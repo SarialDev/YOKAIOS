@@ -1,6 +1,6 @@
 #include "core/panic.h"
 #include "lib/kprintf.h"
-#include "drivers/vga.h"
+#include "hal/console.h"
 #include "boot/multiboot2.h"
 #include "io.h"
 #include "arch/x86_64/smp.h"
@@ -64,7 +64,7 @@ void enter_panic(){
     for(volatile int i = 0; i < 1000000; i++){
     }
     console_break_lock();
-    vga_set_color(COLOR_PANIC);
+    hal_console_set_color(COLOR_PANIC);
 }
 
 void print_control_regs(){
