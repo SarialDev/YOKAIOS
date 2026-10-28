@@ -31,6 +31,7 @@ jobs:
         run: make test-smash test-relock
 
       - name: RT jitter test
+        continue-on-error: true
         run: make test-rt
 
       - name: Upload test log

@@ -90,7 +90,7 @@ $(TEST_ISO): $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 test: $(TEST_ISO)
-	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
 
 # Acelasi kernel cu cmdline "test=<nume>": testul trebuie sa se termine intr-un panic anume
 $(BUILD)/panic-%.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
@@ -100,10 +100,10 @@ $(BUILD)/panic-%.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-$* 2>/dev/null
 
 test-smash: $(BUILD)/panic-smash.iso
-	EXPECT_PANIC="stack smashing" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/smash.log
+	EXPECT_PANIC="stack smashing" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/smash.log
 
 test-relock: $(BUILD)/panic-relock.iso
-	EXPECT_PANIC="re-lock" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/relock.log
+	EXPECT_PANIC="re-lock" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/relock.log
 
 $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-rt/boot/grub
@@ -113,7 +113,7 @@ $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 
 test-rt: $(BUILD)/yokai-rt.iso
 	@echo "test-rt cu: $(RT_ACCEL), $(RT_SMP) CPU"
-	EXPECT_FILE=tests/expect-rt.txt SMP=$(RT_SMP) QEMU_EXTRA="$(RT_ACCEL) $(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/rt.log
+	EXPECT_FILE=tests/expect-rt.txt SMP=$(RT_SMP) QEMU_EXTRA="$(RT_ACCEL) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/rt.log
 
 debug: $(ISO)
 	$(QEMU) $(QEMU_FLAGS) -s -S
