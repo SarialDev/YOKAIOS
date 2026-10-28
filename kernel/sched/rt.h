@@ -1,6 +1,7 @@
 #pragma once
 #include "types.h"
 #include "sched/task.h"
+#include "sync/spinlock.h"
 
 // Clasa RT: prioritate fixa 1..99 (mai mare = mai important), mereu inaintea task-urilor NORMAL
 const uint8_t RT_PRIO_MIN = 1;
@@ -8,13 +9,23 @@ const uint8_t RT_PRIO_MAX = 99;
 // Admission test pentru rate-monotonic: suma wcet/perioada <= 0.69 (in milionimi)
 const uint32_t RT_UTIL_LIMIT_PPM = 690000;
 
-// Coada de rulare RT: o lista FIFO pe nivel si un bitmap de niveluri ocupate (alegere O(1)).
-// Se apeleaza doar din scheduler, cu intreruperile oprite
-void rt_enqueue(Task* t);
-void rt_remove(Task* t);
-Task* rt_pick();
+// Coada de rulare RT (una pe CPU): o lista FIFO pe nivel si un bitmap de niveluri ocupate (alegere O(1)).
+// Se apeleaza doar din scheduler, sub lock-ul lui
+struct RtQueue {
+    ListLink levels[RT_PRIO_MAX + 1];
+    uint64_t bitmap[2];                 // bitul p = nivelul p are task-uri READY
+};
+void rt_queue_init(RtQueue& q);
+void rt_enqueue(RtQueue& q, Task* t);
+void rt_remove(RtQueue& q, Task* t);
+Task* rt_pick(RtQueue& q);
+// Cel mai important task pentru care ok(t) e adevarat, scos din coada (load balancing); nullptr daca nu e
+Task* rt_pick_if(RtQueue& q, bool (*ok)(const Task* t));
 // Prioritatea cea mai mare cu task-uri READY, 0 daca nu e niciunul
-uint8_t rt_top_prio();
+uint8_t rt_top_prio(const RtQueue& q);
+
+// Protejeaza lista task-urilor periodice, utilizarea si statisticile (dupa lock-ul scheduler-ului, nu invers)
+extern Spinlock rt_lock;
 
 typedef void (*RtJobFn)(void* arg);
 
@@ -73,7 +84,8 @@ void rt_stop(Task* t);
 bool rt_stats(const Task* t, RtStats& out);
 void rt_stats_print();
 
-// Pentru watchdog: fn(p, now) pe fiecare task periodic, cu intreruperile oprite
-void rt_for_each(void (*fn)(RtPeriodic* p, uint64_t now), uint64_t now);
+// Pentru watchdog (din IRQ, intreruperile oprite): fn(p, now) pe fiecare task periodic, sub rt_lock.
+// false (fara apeluri) daca rt_lock e ocupat
+bool rt_for_each(void (*fn)(RtPeriodic* p, uint64_t now), uint64_t now);
 // Din task_destroy: scoate task-ul din lista si ii elibereaza utilizarea
 void rt_task_destroyed(Task* t);

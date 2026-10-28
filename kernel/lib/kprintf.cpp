@@ -2,18 +2,70 @@
 #include "drivers/serial.h"
 #include "drivers/vga.h"
 #include "types.h"
+#include "sync/atomic.h"
+#include "arch/x86_64/smp.h"
 
-void kputc(char c){
+namespace {
+
+// Lock-ul consolei: un kprintf intreg ramane pe o linie chiar daca scriu mai multe CPU-uri.
+// Recursiv pe acelasi CPU (kprintf din intrerupere sau panic in mijlocul unui kprintf)
+Atomic<int32_t> console_owner(-1);
+uint32_t console_depth = 0;
+
+uint64_t console_lock(){
+    uint64_t flags;
+    __asm__ volatile("pushfq; pop %0; cli" : "=r"(flags) : : "memory");
+    int32_t me = (int32_t)cpu_id();
+    if(console_owner.load() != me){
+        for(;;){
+            int32_t expected = -1;
+            if(console_owner.compare_exchange(expected, me)){
+                break;
+            }
+            smp_spin_poll();
+            cpu_relax();
+        }
+    }
+    console_depth++;
+    return flags;
+}
+
+void console_unlock(uint64_t flags){
+    if(--console_depth == 0){
+        console_owner.store(-1);
+    }
+    if(flags & (1UL << 9)){
+        __asm__ volatile("sti" : : : "memory");
+    }
+}
+
+void putc_raw(char c){
     serial_putc(c);
     vga_putc(c);
 }
 
+}
+
+void kputc(char c){
+    uint64_t flags = console_lock();
+    putc_raw(c);
+    console_unlock(flags);
+}
+
+void console_break_lock(){
+    int32_t me = (int32_t)cpu_id();
+    if(console_owner.load() != me){
+        console_owner.store(-1);
+        console_depth = 0;
+    }
+}
+
 static void put_padded(const char* s, int len, int width, char pad){
     for(int i = len; i < width; i++){
-        kputc(pad);
+        putc_raw(pad);
     }
     for(int i = 0; i < len; i++){
-        kputc(s[i]);
+        putc_raw(s[i]);
     }
 }
 
@@ -28,7 +80,7 @@ static void put_number(uint64_t v, unsigned base, bool negative, int width, char
 
     if(negative){
         if(pad == '0'){
-            kputc('-');
+            putc_raw('-');
             width--;
         } else {
             buf[len++] = '-';
@@ -42,10 +94,10 @@ static void put_number(uint64_t v, unsigned base, bool negative, int width, char
     put_padded(out_buf, len, width, pad);
 }
 
-void kvprintf(const char* fmt, va_list ap){
+static void format(const char* fmt, va_list ap){
     for(; *fmt; fmt++){
         if(*fmt != '%'){
-            kputc(*fmt);
+            putc_raw(*fmt);
             continue;
         }
         fmt++;
@@ -79,7 +131,7 @@ void kvprintf(const char* fmt, va_list ap){
                 break;
             }
             case 'c':
-                kputc((char)va_arg(ap, int));
+                putc_raw((char)va_arg(ap, int));
                 break;
             case 'd':
             case 'i': {
@@ -95,21 +147,27 @@ void kvprintf(const char* fmt, va_list ap){
                 put_number(is_long ? va_arg(ap, uint64_t) : va_arg(ap, unsigned), 16, false, width, pad);
                 break;
             case 'p':
-                kputc('0');
-                kputc('x');
+                putc_raw('0');
+                putc_raw('x');
                 put_number((uintptr_t)va_arg(ap, void*), 16, false, 16, '0');
                 break;
             case '%':
-                kputc('%');
+                putc_raw('%');
                 break;
             case '\0':
                 return;
             default:
-                kputc('%');
-                kputc(*fmt);
+                putc_raw('%');
+                putc_raw(*fmt);
                 break;
         }
     }
+}
+
+void kvprintf(const char* fmt, va_list ap){
+    uint64_t flags = console_lock();
+    format(fmt, ap);
+    console_unlock(flags);
 }
 
 void kprintf(const char* fmt, ...){

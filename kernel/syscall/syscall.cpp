@@ -2,6 +2,7 @@
 #include "syscall/table.h"
 #include "uapi/syscall_nr.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/percpu.h"
 #include "sched/sched.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
@@ -15,8 +16,6 @@ const uint32_t MSR_EFER = 0xC0000080;
 const uint32_t MSR_STAR = 0xC0000081;
 const uint32_t MSR_LSTAR = 0xC0000082;
 const uint32_t MSR_SFMASK = 0xC0000084;
-const uint32_t MSR_GS_BASE = 0xC0000101;
-const uint32_t MSR_KERNEL_GS_BASE = 0xC0000102;
 const uint64_t EFER_SCE = 1UL << 0;
 const uint64_t RFLAGS_TF = 1UL << 8;
 const uint64_t RFLAGS_IF = 1UL << 9;
@@ -26,16 +25,6 @@ const uint64_t RFLAGS_DF = 1UL << 10;
 const uint64_t STAR_KERNEL = GDT_KCODE;
 const uint64_t STAR_USER = GDT_UDATA - 8;
 static_assert(GDT_KDATA == GDT_KCODE + 8 && GDT_UCODE == GDT_UDATA + 8, "ordinea din GDT ceruta de syscall/sysret");
-
-// Citita din syscall.S prin %gs
-struct PerCpu {
-    uint64_t kstack_top;
-    uint64_t user_rsp;
-};
-static_assert(__builtin_offsetof(PerCpu, kstack_top) == 0 && __builtin_offsetof(PerCpu, user_rsp) == 8,
-              "PerCpu trebuie sa corespunda cu syscall.S");
-
-PerCpu percpu;
 
 uint64_t rdmsr(uint32_t msr){
     uint32_t lo, hi;
@@ -49,20 +38,22 @@ void wrmsr(uint32_t msr, uint64_t v){
 
 }
 
-void syscall_init(){
+void syscall_init_cpu(){
     wrmsr(MSR_EFER, rdmsr(MSR_EFER) | EFER_SCE);
     wrmsr(MSR_STAR, (STAR_USER << 48) | (STAR_KERNEL << 32));
     wrmsr(MSR_LSTAR, (uint64_t)syscall_entry);
     wrmsr(MSR_SFMASK, RFLAGS_IF | RFLAGS_DF | RFLAGS_TF);
-    // In kernel GS arata spre percpu; baza user (0) sta in KERNEL_GS_BASE pana la swapgs
-    wrmsr(MSR_GS_BASE, (uint64_t)&percpu);
-    wrmsr(MSR_KERNEL_GS_BASE, 0);
-    percpu.kstack_top = (uint64_t)task_current()->kstack + TASK_KSTACK_SIZE;
+}
+
+void syscall_init(){
+    // GS base (PerCpu) e pus deja de percpu_init
+    syscall_init_cpu();
+    this_cpu()->kstack_top = (uint64_t)task_current()->kstack + TASK_KSTACK_SIZE;
     kprintf("[OK] syscall (LSTAR %lx, STAR %lx)\n", rdmsr(MSR_LSTAR), rdmsr(MSR_STAR));
 }
 
 void syscall_set_kstack(uint64_t top){
-    percpu.kstack_top = top;
+    this_cpu()->kstack_top = top;
 }
 
 extern "C" void syscall_dispatch(InterruptFrame* f){

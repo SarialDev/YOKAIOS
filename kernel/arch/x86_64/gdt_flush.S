@@ -8,9 +8,6 @@ gdt_flush:
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %ss
-    xorw %ax, %ax
-    movw %ax, %fs
-    movw %ax, %gs
     movw $0x28, %ax
     ltr %ax
     /* CS se reincarca printr-un far return */

@@ -7,6 +7,9 @@
 #include "lib/kprintf.h"
 #include "lib/string.h"
 #include "init.h"
+#include "arch/x86_64/percpu.h"
+#include "arch/x86_64/smp.h"
+#include "sync/spinlock.h"
 
 extern "C" char _kernel_start[];
 extern "C" char _rodata_start[];
@@ -27,7 +30,11 @@ const uint64_t CR4_PGE = 1UL << 7;
 const uint64_t KERNEL_RW = PTE_PRESENT | PTE_RW | PTE_GLOBAL;
 
 uint64_t nx_bit = 0;            // PTE_NX doar daca CPU-ul are NX
-uint64_t current_pml4 = 0;
+Spinlock vmm_lock("vmm");       // tabelele de pagini (kernel_as e comun tuturor CPU-urilor)
+
+bool is_current(const AddressSpace& as){
+    return as.pml4_phys == this_cpu()->cr3;
+}
 
 void cpuid(uint32_t leaf, uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d){
     __asm__ volatile("cpuid" : "=a"(a), "=b"(b), "=c"(c), "=d"(d) : "a"(leaf), "c"(0));
@@ -198,6 +205,7 @@ __init void vmm_init(){
 
 bool vmm_map(AddressSpace& as, uint64_t virt, uint64_t phys, uint64_t flags){
     flags = (flags | PTE_PRESENT) & (nx_bit | ~PTE_NX);
+    SpinlockGuard lock(vmm_lock);
     uint64_t* pml4 = table(as.pml4_phys);
     uint64_t* pdpt = next_level(pml4[pml4_index(virt)], flags);
     if(!pdpt){
@@ -216,21 +224,24 @@ bool vmm_map(AddressSpace& as, uint64_t virt, uint64_t phys, uint64_t flags){
         }
         pt[pt_index(virt)] = (phys & PTE_ADDR_MASK) | flags;
     }
-    if(as.pml4_phys == current_pml4){
+    if(is_current(as)){
         invlpg(virt);
     }
     return true;
 }
 
-void vmm_unmap(AddressSpace& as, uint64_t virt){
+namespace {
+
+// Sterge intrarea finala pentru virt; false daca nu era mapata
+bool clear_entry(AddressSpace& as, uint64_t virt){
     uint64_t e = table(as.pml4_phys)[pml4_index(virt)];
     if(!(e & PTE_PRESENT)){
-        return;
+        return false;
     }
     uint64_t* pdpt = table(e & PTE_ADDR_MASK);
     uint64_t& pdpte = pdpt[pdpt_index(virt)];
     if(!(pdpte & PTE_PRESENT)){
-        return;
+        return false;
     }
     if(pdpte & PTE_HUGE){
         pdpte = 0;
@@ -238,7 +249,7 @@ void vmm_unmap(AddressSpace& as, uint64_t virt){
         uint64_t* pd = table(pdpte & PTE_ADDR_MASK);
         uint64_t& pde = pd[pd_index(virt)];
         if(!(pde & PTE_PRESENT)){
-            return;
+            return false;
         }
         if(pde & PTE_HUGE){
             pde = 0;
@@ -246,9 +257,23 @@ void vmm_unmap(AddressSpace& as, uint64_t virt){
             table(pde & PTE_ADDR_MASK)[pt_index(virt)] = 0;
         }
     }
-    if(as.pml4_phys == current_pml4){
+    return true;
+}
+
+}
+
+void vmm_unmap(AddressSpace& as, uint64_t virt){
+    {
+        SpinlockGuard lock(vmm_lock);
+        if(!clear_entry(as, virt)){
+            return;
+        }
+    }
+    if(is_current(as)){
         invlpg(virt);
     }
+    // Celelalte CPU-uri pot avea inca maparea in TLB
+    tlb_shootdown(as.pml4_phys, virt);
 }
 
 uint64_t vmm_entry(const AddressSpace& as, uint64_t virt){
@@ -278,7 +303,7 @@ AddressSpace as_create(){
 }
 
 void as_switch(const AddressSpace& as){
-    current_pml4 = as.pml4_phys;
+    __atomic_store_n(&this_cpu()->cr3, as.pml4_phys, __ATOMIC_RELEASE);
     __asm__ volatile("mov %0, %%cr3" : : "r"(as.pml4_phys) : "memory");
 }
 
@@ -327,7 +352,7 @@ bool as_copy_user(AddressSpace& dst, const AddressSpace& src){
 }
 
 void as_destroy(AddressSpace& as){
-    if(!as.pml4_phys || as.pml4_phys == kernel_as.pml4_phys || as.pml4_phys == current_pml4){
+    if(!as.pml4_phys || as.pml4_phys == kernel_as.pml4_phys || is_current(as)){
         panic("as_destroy: spatiu invalid sau activ (%lx)", as.pml4_phys);
     }
     uint64_t* pml4 = table(as.pml4_phys);

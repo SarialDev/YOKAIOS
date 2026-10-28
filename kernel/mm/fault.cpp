@@ -3,6 +3,7 @@
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "init.h"
+#include "arch/x86_64/percpu.h"
 
 extern "C" char _kernel_start[];
 extern "C" char _rodata_start[];
@@ -12,8 +13,6 @@ extern "C" char _kernel_end[];
 namespace {
 
 const uint8_t VEC_PF = 14;
-
-volatile bool kill_pending = false;
 
 uint64_t read_cr2(){
     uint64_t v;
@@ -43,8 +42,8 @@ void page_fault(InterruptFrame* f){
     }
     const char* cause = err & PF_ERR_PRESENT ? "violare de protectie" : "pagina nemapata";
     if(err & PF_ERR_USER){
-        // interrupt_dispatch omoara procesul inainte de intoarcerea in ring 3
-        kill_pending = true;
+        // interrupt_dispatch omoara procesul inainte de intoarcerea in ring 3 (pe acelasi CPU)
+        this_cpu()->kill_pending = true;
         kprintf("page fault user: %s la %lx (%s)\n", access_kind(err), addr, cause);
         return;
     }
@@ -77,11 +76,11 @@ bool vma_fault(AddressSpace&, uint64_t, uint64_t){
 }
 
 bool fault_kill_pending(){
-    return kill_pending;
+    return this_cpu()->kill_pending;
 }
 
 void fault_kill_clear(){
-    kill_pending = false;
+    this_cpu()->kill_pending = false;
 }
 
 void fault_protect_kernel(){

@@ -5,7 +5,7 @@
 // Spinlock cu __atomic. Debug: retine CPU-ul si adresa care l-au luat; re-lock pe acelasi CPU -> panic
 class Spinlock {
 public:
-    constexpr Spinlock(const char* lock_name = "spinlock") : locked(0), owner_cpu(0), owner_pc(0), name(lock_name){}
+    constexpr Spinlock(const char* lock_name = "spinlock") : locked(0), owner_cpu(~0u), owner_pc(0), name(lock_name){}
     void lock();
     void unlock();
     bool try_lock();

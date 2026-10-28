@@ -41,6 +41,9 @@ struct Task {
     ListLink all;               // lista tuturor task-urilor
     RtPeriodic* rt;             // task periodic (sched/rt.h), altfel nullptr
     Process* proc;              // procesul al carui thread principal e (proc/process.h), altfel nullptr
+    uint32_t cpu;               // CPU-ul pe care ruleaza / in a carui coada sta / pe care a rulat ultima data
+    int32_t affinity;           // -1 = orice CPU, altfel fixat pe acel CPU
+    volatile bool on_cpu;       // ales de scheduler si contextul inca nesalvat (de la alegere pana dupa switch_to)
 };
 
 typedef void (*TaskFn)(void* arg);
@@ -50,10 +53,11 @@ void tasks_init();
 
 // Thread de kernel nou, READY; porneste in fn(arg) cand il alege scheduler-ul (T4.2). nullptr fara memorie
 Task* task_create_kernel(const char* name, TaskFn fn, void* arg, uint8_t prio = 0);
+// Task-ul idle al unui AP (smp_init): doar stiva, AP-ul porneste direct pe ea
+Task* task_create_idle(uint32_t cpu);
 // Elibereaza stiva si structura unui task care nu ruleaza (ZOMBIE sau inca nepornit)
 void task_destroy(Task* t);
 
+// Task-ul care ruleaza pe CPU-ul curent (PerCpu::current)
 Task* task_current();
-// Folosita doar de scheduler la comutare
-void task_set_current(Task* t);
 uint64_t task_count();

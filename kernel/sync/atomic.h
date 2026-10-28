@@ -11,6 +11,7 @@ public:
     T exchange(T v){ return __atomic_exchange_n(&value, v, __ATOMIC_SEQ_CST); }
     T fetch_add(T v){ return __atomic_fetch_add(&value, v, __ATOMIC_SEQ_CST); }
     T fetch_sub(T v){ return __atomic_fetch_sub(&value, v, __ATOMIC_SEQ_CST); }
+    T fetch_or(T v){ return __atomic_fetch_or(&value, v, __ATOMIC_SEQ_CST); }
     // Daca valoarea e expected o inlocuieste cu desired; altfel pune in expected valoarea gasita
     bool compare_exchange(T& expected, T desired){
         return __atomic_compare_exchange_n(&value, &expected, desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
@@ -26,5 +27,9 @@ inline void cpu_relax(){
     __asm__ volatile("pause" : : : "memory");
 }
 
-// Ce CPU ruleaza codul curent (id-ul LAPIC, 0 inainte de APIC)
-uint32_t cpu_id();
+// Ce CPU ruleaza codul curent: PerCpu::id (index logic, 0 = BSP), citit direct prin GS (percpu.h)
+inline uint32_t cpu_id(){
+    uint32_t id;
+    __asm__ volatile("movl %%gs:32, %0" : "=r"(id));
+    return id;
+}

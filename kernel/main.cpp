@@ -5,6 +5,8 @@
 #include "lib/kprintf.h"
 #include "boot/multiboot2.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/percpu.h"
+#include "arch/x86_64/smp.h"
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/pic.h"
 #include "drivers/ps2kbd.h"
@@ -26,6 +28,7 @@
 #include "tests/test_user.h"
 #include "tests/test_rt.h"
 #include "tests/test_proc.h"
+#include "tests/test_smp.h"
 #include "syscall/syscall.h"
 
 //DECLARARE VARIABILE GLOBALE
@@ -298,6 +301,8 @@ void breakpoint_handler(InterruptFrame* f){
 }
 
 extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
+    // Inaintea oricarui lock: cpu_id() si task_current() citesc PerCpu prin GS
+    percpu_init(0, 0);
     curata_ecran();
 
     if(serial_init()){
@@ -310,7 +315,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         kprintf("[OK] multiboot2\n");
     }
 
-    gdt_init();
+    gdt_init_cpu(cpus[0]);
     kprintf("[OK] gdt\n");
 
     idt_init();
@@ -362,6 +367,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         kprintf("[OK] apic\n");
     }
     clock_init();
+    smp_init();
     ps2kbd_init(shell_on_key);
     kprintf("[OK] keyboard\n");
 
@@ -380,6 +386,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "sync")){
         test_sync_run();
+    }
+    if(test_named(test, "smp")){
+        test_smp_run();
     }
     if(test_named(test, "user")){
         test_user_run();

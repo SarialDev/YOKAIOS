@@ -8,7 +8,8 @@
 #include "mm/kmalloc.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
-#include "irqlock.h"
+#include "sync/spinlock.h"
+#include "arch/x86_64/percpu.h"
 #include "init.h"
 
 extern "C" char stack_bottom[];
@@ -16,12 +17,11 @@ extern "C" char stack_bottom[];
 namespace {
 
 const int KSTACK_ORDER = 2;                 // 4 pagini = 16 KiB
-const uint64_t RFLAGS_IF = 1UL << 9;
 const uint64_t RFLAGS_RESERVED = 1UL << 1;
 static_assert(PAGE_SIZE << KSTACK_ORDER == TASK_KSTACK_SIZE, "stiva de kernel = 2^KSTACK_ORDER pagini");
 
 KmemCache* task_cache = nullptr;
-Task* current = nullptr;
+Spinlock tasks_lock("tasks");
 ListLink all_tasks = {&all_tasks, &all_tasks};
 uint64_t all_count = 0;
 uint64_t next_tid = 0;
@@ -56,13 +56,16 @@ Task* new_task(const char* name, uint8_t prio){
     t->wake_ns = 0;
     t->rt = nullptr;
     t->proc = nullptr;
+    t->cpu = cpu_id();
+    t->affinity = -1;
+    t->on_cpu = false;
     int i = 0;
     for(; i < TASK_NAME_LEN - 1 && name[i]; i++){
         t->name[i] = name[i];
     }
     t->name[i] = 0;
     t->queue.prev = t->queue.next = &t->queue;
-    IrqLock lock;
+    SpinlockGuard lock(tasks_lock);
     link_add(all_tasks, t->all);
     all_count++;
     return t;
@@ -70,11 +73,13 @@ Task* new_task(const char* name, uint8_t prio){
 
 }
 
-// Prima instructiune a unui thread nou: fn in r12, arg in r13 (puse de task_create_kernel)
+// Prima instructiune a unui thread nou: fn in r12, arg in r13 (puse de task_create_kernel).
+// Porneste cu lock-ul scheduler-ului luat si intreruperile oprite; sched_task_start le elibereaza
 __asm__(
     ".text\n"
     ".globl task_trampoline\n"
     "task_trampoline:\n"
+    "    call sched_task_start\n"
     "    mov %r13, %rdi\n"
     "    call *%r12\n"
     "    call task_exit_current\n"
@@ -98,11 +103,16 @@ __init void tasks_init(){
     }
     idle->state = TaskState::RUNNING;
     idle->kstack = (uint8_t*)stack_bottom;
-    current = idle;
+    idle->affinity = 0;
+    idle->on_cpu = true;
+    this_cpu()->current = idle;
+    this_cpu()->idle = idle;
     kprintf("[OK] tasks (task 0 \"%s\", Task = %lu bytes)\n", idle->name, sizeof(Task));
 }
 
-Task* task_create_kernel(const char* name, TaskFn fn, void* arg, uint8_t prio){
+namespace {
+
+Task* with_stack(const char* name, uint8_t prio){
     uint64_t phys = alloc_pages(KSTACK_ORDER);
     if(!phys){
         return nullptr;
@@ -113,26 +123,40 @@ Task* task_create_kernel(const char* name, TaskFn fn, void* arg, uint8_t prio){
         return nullptr;
     }
     t->kstack = (uint8_t*)phys_to_virt(phys);
+    return t;
+}
+
+}
+
+Task* task_create_idle(uint32_t cpu){
+    char name[TASK_NAME_LEN] = "idle";
+    name[4] = (char)('0' + cpu / 10);
+    name[5] = (char)('0' + cpu % 10);
+    Task* t = with_stack(name, 0);
+    if(t){
+        t->cpu = cpu;
+        t->affinity = (int32_t)cpu;
+    }
+    return t;
+}
+
+Task* task_create_kernel(const char* name, TaskFn fn, void* arg, uint8_t prio){
+    Task* t = with_stack(name, prio);
+    if(!t){
+        return nullptr;
+    }
     // rsp aliniat la 16: trampolina face call, deci fn vede alinierea din ABI
     t->ctx.rsp = (uint64_t)(t->kstack + TASK_KSTACK_SIZE);
     t->ctx.rip = (uint64_t)task_trampoline;
-    t->ctx.rflags = RFLAGS_IF | RFLAGS_RESERVED;
+    t->ctx.rflags = RFLAGS_RESERVED;            // IF se activeaza in sched_task_start
     t->ctx.r12 = (uint64_t)fn;
     t->ctx.r13 = (uint64_t)arg;
     return t;
 }
 
 void task_destroy(Task* t){
-    if(t == current || t->state == TaskState::RUNNING){
+    if(t == task_current() || t->state == TaskState::RUNNING || t->on_cpu){
         panic("task_destroy: task %lu (%s) ruleaza", t->tid, t->name);
-    }
-    {
-        IrqLock lock;
-        link_remove(t->all);
-        if(t->queue.next != &t->queue){
-            link_remove(t->queue);
-        }
-        all_count--;
     }
     rt_task_destroyed(t);
     process_task_destroyed(t);
@@ -141,15 +165,22 @@ void task_destroy(Task* t){
         kfree(t->as);
     }
     free_pages((uint64_t)t->kstack - phys_map_base, KSTACK_ORDER);
+    // Ultimul pas: cine asteapta task_count() (testele, pe alt CPU) vede memoria deja eliberata
+    {
+        SpinlockGuard lock(tasks_lock);
+        link_remove(t->all);
+        if(t->queue.next != &t->queue){
+            link_remove(t->queue);
+        }
+        all_count--;
+    }
     kmem_cache_free(task_cache, t);
 }
 
 Task* task_current(){
-    return current;
-}
-
-void task_set_current(Task* t){
-    current = t;
+    Task* t;
+    __asm__ volatile("mov %%gs:24, %0" : "=r"(t));
+    return t;
 }
 
 uint64_t task_count(){

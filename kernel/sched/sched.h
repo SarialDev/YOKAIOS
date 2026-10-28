@@ -5,10 +5,12 @@
 const uint32_t SCHED_TIMESLICE_MS = 10;
 const uint64_t SCHED_NO_WAKE = ~0UL;
 
-// Porneste scheduler-ul: task 0 (idle) ruleaza, coada e goala
+// Porneste scheduler-ul pe BSP: task 0 (idle) ruleaza, cozile sunt goale
 void sched_init();
+// Pe un AP: idle devine task-ul curent al CPU-ului
+void sched_init_cpu(Task* idle);
 
-// Pune un task READY la coada runqueue-ului (FIFO)
+// Pune un task READY in coada unui CPU (cel fixat prin affinity, altfel unul liber), FIFO
 void sched_add(Task* t);
 // Cedeaza CPU-ul urmatorului task READY; revine cand ii vine iar randul
 void yield();
@@ -24,6 +26,10 @@ void sched_wake(Task* t);
 
 // Schimba clasa/prioritatea (priority inheritance); un task READY e mutat in coada potrivita
 void sched_set_class(Task* t, TaskClass cls, uint8_t prio);
+// Fixeaza t pe CPU-ul cpu (-1 = oricare) si il muta acolo; false daca CPU-ul nu e pornit
+bool sched_set_affinity(Task* t, int32_t cpu);
+// Cate task-uri au fost luate de un CPU liber din coada altuia (load balancing)
+uint64_t sched_migrations();
 
 // Din intreruperea de timer: trezeste task-urile adormite pana la now (inclusiv eliberarile RT)
 void sched_timer_event(uint64_t now);
@@ -34,5 +40,5 @@ void sched_tick(uint64_t now);
 // La iesirea din IRQ, dupa EOI (idt.cpp)
 void sched_irq_exit();
 
-// Bucla task-ului 0: elibereaza task-urile terminate si doarme cu hlt
+// Bucla task-ului idle al fiecarui CPU: elibereaza task-urile terminate, ia de lucru de la altii, doarme cu hlt
 [[noreturn]] void sched_idle();

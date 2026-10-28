@@ -2,16 +2,18 @@
 # Ruleaza ISO-ul de test headless si verifica markerii din tests/expect.txt.
 # Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
+# SMP=n alege numarul de CPU-uri (implicit 4)
 set -u
 
 ISO=${1:?iso lipsa}
 LOG=${2:-build/test.log}
 EXPECT=${EXPECT_FILE:-$(dirname "$0")/expect.txt}
 TIMEOUT=${TEST_TIMEOUT:-60}
+SMP=${SMP:-4}
 
 mkdir -p "$(dirname "$LOG")"
 
-timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M \
+timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
     -nographic -serial stdio -monitor none -no-reboot \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     ${QEMU_EXTRA:-} < /dev/null > "$LOG.raw" 2>&1

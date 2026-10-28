@@ -3,6 +3,7 @@
 #include "drivers/vga.h"
 #include "boot/multiboot2.h"
 #include "io.h"
+#include "arch/x86_64/smp.h"
 
 namespace {
 
@@ -52,13 +53,17 @@ uint64_t read_cr4(){ uint64_t v; __asm__ volatile("mov %%cr4, %0" : "=r"(v)); re
     }
 }
 
-// Intra in panic o singura data; o a doua panic (din panic) doar opreste CPU-ul
+// Intra in panic o singura data; o a doua panic (din panic sau de pe alt CPU) doar opreste CPU-ul
 void enter_panic(){
     __asm__ volatile("cli");
-    if(in_panic){
+    if(__atomic_exchange_n(&in_panic, true, __ATOMIC_SEQ_CST)){
         halt();
     }
-    in_panic = true;
+    // Celelalte CPU-uri se opresc (NMI), apoi consola e a acestui CPU chiar daca altul o tinea
+    smp_stop_others();
+    for(volatile int i = 0; i < 1000000; i++){
+    }
+    console_break_lock();
     vga_set_color(COLOR_PANIC);
 }
 

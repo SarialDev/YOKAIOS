@@ -15,6 +15,7 @@
 [OK] acpi
 [OK] apic
 [OK] timer
+[OK] smp cpus=4
 [OK] keyboard
 [OK] protect
 [OK] test_exceptions
@@ -29,6 +30,10 @@
 [OK] test_mutex
 [OK] test_semaphore
 [OK] test_pi
+[OK] test_smp affinity
+[OK] test_smp pull
+[OK] test_smp tlb
+[OK] test_smp (
 hello from ring 3
 [OK] test_user
 [OK] test_pipe

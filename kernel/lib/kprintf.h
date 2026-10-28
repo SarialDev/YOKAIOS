@@ -8,3 +8,5 @@ typedef __builtin_va_list va_list;
 void kputc(char c);
 void kprintf(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 void kvprintf(const char* fmt, va_list ap);
+// Panic: elibereaza fortat lock-ul consolei daca il tine alt CPU (oprit intre timp)
+void console_break_lock();

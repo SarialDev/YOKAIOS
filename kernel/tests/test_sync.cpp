@@ -6,6 +6,7 @@
 #include "time/clock.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
+#include "arch/x86_64/percpu.h"
 
 namespace {
 
@@ -16,6 +17,15 @@ const uint8_t LOW_PRIO = 1;
 const uint8_t RT_PRIO = 50;
 
 Atomic<int> finished(0);
+
+// Fara POPCNT in -march=x86-64, iar __builtin_popcount ar cere libgcc
+int bit_count(uint32_t v){
+    int n = 0;
+    for(; v; v &= v - 1){
+        n++;
+    }
+    return n;
+}
 
 // Task 0 (idle) nu are voie sa se blocheze, deci asteapta cu yield + hlt
 void wait_finished(int n){
@@ -39,6 +49,7 @@ void start(const char* name, TaskFn fn, void* arg, TaskClass cls = TaskClass::NO
 Mutex counter_mutex("counter");
 volatile uint64_t counter = 0;
 Atomic<uint64_t> contended(0);
+Atomic<uint32_t> cpus_used(0);                  // bitul i = un thread a tinut mutex-ul pe CPU-ul i
 
 // Citire si scriere separate, cu o pauza intre ele: fara mutex preemptia ar pierde incrementari
 void increment_thread(void*){
@@ -52,6 +63,10 @@ void increment_thread(void*){
             cpu_relax();
         }
         counter = v + 1;
+        uint32_t bit = 1u << cpu_id();
+        if(!(cpus_used.load(__ATOMIC_RELAXED) & bit)){
+            cpus_used.fetch_or(bit);
+        }
         counter_mutex.unlock();
     }
     finished.fetch_add(1);
@@ -59,6 +74,7 @@ void increment_thread(void*){
 
 void test_mutex(){
     counter = 0;
+    cpus_used.store(0);
     for(int i = 0; i < THREADS; i++){
         start("inc", increment_thread, nullptr);
     }
@@ -66,8 +82,13 @@ void test_mutex(){
     if(counter != (uint64_t)THREADS * INCREMENTS){
         panic("test_mutex: counter = %lu, asteptat %d", counter, THREADS * INCREMENTS);
     }
-    kprintf("[OK] test_mutex (%d thread-uri x %d = %lu, %lu lock-uri blocate)\n",
-            THREADS, INCREMENTS, counter, contended.load());
+    // Pe SMP thread-urile trebuie sa fi concurat de pe CPU-uri diferite
+    int used = bit_count(cpus_used.load());
+    if(smp_cpu_count() > 1 && used < 2){
+        panic("test_mutex: thread-urile au rulat doar pe %d CPU (masca %x)", used, cpus_used.load());
+    }
+    kprintf("[OK] test_mutex (%d thread-uri x %d = %lu, %lu lock-uri blocate, pe %d CPU-uri: masca %x)\n",
+            THREADS, INCREMENTS, counter, contended.load(), used, cpus_used.load());
 }
 
 Semaphore items(0);

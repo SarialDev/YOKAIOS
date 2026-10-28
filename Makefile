@@ -10,7 +10,8 @@ TEST_ISO = $(BUILD)/yokai-test.iso
 KERNEL = $(BUILD)/kernel.bin
 
 QEMU = qemu-system-x86_64
-QEMU_FLAGS = -cdrom $(ISO) -m 512M -serial stdio $(QEMU_EXTRA)
+SMP ?= 4
+QEMU_FLAGS = -cdrom $(ISO) -m 512M -smp $(SMP) -serial stdio $(QEMU_EXTRA)
 QEMU_EXTRA ?=
 
 # -march fix: altfel compilatorul poate tinti un CPU mai nou (BMI2 etc.) decat cel emulat de QEMU (#UD)
@@ -44,6 +45,8 @@ USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000
 
 # test-rt: jitter strict (<= 1 ms) cu KVM daca /dev/kvm e accesibil, altfel -icount (timp virtual, fara pauzele gazdei)
 RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-icount shift=auto")
+# -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
+RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
 .PHONY: all iso run test test-smash test-relock test-rt debug clean
 
@@ -87,7 +90,7 @@ $(TEST_ISO): $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 test: $(TEST_ISO)
-	QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
 
 # Acelasi kernel cu cmdline "test=<nume>": testul trebuie sa se termine intr-un panic anume
 $(BUILD)/panic-%.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
@@ -97,10 +100,10 @@ $(BUILD)/panic-%.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-$* 2>/dev/null
 
 test-smash: $(BUILD)/panic-smash.iso
-	EXPECT_PANIC="stack smashing" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/smash.log
+	EXPECT_PANIC="stack smashing" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/smash.log
 
 test-relock: $(BUILD)/panic-relock.iso
-	EXPECT_PANIC="re-lock" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/relock.log
+	EXPECT_PANIC="re-lock" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/relock.log
 
 $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-rt/boot/grub
@@ -109,8 +112,8 @@ $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-rt 2>/dev/null
 
 test-rt: $(BUILD)/yokai-rt.iso
-	@echo "test-rt cu: $(RT_ACCEL)"
-	EXPECT_FILE=tests/expect-rt.txt QEMU_EXTRA="$(RT_ACCEL) $(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/rt.log
+	@echo "test-rt cu: $(RT_ACCEL), $(RT_SMP) CPU"
+	EXPECT_FILE=tests/expect-rt.txt SMP=$(RT_SMP) QEMU_EXTRA="$(RT_ACCEL) $(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/rt.log
 
 debug: $(ISO)
 	$(QEMU) $(QEMU_FLAGS) -s -S

@@ -1,6 +1,6 @@
 /* Intrarea syscall si intrarea initiala in ring 3.
- * In kernel GS_BASE = &percpu si KERNEL_GS_BASE = baza user; swapgs le schimba la fiecare trecere.
- * Offset-uri ca in struct PerCpu (syscall/syscall.cpp), selectori ca in gdt.h. */
+ * In kernel GS_BASE = &cpus[id] si KERNEL_GS_BASE = baza user; swapgs le schimba la fiecare trecere.
+ * Offset-uri ca in struct PerCpu (arch/x86_64/percpu.h), selectori ca in gdt.h. */
 #define PERCPU_KSTACK   0
 #define PERCPU_USER_RSP 8
 #define SEL_UDATA       0x1B

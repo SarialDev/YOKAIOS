@@ -2,7 +2,6 @@
 #include "sched/rt.h"
 #include "time/clock.h"
 #include "lib/kprintf.h"
-#include "irqlock.h"
 
 FailsafeHook failsafe_hook = failsafe_default;
 
@@ -36,11 +35,11 @@ void failsafe_default(Task* t, WatchdogReason why){
 }
 
 void watchdog_configure(Task* t, uint32_t max_misses, uint32_t timeout_ms){
+    SpinlockGuard lock(rt_lock);
     RtPeriodic* p = t->rt;
     if(!p){
         return;
     }
-    IrqLock lock;
     p->wd_max_misses = max_misses ? max_misses : WATCHDOG_DEFAULT_MISSES;
     p->wd_timeout_ns = timeout_ms ? (uint64_t)timeout_ms * 1000000 : watchdog_default_timeout_ns(p->period_ns);
 }

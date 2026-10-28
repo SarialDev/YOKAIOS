@@ -1,9 +1,11 @@
 #include "sync/spinlock.h"
 #include "core/panic.h"
+#include "arch/x86_64/smp.h"
 
 namespace {
 
 const uint64_t RFLAGS_IF = 1UL << 9;
+const uint32_t NO_OWNER = ~0u;
 
 uint64_t save_and_cli(){
     uint64_t flags;
@@ -19,7 +21,8 @@ void Spinlock::lock(){
 
 void Spinlock::acquire(uint64_t pc){
     uint32_t cpu = cpu_id();
-    if(locked.load(__ATOMIC_RELAXED) && owner_cpu == cpu){
+    // owner_cpu se sterge inainte de eliberare, deci pe alt CPU nu poate parea egal cu cpu
+    if(locked.load(__ATOMIC_RELAXED) && __atomic_load_n(&owner_cpu, __ATOMIC_RELAXED) == cpu){
         panic("spinlock %s: re-lock pe CPU %u (luat la %lx, din nou la %lx)", name, cpu, owner_pc, pc);
     }
     for(;;){
@@ -28,10 +31,12 @@ void Spinlock::acquire(uint64_t pc){
             break;
         }
         while(locked.load(__ATOMIC_RELAXED)){
+            // Cu intreruperile oprite: un TLB shootdown cerut intre timp se rezolva aici, altfel deadlock
+            smp_spin_poll();
             cpu_relax();
         }
     }
-    owner_cpu = cpu;
+    __atomic_store_n(&owner_cpu, cpu, __ATOMIC_RELAXED);
     owner_pc = pc;
 }
 
@@ -40,7 +45,7 @@ bool Spinlock::try_lock(){
     if(!locked.compare_exchange(expected, 1)){
         return false;
     }
-    owner_cpu = cpu_id();
+    __atomic_store_n(&owner_cpu, cpu_id(), __ATOMIC_RELAXED);
     owner_pc = (uint64_t)__builtin_return_address(0);
     return true;
 }
@@ -50,6 +55,7 @@ void Spinlock::unlock(){
         panic("spinlock %s: unlock fara lock", name);
     }
     owner_pc = 0;
+    __atomic_store_n(&owner_cpu, NO_OWNER, __ATOMIC_RELAXED);
     locked.store(0, __ATOMIC_RELEASE);
 }
 

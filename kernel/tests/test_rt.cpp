@@ -7,6 +7,7 @@
 #include "boot/multiboot2.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
+#include "arch/x86_64/percpu.h"
 
 namespace {
 
@@ -108,7 +109,10 @@ void test_admission(){
 void test_jitter(){
     uint64_t before = task_count();
     load_end_ns = monotonic_ns() + RUN_NS;
+    // Toate pe acelasi CPU: se masoara preemptia NORMAL -> RT, nu cate CPU-uri libere are gazda
+    int32_t cpu = (int32_t)smp_cpu_count() - 1;
     Task* rt = must_create("rt-1khz", rt_job, RT_PERIOD_US, RT_PERIOD_US, 0, RT_WCET_US);
+    sched_set_affinity(rt, cpu);
     // Masuram jitter-ul, nu vrem ca watchdog-ul sa opreasca task-ul dupa o pauza a gazdei
     watchdog_configure(rt, 1000, 1000);
     for(int i = 0; i < LOAD_THREADS; i++){
@@ -116,6 +120,7 @@ void test_jitter(){
         if(!t){
             panic("test_rt: thread de incarcare");
         }
+        sched_set_affinity(t, cpu);
         sched_add(t);
     }
     // Task 0 ajunge sa ruleze abia cand thread-urile NORMAL au terminat cele 10 s
@@ -124,7 +129,9 @@ void test_jitter(){
         __asm__ volatile("hlt");
     }
     RtStats s;
-    rt_stats(rt, s);
+    if(!rt_stats(rt, s)){
+        panic("test_rt: rt-1khz s-a oprit inainte de final (watchdog)");
+    }
     rt_stats_print();
     rt_stop(rt);
     wait_tasks(before);

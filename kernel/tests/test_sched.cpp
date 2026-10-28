@@ -4,6 +4,7 @@
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "irqlock.h"
+#include "sync/atomic.h"
 
 namespace {
 
@@ -75,6 +76,8 @@ void run(const char* what, TaskFn fn, bool letter_arg){
         if(!tasks[i]){
             panic("test_sched: task_create_kernel a esuat");
         }
+        // Ordinea verificata mai jos e a unui singur CPU: toate pe CPU-ul testului
+        sched_set_affinity(tasks[i], (int32_t)cpu_id());
     }
     // Toate intra in coada deodata: un tick intre doua sched_add ar porni A singur
     {

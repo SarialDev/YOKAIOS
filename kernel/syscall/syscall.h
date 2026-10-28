@@ -2,8 +2,10 @@
 #include "types.h"
 #include "interrupt.h"
 
-// EFER.SCE, STAR, LSTAR, SFMASK si GS-ul per-CPU pentru intrarea din syscall.S
+// EFER.SCE, STAR, LSTAR, SFMASK pentru intrarea din syscall.S (GS-ul per-CPU vine din percpu_init)
 void syscall_init();
+// Doar MSR-urile, pe un AP
+void syscall_init_cpu();
 // Varful stivei de kernel pe care intra urmatorul syscall (la fiecare comutare de task, ca TSS.rsp0)
 void syscall_set_kstack(uint64_t top);
 // Apelata din syscall.S; numarul si argumentele vin din frame, rezultatul merge in f->rax

@@ -9,3 +9,5 @@ const uint8_t IDT_VEC_IRQ_FIRST = 0x20;
 const uint8_t IDT_VEC_IRQ_END = 0x40;
 
 void idt_init();
+// Incarca IDT-ul comun pe CPU-ul curent (AP)
+void idt_load();
