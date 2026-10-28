@@ -32,7 +32,6 @@ jobs:
 
       - name: RT jitter test
         continue-on-error: true
-        continue-on-error: true
         run: make test-rt
 
       - name: Upload test log
