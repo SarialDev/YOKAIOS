@@ -42,7 +42,10 @@ USER_ASFLAGS = -m64 -ffreestanding -nostdlib -Ikernel/include
 USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000 \
                -z max-page-size=0x1000 -z separate-code -z noexecstack --build-id=none
 
-.PHONY: all iso run test test-smash test-relock debug clean
+# test-rt: jitter strict (<= 1 ms) cu KVM daca /dev/kvm e accesibil, altfel -icount (timp virtual, fara pauzele gazdei)
+RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-icount shift=auto")
+
+.PHONY: all iso run test test-smash test-relock test-rt debug clean
 
 all: $(ISO)
 
@@ -98,6 +101,16 @@ test-smash: $(BUILD)/panic-smash.iso
 
 test-relock: $(BUILD)/panic-relock.iso
 	EXPECT_PANIC="re-lock" QEMU_EXTRA="$(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/relock.log
+
+$(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-rt/boot/grub
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-rt/boot/
+	sed 's/test=[^ ]*/test=rt rt_strict/' boot/grub-test.cfg > $(BUILD)/iso-rt/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-rt 2>/dev/null
+
+test-rt: $(BUILD)/yokai-rt.iso
+	@echo "test-rt cu: $(RT_ACCEL)"
+	EXPECT_FILE=tests/expect-rt.txt QEMU_EXTRA="$(RT_ACCEL) $(QEMU_EXTRA)" tests/run_qemu.sh $< $(BUILD)/rt.log
 
 debug: $(ISO)
 	$(QEMU) $(QEMU_FLAGS) -s -S

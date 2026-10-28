@@ -30,6 +30,9 @@ jobs:
       - name: Panic tests
         run: make test-smash test-relock
 
+      - name: RT jitter test
+        run: make test-rt
+
       - name: Upload test log
         if: always()
         uses: actions/upload-artifact@v4

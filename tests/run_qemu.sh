@@ -1,13 +1,13 @@
 #!/bin/sh
 # Ruleaza ISO-ul de test headless si verifica markerii din tests/expect.txt.
-# Uz: tests/run_qemu.sh <iso> [log]
+# Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
 set -u
 
 ISO=${1:?iso lipsa}
 LOG=${2:-build/test.log}
-EXPECT=$(dirname "$0")/expect.txt
-TIMEOUT=${TEST_TIMEOUT:-30}
+EXPECT=${EXPECT_FILE:-$(dirname "$0")/expect.txt}
+TIMEOUT=${TEST_TIMEOUT:-60}
 
 mkdir -p "$(dirname "$LOG")"
 

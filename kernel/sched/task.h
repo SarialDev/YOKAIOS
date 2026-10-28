@@ -22,12 +22,14 @@ struct ListLink {
     ListLink* next;
 };
 
+struct RtPeriodic;
+
 struct Task {
     uint64_t tid;
     uint64_t pid;               // 0 pentru thread-urile de kernel
     TaskState state;
     TaskClass cls;
-    uint8_t prio;
+    uint8_t prio;               // pentru RT: 1..99, mai mare = mai important
     Context ctx;
     uint8_t* kstack;            // baza stivei de kernel (TASK_KSTACK_SIZE bytes)
     AddressSpace* as;
@@ -36,6 +38,7 @@ struct Task {
     uint64_t wake_ns;           // pentru task-urile adormite (sched_sleep_until)
     ListLink queue;             // coada de rulare / asteptare
     ListLink all;               // lista tuturor task-urilor
+    RtPeriodic* rt;             // task periodic (sched/rt.h), altfel nullptr
 };
 
 typedef void (*TaskFn)(void* arg);

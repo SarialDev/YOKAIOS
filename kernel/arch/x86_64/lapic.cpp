@@ -75,3 +75,12 @@ void lapic_timer_periodic(uint32_t ticks, uint8_t vector){
     write(REG_LVT_TIMER, LVT_PERIODIC | vector);
     write(REG_TIMER_INIT, ticks);
 }
+
+void lapic_timer_oneshot(uint8_t vector){
+    write(REG_TIMER_DIVIDE, DIVIDE_BY_16);
+    write(REG_LVT_TIMER, vector);
+}
+
+void lapic_timer_arm(uint32_t ticks){
+    write(REG_TIMER_INIT, ticks ? ticks : 1);
+}

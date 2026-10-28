@@ -1,5 +1,6 @@
 #include "sync/mutex.h"
 #include "core/panic.h"
+#include "sched/sched.h"
 
 void Mutex::lock(){
     Task* self = task_current();
@@ -8,12 +9,14 @@ void Mutex::lock(){
         panic("mutex %s: re-lock de catre task-ul %lu (fara recursivitate)", name, self->tid);
     }
     while(owner){
-        if(self->cls == TaskClass::RT && self->prio > owner->prio){
+        // Owner-ul ruleaza ca RT cu prioritatea celui care asteapta, ca sa elibereze repede mutex-ul
+        if(self->cls == TaskClass::RT && (owner->cls != TaskClass::RT || self->prio > owner->prio)){
             if(!boosted){
                 owner_prio = owner->prio;
+                owner_cls = owner->cls;
                 boosted = true;
             }
-            owner->prio = self->prio;
+            sched_set_class(owner, TaskClass::RT, self->prio);
         }
         waiters.wait(guard);
     }
@@ -38,7 +41,7 @@ void Mutex::unlock(){
         panic("mutex %s: unlock de catre task-ul %lu, owner %lu", name, self->tid, owner ? owner->tid : 0);
     }
     if(boosted){
-        self->prio = owner_prio;
+        sched_set_class(self, owner_cls, owner_prio);
         boosted = false;
     }
     owner = nullptr;

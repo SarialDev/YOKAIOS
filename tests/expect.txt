@@ -31,4 +31,7 @@
 [OK] test_pi
 hello from ring 3
 [OK] test_user
+[OK] test_watchdog
+[OK] test_rt jitter
+[OK] test_rt
 [OK] boot

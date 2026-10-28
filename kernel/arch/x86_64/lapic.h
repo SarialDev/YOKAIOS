@@ -13,3 +13,7 @@ uint32_t lapic_id();
 uint32_t lapic_timer_measure(void (*wait_ms)(uint32_t), uint32_t ms);
 // Mod periodic: intrerupere pe vector la fiecare `ticks` tick-uri (divizor 16)
 void lapic_timer_periodic(uint32_t ticks, uint8_t vector);
+// Mod one-shot (divizor 16): lapic_timer_oneshot o data, apoi lapic_timer_arm pentru fiecare eveniment.
+// O noua armare anuleaza evenimentul anterior
+void lapic_timer_oneshot(uint8_t vector);
+void lapic_timer_arm(uint32_t ticks);

@@ -3,6 +3,7 @@
 #include "sched/task.h"
 
 const uint32_t SCHED_TIMESLICE_MS = 10;
+const uint64_t SCHED_NO_WAKE = ~0UL;
 
 // Porneste scheduler-ul: task 0 (idle) ruleaza, coada e goala
 void sched_init();
@@ -21,8 +22,16 @@ void sched_block();
 // Task BLOCKED -> READY, la coada runqueue-ului
 void sched_wake(Task* t);
 
-// Apelate din tick-ul LAPIC si la iesirea din IRQ (idt.cpp)
-void sched_tick();
+// Schimba clasa/prioritatea (priority inheritance); un task READY e mutat in coada potrivita
+void sched_set_class(Task* t, TaskClass cls, uint8_t prio);
+
+// Din intreruperea de timer: trezeste task-urile adormite pana la now (inclusiv eliberarile RT)
+void sched_timer_event(uint64_t now);
+// Cel mai apropiat moment de trezire, SCHED_NO_WAKE daca nu doarme nimeni (pentru timer-ul one-shot)
+uint64_t sched_next_wake();
+// La fiecare tick de 1 ms: timeslice NORMAL si watchdog
+void sched_tick(uint64_t now);
+// La iesirea din IRQ, dupa EOI (idt.cpp)
 void sched_irq_exit();
 
 // Bucla task-ului 0: elibereaza task-urile terminate si doarme cu hlt

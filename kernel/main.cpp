@@ -24,6 +24,7 @@
 #include "tests/test_sched.h"
 #include "tests/test_sync.h"
 #include "tests/test_user.h"
+#include "tests/test_rt.h"
 #include "syscall/syscall.h"
 
 //DECLARARE VARIABILE GLOBALE
@@ -381,6 +382,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "user")){
         test_user_run();
+    }
+    if(test_named(test, "rt")){
+        test_rt_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();
