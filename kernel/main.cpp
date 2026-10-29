@@ -17,8 +17,10 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/pic.h"
 #include "drivers/ps2kbd.h"
+#include "drivers/ps2mouse.h"
 #include "drivers/pci/pci.h"
 #include "tests/test_pci.h"
+#include "tests/test_ps2mouse.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -369,6 +371,8 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     input_subscribe(shell_on_input);
     ps2kbd_init();
     kprintf("[OK] keyboard\n");
+    ps2mouse_init();
+    kprintf("[OK] mouse\n");
     hal_list();
     kprintf("[OK] hal\n");
 
@@ -405,6 +409,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "pci")){
         test_pci_run();
+    }
+    if(test_named(test, "mouse")){
+        test_ps2mouse_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();

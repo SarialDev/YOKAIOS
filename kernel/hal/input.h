@@ -10,10 +10,24 @@ struct KeyEvent {
     uint8_t modifiers;  // KeyMod, starea modificatorilor dupa acest eveniment
 };
 
+// Butoane mouse (campul buttons din MouseEvent)
+enum MouseButton : uint8_t {
+    MOUSE_LEFT   = 1 << 0,
+    MOUSE_RIGHT  = 1 << 1,
+    MOUSE_MIDDLE = 1 << 2,
+};
+
+// Un pachet de mouse: deplasare relativa de la pachetul anterior + starea butoanelor
+struct MouseEvent {
+    int16_t dx;         // pozitiv spre dreapta
+    int16_t dy;         // pozitiv in jos (coordonate de ecran; PS/2 raporteaza in sus, driverul inverseaza)
+    int16_t dz;         // roata, pozitiv spre utilizator (in jos); 0 fara IntelliMouse
+    uint8_t buttons;    // MouseButton, starea dupa acest pachet
+};
+
 enum class InputType : uint8_t {
     Key,        // campul key e valid
-    MouseRel,   // code = 0 (x), 1 (y), 2 (roata); value = deplasare cu semn
-    MouseBtn    // code = indexul butonului, value = 1 / 0
+    Mouse       // campul mouse e valid
 };
 
 struct InputEvent {
@@ -23,6 +37,7 @@ struct InputEvent {
     int32_t value;
     uint64_t time_ns;   // monotonic_ns() la primire
     KeyEvent key;       // valid doar pentru InputType::Key
+    MouseEvent mouse;   // valid doar pentru InputType::Mouse
 };
 
 enum class InputKind : uint8_t { Keyboard, Mouse };

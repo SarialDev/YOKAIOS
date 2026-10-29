@@ -17,6 +17,7 @@
 [OK] timer
 [OK] smp cpus=@SMP@
 [OK] keyboard
+[OK] mouse
 [OK] hal
 [OK] pci 
 [OK] protect
@@ -61,4 +62,5 @@ Ethernet controller
 [OK] test_pci msi
 [OK] test_pci msix
 [OK] test_pci (
+[OK] test_ps2mouse
 [OK] boot

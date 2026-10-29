@@ -180,7 +180,7 @@ void check_input_bus(){
     const uint32_t extra = 3;
     for(uint32_t i = 0; i < INPUT_RING_SIZE + extra; i++){
         InputEvent e;
-        e.type = (i & 1) ? InputType::MouseBtn : InputType::MouseRel;
+        e.type = (i & 1) ? InputType::Mouse : InputType::Key;
         e.raw = 0;
         e.code = 0;
         e.value = (int32_t)i;
@@ -191,7 +191,7 @@ void check_input_bus(){
     for(uint32_t i = extra; i < INPUT_RING_SIZE + extra; i++){
         CHECK(input_pop(ev));
         CHECK(ev.value == (int32_t)i);
-        CHECK(ev.type == ((i & 1) ? InputType::MouseBtn : InputType::MouseRel));
+        CHECK(ev.type == ((i & 1) ? InputType::Mouse : InputType::Key));
     }
     CHECK(!input_pop(ev));
 

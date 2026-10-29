@@ -48,7 +48,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse debug clean
 
 all: $(ISO)
 
@@ -110,6 +110,16 @@ $(BUILD)/panic-pci.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log
+
+# Boot normal cu "debug=mouse"; miscarea mouse-ului injectata prin monitorul QEMU trebuie sa apara pe serial
+$(BUILD)/yokai-mouse.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg
+	@mkdir -p $(BUILD)/iso-mouse/boot/grub
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-mouse/boot/
+	sed 's|/boot/kernel.bin|/boot/kernel.bin debug=mouse|' boot/grub.cfg > $(BUILD)/iso-mouse/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-mouse 2>/dev/null
+
+test-mouse: $(BUILD)/yokai-mouse.iso
+	QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_mouse.sh $< $(BUILD)/mouse.log
 
 $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-rt/boot/grub
