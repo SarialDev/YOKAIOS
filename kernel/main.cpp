@@ -74,61 +74,6 @@ int TERMINALBOOL = 0 ; // depinde de valoare poate reprezenta daca e pe aplicati
 
 //VARIABILE CULORI
 
-char scanASCII(uint8_t scancode){
-    switch(scancode){
-        case 0x1E: return 'a';
-        case 0x30: return 'b';
-        case 0x2E: return 'c';
-        case 0x20: return 'd';
-        case 0x12: return 'e';
-        case 0x21: return 'f';
-        case 0x10: return 'q';
-        case 0x11: return 'w';
-        case 0x13: return 'r';
-        case 0x14: return 't';
-        case 0x15: return 'y';
-        case 0x16: return 'u';
-        case 0x17: return 'i';
-        case 0x18: return 'o';
-        case 0x19: return 'p';
-        case 0x1A: return '[';
-        case 0x1B: return ']';
-        case 0x1C: return '\n';
-        case 0x1F: return 's';
-        case 0x22: return 'g';
-        case 0x23: return 'h';
-        case 0x24: return 'j';
-        case 0x25: return 'k';
-        case 0x26: return 'l';
-        case 0x27: return ';';
-        case 0x28: return '"';
-        case 0x2C: return 'z';
-        case 0x2D: return 'x';
-        case 0x2F: return 'v';
-        case 0x31: return 'n';
-        case 0x32: return 'm';
-        case 0x33: return ',';
-        case 0x34: return '.';
-        case 0x35: return '/';
-        case 0x02: return '1';
-        case 0x03: return '2';
-        case 0x04: return '3';
-        case 0x05: return '4';
-        case 0x06: return '5';
-        case 0x07: return '6';
-        case 0x08: return '7';
-        case 0x09: return '8';
-        case 0x0A: return '9';
-        case 0x0B: return '0';
-        case 0x0C: return '-';
-        case 0x0D: return '=';
-        case 0x0F: return '\t';
-        case 0x39: return ' ';
-
-        default: return 0;
-    }
-}
-
 // VARIABILE TIN
 char raw_buffer[256];
 volatile int raw_len = 0 ; 
@@ -283,53 +228,40 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     
 }
 
-// Apelat din IRQ1 (ps2kbd) pentru fiecare scancode
-void shell_on_key(uint8_t scancode){
-
-    if(scancode < 0x80){
-        if(scancode == 0x1C){
-            /*for(int i = 0 ; i <= comanda_lungime ; i++){
-            comanda_buffer[i] = '\0';            
-            }
-            executa_comanda(" ", cursor_x , cursor_y , comanda_lungime);*/
-            comanda_buffer[comanda_lungime] = '\0';
-    executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime);
-    comanda_lungime = 0;
-    out("yokai@drone_terminal:~$ " , 2 , cursor_y);    
-    
-    //out("yokai@drone_terminal:~$ " , 2 , cursor_y);
-    cursor_x = 26;
-    for(int i = 0 ; i < 256 ; i++){
-        comanda_buffer[i] = '\0';
-    }
-    muta_cursor(cursor_x , cursor_y);
-        }else if (scancode == 0x0E){
-            if(comanda_lungime > 0) {
-                comanda_lungime--;
-                cursor_x--;
-                out(" ", cursor_x , cursor_y);
-                muta_cursor(cursor_x , cursor_y);
-                
-            }
-        } else {
-            char c = scanASCII(scancode);
-            if(c != 0 && comanda_lungime < 255) {
-                comanda_buffer[comanda_lungime] = c ;
-                comanda_lungime++;
-                
-                char sir[2] = {c, '\0'};
-                out(sir , cursor_x , cursor_y);
-                cursor_x++;
-                muta_cursor(cursor_x , cursor_y);
-            }
+// Apelat din IRQ1 (ps2kbd) pentru fiecare tasta apasata; k.ascii are deja Shift/Caps aplicate
+void shell_on_key(const KeyEvent& k){
+    if(k.keycode == KEY_ENTER){
+        comanda_buffer[comanda_lungime] = '\0';
+        executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime);
+        comanda_lungime = 0;
+        out("yokai@drone_terminal:~$ " , 2 , cursor_y);
+        cursor_x = 26;
+        for(int i = 0 ; i < 256 ; i++){
+            comanda_buffer[i] = '\0';
         }
+        muta_cursor(cursor_x , cursor_y);
+    } else if(k.keycode == KEY_BACKSPACE){
+        if(comanda_lungime > 0) {
+            comanda_lungime--;
+            cursor_x--;
+            out(" ", cursor_x , cursor_y);
+            muta_cursor(cursor_x , cursor_y);
+        }
+    } else if(k.ascii != 0 && comanda_lungime < 255) {
+        comanda_buffer[comanda_lungime] = k.ascii;
+        comanda_lungime++;
+
+        char sir[2] = {k.ascii, '\0'};
+        out(sir , cursor_x , cursor_y);
+        cursor_x++;
+        muta_cursor(cursor_x , cursor_y);
     }
 }
 
-// Evenimentele de tastatura de pe event bus; shell-ul lucreaza pe scancode-uri de apasare
+// Evenimentele de tastatura de pe event bus; shell-ul primeste doar apasarile
 void shell_on_input(const InputEvent& ev){
-    if(ev.type == InputType::Key && ev.value == 1){
-        shell_on_key((uint8_t)ev.code);
+    if(ev.type == InputType::Key && ev.key.pressed){
+        shell_on_key(ev.key);
     }
 }
 

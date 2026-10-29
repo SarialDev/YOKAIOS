@@ -1,18 +1,28 @@
 #pragma once
 #include "hal/hal.h"
+#include "keycodes.h"
+
+// Eveniment de tastatura: keycode e independent de layout, ascii e 0 pentru tastele care nu produc caracter
+struct KeyEvent {
+    uint16_t keycode;   // KeyCode
+    char ascii;         // caracterul cu Shift/Caps aplicate, 0 daca nu e imprimabil
+    bool pressed;       // true la apasare (si la autorepeat), false la eliberare
+    uint8_t modifiers;  // KeyMod, starea modificatorilor dupa acest eveniment
+};
 
 enum class InputType : uint8_t {
-    Key,        // code = scancode set 1 fara bitul 7, value = 1 apasat / 0 eliberat
+    Key,        // campul key e valid
     MouseRel,   // code = 0 (x), 1 (y), 2 (roata); value = deplasare cu semn
     MouseBtn    // code = indexul butonului, value = 1 / 0
 };
 
 struct InputEvent {
     InputType type;
-    uint8_t raw;        // octetul brut de la dispozitiv (tastatura: scancode complet)
+    uint8_t raw;        // octetul brut de la dispozitiv (tastatura: ultimul octet din secventa)
     uint16_t code;
     int32_t value;
     uint64_t time_ns;   // monotonic_ns() la primire
+    KeyEvent key;       // valid doar pentru InputType::Key
 };
 
 enum class InputKind : uint8_t { Keyboard, Mouse };

@@ -196,16 +196,17 @@ void check_input_bus(){
     CHECK(!input_pop(ev));
 
     static volatile int seen = 0;
-    input_subscribe([](const InputEvent& e){ seen = e.value; });
+    input_subscribe([](const InputEvent& e){ seen = e.key.ascii; });
     InputEvent k;
     k.type = InputType::Key;
     k.raw = 0x1E;
-    k.code = 0x1E;
-    k.value = 42;
+    k.code = 0;
+    k.value = 0;
     k.time_ns = 0;
+    k.key = KeyEvent{KEY_A, 'A', true, MOD_SHIFT};
     input_push(k);
-    CHECK(seen == 42);
-    CHECK(input_pop(ev) && ev.code == 0x1E);
+    CHECK(seen == 'A');
+    CHECK(input_pop(ev) && ev.type == InputType::Key && ev.key.keycode == KEY_A && ev.key.modifiers == MOD_SHIFT);
     input_subscribe(saved);
 }
 
