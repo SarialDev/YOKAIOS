@@ -65,7 +65,8 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         fault_kill_clear();
         process_kill(f);
     }
-    if(f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END){
+    if((f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END) ||
+       (f->vector >= IDT_VEC_MSI_FIRST && f->vector < IDT_VEC_MSI_END)){
         InterruptController* chip = hal_irqchip();
         if(chip){
             chip->eoi(f->vector);

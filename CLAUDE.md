@@ -25,3 +25,7 @@ OS hobby hibrid: x86-64 acum, ARM64 (dronă) mai târziu.
 - Input: event bus comun (ring buffer) în `hal/input.h`; `input_push` din IRQ, `input_pop`/`input_subscribe` pentru consumatori.
 - Obiectele HAL sunt statice cu constructor `constexpr` (nu rulează constructori globali în kernel).
 
+
+## PCI
+- `kernel/drivers/pci/pci.{h,cpp}`: ECAM din MCFG (fallback porturi 0xCF8/0xCFC), scanare recursivă prin bridge-uri, `PciDevice` cu BAR-uri decodate, `pci_enable`, MSI/MSI-X (`pci_msi_enable`, `pci_msix_*`, vectori 0x90-0xEF cu EOI în dispatcher), tabel de drivere `PciDriver` + `pci_register_driver`. Shell: `lspci`, `lspci -v`. Fără hotplug.
+- Testele rulează cu `-nic e1000`, `-device edu` (MSI) și `virtio-net-pci` (MSI-X) puse de `tests/run_qemu.sh`; `make test-pci-q35` verifică ECAM.

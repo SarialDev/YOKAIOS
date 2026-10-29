@@ -30,6 +30,9 @@ jobs:
       - name: Panic tests
         run: make test-smash test-relock
 
+      - name: PCI (q35, ECAM)
+        run: make test-pci-q35
+
       - name: RT jitter test
         continue-on-error: true
         run: make test-rt

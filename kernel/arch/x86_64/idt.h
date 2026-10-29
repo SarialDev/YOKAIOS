@@ -7,6 +7,9 @@ const uint8_t IDT_VEC_SYSCALL = 0x80;
 // Vectori de intreruperi hardware (ISA 0x20-0x2F, LAPIC 0x30-0x3F): primesc EOI
 const uint8_t IDT_VEC_IRQ_FIRST = 0x20;
 const uint8_t IDT_VEC_IRQ_END = 0x40;
+// Vectori MSI/MSI-X alocati de PCI: primesc si ei EOI
+const uint8_t IDT_VEC_MSI_FIRST = 0x90;
+const uint8_t IDT_VEC_MSI_END = 0xF0;
 
 void idt_init();
 // Incarca IDT-ul comun pe CPU-ul curent (AP)

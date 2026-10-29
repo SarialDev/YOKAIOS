@@ -18,6 +18,7 @@
 [OK] smp cpus=@SMP@
 [OK] keyboard
 [OK] hal
+[OK] pci 
 [OK] protect
 [OK] test_exceptions
 [OK] test_paging
@@ -51,4 +52,13 @@ orfan: parintele s-a terminat, getppid = 0
 [OK] test_rt jitter
 [OK] test_rt
 [OK] test_hal
+Host bridge
+VGA compatible controller
+Ethernet controller
+[OK] test_pci enum
+[OK] test_pci enable
+[OK] test_pci drivers
+[OK] test_pci msi
+[OK] test_pci msix
+[OK] test_pci (
 [OK] boot

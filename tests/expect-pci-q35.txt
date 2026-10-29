@@ -1,0 +1,8 @@
+[OK] pci ecam
+[OK] test_pci enum
+[OK] test_pci enable
+[OK] test_pci drivers
+[OK] test_pci msi
+[OK] test_pci msix
+[OK] test_pci (
+[OK] boot

@@ -17,6 +17,8 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/pic.h"
 #include "drivers/ps2kbd.h"
+#include "drivers/pci/pci.h"
+#include "tests/test_pci.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -226,6 +228,28 @@ void afiseaza_uptime(int x, int y){
     out(buf, x, y);
 }
 
+// lspci / lspci -v: o linie pe rand; cand ecranul se umple, il curata
+void afiseaza_lspci(bool verbose, int& cursor_y){
+    char buf[LATIME_ECRAN];
+    auto linie = [&](const char* text){
+        if(cursor_y >= INALTIME_ECRAN - 1){
+            curata_ecran();
+            cursor_y = 1;
+        }
+        out(text, 0, cursor_y++);
+    };
+    for(int i = 0; i < pci_device_count(); i++){
+        const PciDevice* d = pci_device_at(i);
+        pci_format(d, buf, sizeof(buf));
+        linie(buf);
+        for(int b = 0; verbose && b < PCI_BAR_COUNT; b++){
+            if(pci_format_bar(d, b, buf, sizeof(buf))){
+                linie(buf);
+            }
+        }
+    }
+}
+
 void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
     cursor_y++;
     cursor_x = 0;
@@ -233,7 +257,7 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime , lspci" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -245,6 +269,8 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     } else if (sunt_egale(comanda , "uptime")){
         afiseaza_uptime(cursor_x , cursor_y);
         cursor_y++;
+    } else if (sunt_egale(comanda , "lspci") || sunt_egale(comanda , "lspci -v")){
+        afiseaza_lspci(comanda[5] != '\0', cursor_y);
     } else if(sunt_egale(comanda , "color ")){
 
     } else if (TERMINALBOOL == 0) {
@@ -407,6 +433,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     tsc_register();
     clock_init();
     smp_init();
+    pci_init();
     input_subscribe(shell_on_input);
     ps2kbd_init();
     kprintf("[OK] keyboard\n");
@@ -443,6 +470,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "hal")){
         test_hal_run();
+    }
+    if(test_named(test, "pci")){
+        test_pci_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();

@@ -48,7 +48,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 debug clean
 
 all: $(ISO)
 
@@ -104,6 +104,12 @@ test-smash: $(BUILD)/panic-smash.iso
 
 test-relock: $(BUILD)/panic-relock.iso
 	EXPECT_PANIC="re-lock" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/relock.log
+
+# PCI pe masina q35: config space prin ECAM (MCFG), restul testelor ramana pe i440fx
+$(BUILD)/panic-pci.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+
+test-pci-q35: $(BUILD)/panic-pci.iso
+	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log
 
 $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-rt/boot/grub
