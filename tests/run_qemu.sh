@@ -2,6 +2,7 @@
 # Ruleaza ISO-ul de test headless si verifica markerii din tests/expect.txt.
 # Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
+# FB=0: boot cu "nofb" (consola VGA text); liniile "@fb " / "@nofb " din expect.txt se cer doar cu / fara framebuffer
 # SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
 set -u
 
@@ -53,6 +54,8 @@ while IFS= read -r line || [ -n "$line" ]; do
     # "@SMP@" = numarul de CPU-uri; liniile "@smp>1 " exista doar cu cel putin 2 CPU-uri
     case "$line" in
         "@smp>1 "*) [ "$SMP" -lt 2 ] && continue; line=${line#@smp>1 } ;;
+        "@fb "*) [ "${FB:-1}" = 0 ] && continue; line=${line#@fb } ;;
+        "@nofb "*) [ "${FB:-1}" = 1 ] && continue; line=${line#@nofb } ;;
     esac
     line=$(printf '%s' "$line" | sed "s/@SMP@/$SMP/g")
     if ! grep -qF -- "$line" "$LOG"; then

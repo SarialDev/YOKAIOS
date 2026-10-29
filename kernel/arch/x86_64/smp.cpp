@@ -1,4 +1,5 @@
 #include "arch/x86_64/smp.h"
+#include "arch/x86_64/pat.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/idt.h"
 #include "hal/irqchip.h"
@@ -124,6 +125,7 @@ extern "C" [[noreturn]] void ap_main(uint32_t id){
     __asm__ volatile("mov %0, %%cr4" : : "r"(bsp_cr4) : "memory");
     percpu_init(id, c.lapic_id);
     gdt_init_cpu(c);
+    pat_init_cpu();
     idt_load();
     syscall_init_cpu();
     hal_irqchip()->init_ap();

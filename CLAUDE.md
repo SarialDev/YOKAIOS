@@ -29,3 +29,8 @@ OS hobby hibrid: x86-64 acum, ARM64 (dronă) mai târziu.
 ## PCI
 - `kernel/drivers/pci/pci.{h,cpp}`: ECAM din MCFG (fallback porturi 0xCF8/0xCFC), scanare recursivă prin bridge-uri, `PciDevice` cu BAR-uri decodate, `pci_enable`, MSI/MSI-X (`pci_msi_enable`, `pci_msix_*`, vectori 0x90-0xEF cu EOI în dispatcher), tabel de drivere `PciDriver` + `pci_register_driver`. Shell: `lspci`, `lspci -v`. Fără hotplug.
 - Testele rulează cu `-nic e1000`, `-device edu` (MSI) și `virtio-net-pci` (MSI-X) puse de `tests/run_qemu.sh`; `make test-pci-q35` verifică ECAM.
+
+## Framebuffer / consola grafică
+- `boot.S` cere 1024x768x32 prin tag-ul Multiboot2 (opțional); GRUB încarcă `all_video`. `kernel/drivers/fb/fb.{h,cpp}`: mapare WC (PAT: intrarea 1 = WC, deci doar `PTE_PWT`; `pat_init_cpu()` pe fiecare CPU) la `HHDM_BASE + 256 GiB + fizic`, `putpixel/fill_rect/blit/draw_glyph/scroll_up/flush`, back buffer în RAM (write-through: se scrie și în fb; scroll citește doar din RAM). Device HAL `fb0`.
+- `kernel/drivers/fbcon.cpp`: consolă text 8x16 (font Terminus în `fb/font8x16.h`, Latin-15; 0xDB/0xDC/0xDF = blocuri CP437 sintetizate), ANSI (SGR 0/1/7/22/30-37/39/40-47/49/90-97/100-107, `H f A B C D J K`), temă Dark (alb pe negru, accente roșii), cursor = linie roșie. Se înregistrează ca „fbcon” și VGA text tace (`vga_disable`). Fără fb, sau cu cmdline `nofb`, rămâne VGA text.
+- Mesajele de boot de dinainte de `kmalloc_init` merg doar pe serial. Teste: `test=fb`, `make test-nofb` (expect.txt: prefixele `@fb ` / `@nofb `, variabila `FB=0`).

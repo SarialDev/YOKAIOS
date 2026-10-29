@@ -10,13 +10,17 @@ struct MemRegion {
     uint32_t type;
 };
 
-struct Framebuffer {
+struct BootFramebuffer {
     uint64_t addr;
     uint32_t pitch;
     uint32_t width;
     uint32_t height;
     uint8_t bpp;
     uint8_t type;   // 0 indexat, 1 RGB, 2 text EGA
+    // Doar pentru type 1: pozitia (bit) si marimea fiecarui canal
+    uint8_t red_pos, red_size;
+    uint8_t green_pos, green_size;
+    uint8_t blue_pos, blue_size;
 };
 
 struct BootModule {
@@ -28,7 +32,7 @@ struct BootModule {
 struct BootInfo {
     MemRegion mmap[64];
     uint32_t mmap_count;
-    Framebuffer fb;
+    BootFramebuffer fb;
     bool has_fb;
     const char* cmdline;
     BootModule modules[16];

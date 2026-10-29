@@ -17,7 +17,13 @@ mb2_start:
     .short 3, 0
     .long 12
     .long PHYS(_start)
-    /* framebuffer tag comes with the framebuffer console (T5.5); with it GRUB leaves VGA text mode */
+    /* framebuffer tag: 1024x768x32, optional (flags = 1): without it GRUB stays in VGA text mode */
+    .align 8
+    .short 5, 1
+    .long 20
+    .long 1024
+    .long 768
+    .long 32
     /* end tag */
     .align 8
     .short 0, 0

@@ -36,6 +36,9 @@ jobs:
       - name: Mouse test
         run: make test-mouse
 
+      - name: Fallback VGA text (nofb)
+        run: make test-nofb
+
       - name: RT jitter test
         continue-on-error: true
         run: make test-rt

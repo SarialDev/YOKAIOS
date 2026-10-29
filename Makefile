@@ -48,7 +48,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse test-nofb debug clean
 
 all: $(ISO)
 
@@ -120,6 +120,16 @@ $(BUILD)/yokai-mouse.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg
 
 test-mouse: $(BUILD)/yokai-mouse.iso
 	QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_mouse.sh $< $(BUILD)/mouse.log
+
+# Acelasi test cu cmdline "nofb": consola VGA text in loc de framebuffer
+$(BUILD)/yokai-nofb.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-nofb/boot/grub
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-nofb/boot/
+	sed 's|/boot/kernel.bin|/boot/kernel.bin nofb|' boot/grub-test.cfg > $(BUILD)/iso-nofb/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-nofb 2>/dev/null
+
+test-nofb: $(BUILD)/yokai-nofb.iso
+	FB=0 SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/nofb.log
 
 $(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-rt/boot/grub

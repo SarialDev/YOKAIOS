@@ -1,4 +1,6 @@
 [OK] serial
+@fb [OK] fb 1024x768x32
+@nofb [OK] vgacon
 [OK] multiboot2
 [OK] gdt
 [OK] idt
@@ -63,4 +65,5 @@ Ethernet controller
 [OK] test_pci msix
 [OK] test_pci (
 [OK] test_ps2mouse
+[OK] test_fb
 [OK] boot

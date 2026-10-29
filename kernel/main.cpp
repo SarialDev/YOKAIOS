@@ -1,6 +1,8 @@
 #include "types.h"
 #include "io.h"
 #include "drivers/vga.h"
+#include "drivers/fbcon.h"
+#include "drivers/fb/fb.h"
 #include "drivers/serial.h"
 #include "hal/hal.h"
 #include "hal/console.h"
@@ -21,6 +23,7 @@
 #include "drivers/pci/pci.h"
 #include "tests/test_pci.h"
 #include "tests/test_ps2mouse.h"
+#include "tests/test_fb.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -143,6 +146,34 @@ bool sunt_egale(const char* sir1 , const char* sir2){
     return sir1[i] == sir2[i];
 }
 
+// Logo „YOKAI” din blocuri (0xDB = █ in CP437/VGA, sintetizat si de fbcon), rosu deschis; 5 randuri
+void afiseaza_logo(int x, int y){
+    static const char* const litere[5][5] = {
+        {"#   #", " # # ", "  #  ", "  #  ", "  #  "},      // Y
+        {" ### ", "#   #", "#   #", "#   #", " ### "},      // O
+        {"#   #", "#  # ", "###  ", "#  # ", "#   #"},      // K
+        {" ### ", "#   #", "#####", "#   #", "#   #"},      // A
+        {"#####", "  #  ", "  #  ", "  #  ", "#####"},      // I
+    };
+    if(!screen){
+        return;
+    }
+    hal_console_set_color(0x0C);
+    for(int r = 0; r < 5; r++){
+        char linie[5 * 6 + 1];
+        int n = 0;
+        for(int l = 0; l < 5; l++){
+            for(int c = 0; c < 5; c++){
+                linie[n++] = litere[l][r][c] == '#' ? (char)0xDB : ' ';
+            }
+            linie[n++] = ' ';
+        }
+        linie[n] = '\0';
+        out(linie, x, y + r);
+    }
+    hal_console_set_color(0x0F);
+}
+
 // "up 12.345 s (jiffies 12345)"
 void afiseaza_uptime(int x, int y){
     char buf[64];
@@ -236,6 +267,10 @@ void shell_on_key(const KeyEvent& k){
         comanda_buffer[comanda_lungime] = '\0';
         executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime);
         comanda_lungime = 0;
+        if(screen && cursor_y >= screen->rows()){
+            curata_ecran();
+            cursor_y = 0;
+        }
         out("yokai@drone_terminal:~$ " , 2 , cursor_y);
         cursor_x = 26;
         for(int i = 0 ; i < 256 ; i++){
@@ -326,6 +361,14 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     pmm_init();
     vmm_init();
     kmalloc_init();
+    // Consola grafica peste framebuffer; fara el (sau cu "nofb") ramane VGA text. Mesajele de pana aici au mers doar pe serial
+    if(fbcon_init()){
+        screen = hal_console_screen();
+        kprintf("[OK] fb %ux%ux32 %s%s\n", fb_width(), fb_height(), fb_write_combining() ? "wc" : "uc",
+                fb_has_backbuffer() ? " backbuffer" : "");
+    } else {
+        kprintf("[OK] vgacon (fara framebuffer)\n");
+    }
     tasks_init();
     sched_init();
     syscall_init();
@@ -413,6 +456,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(test_named(test, "mouse")){
         test_ps2mouse_run();
     }
+    if(test_named(test, "fb")){
+        test_fb_run();
+    }
     if(test_named(test, "relock")){
         test_spin_relock();
     }
@@ -427,8 +473,10 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
 
     curata_ecran();
 
-    out("YOKAI OS has booted succesfully !" , 2 , 2);
-    out("yokai@drone_terminal:~$ " , 2 , 4);
+    afiseaza_logo(2, 1);
+    out("YOKAI OS has booted succesfully !" , 2 , 7);
+    cursor_y = 9;
+    out("yokai@drone_terminal:~$ " , 2 , cursor_y);
     muta_cursor(cursor_x , cursor_y);
 
 

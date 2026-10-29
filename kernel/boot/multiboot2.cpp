@@ -49,6 +49,11 @@ struct __attribute__((packed)) TagFramebuffer {
     uint32_t height;
     uint8_t bpp;
     uint8_t type;
+    uint16_t reserved;
+    // type 1: culorile (dupa campurile comune)
+    uint8_t red_pos, red_size;
+    uint8_t green_pos, green_size;
+    uint8_t blue_pos, blue_size;
 };
 
 const char* const empty = "";
@@ -117,6 +122,14 @@ __init bool multiboot2_parse(uint32_t magic, uint64_t mbi_phys){
                 boot_info.fb.height = f->height;
                 boot_info.fb.bpp = f->bpp;
                 boot_info.fb.type = f->type;
+                if(f->type == 1 && tag->size >= sizeof(TagFramebuffer)){
+                    boot_info.fb.red_pos = f->red_pos;
+                    boot_info.fb.red_size = f->red_size;
+                    boot_info.fb.green_pos = f->green_pos;
+                    boot_info.fb.green_size = f->green_size;
+                    boot_info.fb.blue_pos = f->blue_pos;
+                    boot_info.fb.blue_size = f->blue_size;
+                }
                 boot_info.has_fb = true;
                 break;
             }

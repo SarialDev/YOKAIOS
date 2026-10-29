@@ -116,7 +116,10 @@ void check_builtin(){
     CHECK(hal_count(HalKind::Console) >= 2);
     CHECK(streq(hal_name(HalKind::Console, 0), "vga"));
     CHECK(streq(hal_name(HalKind::Console, 1), "serial"));
-    CHECK(hal_console_screen() == hal_console(0));
+    // Ecranul e VGA text, sau fbcon cand exista framebuffer (VGA tace atunci)
+    Console* screen = hal_console_screen();
+    CHECK(screen && (screen->flags() & CONSOLE_SCREEN));
+    CHECK(screen == hal_console(0) || streq(hal_name(HalKind::Console, 2), "fbcon"));
     CHECK(hal_get(HalKind::Console, -1) == nullptr);
     CHECK(hal_get(HalKind::Console, hal_count(HalKind::Console)) == nullptr);
     CHECK(hal_get(HalKind::Count, 0) == nullptr);
@@ -163,9 +166,12 @@ void check_net_fb(){
     CHECK(n->send(msg, sizeof(msg)) == 0);
     CHECK(n->recv(buf, sizeof(buf)) == (int)sizeof(msg) && memcmp(buf, msg, sizeof(msg)) == 0);
 
-    CHECK(hal_register(HalKind::Framebuffer, &fakefb, "fb0"));
+    // Cu framebuffer real (fb0, din fbcon) fakefb vine dupa el
+    int before = hal_count(HalKind::Framebuffer);
+    CHECK(hal_register(HalKind::Framebuffer, &fakefb, "fake-fb"));
     FbInfo info;
-    CHECK(hal_fb(0)->info(info) && info.width == 80 && info.bpp == 16);
+    CHECK(hal_count(HalKind::Framebuffer) == before + 1);
+    CHECK(hal_fb(before)->info(info) && info.width == 80 && info.bpp == 16);
 }
 
 void check_input_bus(){
