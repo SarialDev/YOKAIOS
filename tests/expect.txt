@@ -21,6 +21,7 @@
 [OK] keyboard
 [OK] mouse
 [OK] hal
+[OK] rtc
 [OK] pci 
 [OK] protect
 [OK] test_exceptions
@@ -66,4 +67,7 @@ Ethernet controller
 [OK] test_pci (
 [OK] test_ps2mouse
 [OK] test_fb
+[OK] test_rtc decode
+[OK] test_rtc epoch
+[OK] test_rtc
 [OK] boot

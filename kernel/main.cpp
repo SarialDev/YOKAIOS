@@ -24,6 +24,8 @@
 #include "tests/test_pci.h"
 #include "tests/test_ps2mouse.h"
 #include "tests/test_fb.h"
+#include "tests/test_rtc.h"
+#include "drivers/rtc.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -206,6 +208,13 @@ void afiseaza_uptime(int x, int y){
     out(buf, x, y);
 }
 
+// "date": ora reala UTC din RTC + uptime
+void afiseaza_date(int x, int y){
+    char buf[32];
+    rtc_format(rtc_from_epoch(wall_time()), buf, sizeof(buf));
+    out(buf, x, y);
+}
+
 // lspci / lspci -v: o linie pe rand; cand ecranul se umple, il curata
 void afiseaza_lspci(bool verbose, int& cursor_y){
     char buf[LATIME_ECRAN];
@@ -235,7 +244,7 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime , lspci" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime , date , lspci" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -246,6 +255,9 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         cursor_y++;
     } else if (sunt_egale(comanda , "uptime")){
         afiseaza_uptime(cursor_x , cursor_y);
+        cursor_y++;
+    } else if (sunt_egale(comanda , "date")){
+        afiseaza_date(cursor_x , cursor_y);
         cursor_y++;
     } else if (sunt_egale(comanda , "lspci") || sunt_egale(comanda , "lspci -v")){
         afiseaza_lspci(comanda[5] != '\0', cursor_y);
@@ -409,6 +421,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     tsc_register();
     clock_init();
+    rtc_init();
     smp_init();
     pci_init();
     input_subscribe(shell_on_input);
@@ -418,6 +431,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     kprintf("[OK] mouse\n");
     hal_list();
     kprintf("[OK] hal\n");
+    kprintf("[OK] rtc\n");
 
     // De aici nu se mai apeleaza cod __init
     fault_protect_kernel();
@@ -458,6 +472,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "fb")){
         test_fb_run();
+    }
+    if(test_named(test, "rtc")){
+        test_rtc_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();
