@@ -9,6 +9,8 @@
 #include "lib/string.h"
 #include "proc/process.h"
 #include "irqlock.h"
+#include "fs/vfs/vfs.h"
+#include "uapi/fs.h"
 
 namespace {
 
@@ -53,6 +55,7 @@ const uint32_t PF_W = 2;
 const uint16_t MAX_PHNUM = 64;
 const int MAX_ARGS = 32;
 const uint64_t MAX_ARG_BYTES = 4096;
+const uint64_t MAX_EXEC_FILE = 4UL << 20;
 
 struct UserStart {
     uint64_t rip;
@@ -131,19 +134,15 @@ int count_strings(const char* const* v){
     return n;
 }
 
-const BootModule* find_module(const char* name){
-    for(uint32_t i = 0; i < boot_info.module_count; i++){
-        const char* a = boot_info.modules[i].name;
-        const char* b = name;
-        while(*a && *a == *b){
-            a++;
-            b++;
-        }
-        if(*a == *b){
-            return &boot_info.modules[i];
+// Numele fisierului din cale (dupa ultimul '/')
+const char* base_name(const char* path){
+    const char* b = path;
+    for(const char* p = path; *p; p++){
+        if(*p == '/' && p[1]){
+            b = p + 1;
         }
     }
-    return nullptr;
+    return b;
 }
 
 void user_thread(void* arg){
@@ -264,22 +263,60 @@ uint64_t elf_setup_stack(AddressSpace& as, const ElfImage& img, const char* cons
 
 namespace {
 
-// Spatiu de adrese nou cu modulul incarcat si stiva pregatita; nullptr si -errno in err la eroare
-AddressSpace* load_module(const char* name, const char* const* argv, const char* const* envp, UserStart& start,
-                          int64_t& err){
-    const BootModule* m = find_module(name);
-    if(!m){
-        err = -ENOENT;
+// Continutul fisierului obisnuit path (relativ la base) intr-un buffer kmalloc; nullptr si -errno in err
+uint8_t* read_file(const Path& base, const char* path, uint64_t& size, int64_t& err){
+    File* f;
+    err = vfs_open(base, path, O_RDONLY, 0, f);
+    if(err){
+        return nullptr;
+    }
+    uint8_t* buf = nullptr;
+    if(!S_ISREG(f->inode->mode)){
+        err = S_ISDIR(f->inode->mode) ? -EISDIR : -EACCES;
+    } else if(f->inode->size > MAX_EXEC_FILE || f->inode->size == 0){
+        err = f->inode->size ? -ENOMEM : -ENOEXEC;
+    } else {
+        size = f->inode->size;
+        buf = (uint8_t*)kmalloc(size);
+        err = buf ? 0 : -ENOMEM;
+    }
+    for(uint64_t got = 0; !err && got < size;){
+        int64_t n = f->ops->read(f, buf + got, size - got, false);
+        if(n <= 0){
+            err = n < 0 ? n : -EIO;
+        } else {
+            got += (uint64_t)n;
+        }
+    }
+    file_put(f);
+    if(err){
+        kfree(buf);
+        buf = nullptr;
+    }
+    return buf;
+}
+
+// Spatiu de adrese nou cu programul de la path incarcat si stiva pregatita; nullptr si -errno in err la eroare
+AddressSpace* load_path(const Path& base, const char* path, const char* const* argv, const char* const* envp,
+                        UserStart& start, int64_t& err){
+    uint64_t size = 0;
+    uint8_t* image = read_file(base, path, size, err);
+    if(!image){
         return nullptr;
     }
     AddressSpace* as = (AddressSpace*)kmalloc(sizeof(AddressSpace));
     if(!as){
+        kfree(image);
         err = -ENOMEM;
         return nullptr;
     }
     *as = as_create();
     ElfImage img;
-    err = as->pml4_phys ? elf_load(*as, (const uint8_t*)phys_to_virt(m->start), m->end - m->start, img) : -ENOMEM;
+    err = as->pml4_phys ? elf_load(*as, image, size, img) : -ENOMEM;
+    kfree(image);
+    if(err == -EINVAL){
+        err = -ENOEXEC;
+    }
     uint64_t rsp = err ? 0 : elf_setup_stack(*as, img, argv, envp);
     if(!rsp){
         err = err ? err : -E2BIG;
@@ -296,18 +333,18 @@ AddressSpace* load_module(const char* name, const char* const* argv, const char*
 
 }
 
-uint64_t exec_spawn_module(const char* name, const char* const* argv, const char* const* envp){
+uint64_t exec_spawn(const char* path, const char* const* argv, const char* const* envp){
     UserStart* start = (UserStart*)kmalloc(sizeof(UserStart));
     int64_t err = -ENOMEM;
-    AddressSpace* as = start ? load_module(name, argv, envp, *start, err) : nullptr;
-    Task* t = as ? task_create_kernel(name, user_thread, start) : nullptr;
+    AddressSpace* as = start ? load_path(Path{}, path, argv, envp, *start, err) : nullptr;
+    Task* t = as ? task_create_kernel(base_name(path), user_thread, start) : nullptr;
     Process* p = nullptr;
     if(t){
         t->as = as;
         p = process_create(t, nullptr);
     }
     if(!p){
-        kprintf("exec: \"%s\" nu a putut fi incarcat (%ld)\n", name, err ? err : (int64_t)-ENOMEM);
+        kprintf("exec: \"%s\" nu a putut fi incarcat (%ld)\n", path, err ? err : (int64_t)-ENOMEM);
         if(t){
             task_destroy(t);
         } else if(as){
@@ -323,10 +360,11 @@ uint64_t exec_spawn_module(const char* name, const char* const* argv, const char
     return pid;
 }
 
-int64_t exec_replace_module(const char* name, const char* const* argv, const char* const* envp, void* release){
+int64_t exec_replace(const char* path, const char* const* argv, const char* const* envp, void* release){
     UserStart start;
     int64_t err;
-    AddressSpace* as = load_module(name, argv, envp, start, err);
+    Process* proc = process_current();
+    AddressSpace* as = load_path(proc ? proc->cwd : Path{}, path, argv, envp, start, err);
     if(!as){
         return err;
     }
@@ -342,6 +380,7 @@ int64_t exec_replace_module(const char* name, const char* const* argv, const cha
         as_destroy(*old);
         kfree(old);
     }
+    const char* name = base_name(path);
     int i = 0;
     for(; i < TASK_NAME_LEN - 1 && name[i]; i++){
         t->name[i] = name[i];

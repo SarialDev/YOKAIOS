@@ -36,12 +36,19 @@ LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size
 SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
-# Programe user statice, puse in ISO ca module Multiboot2
+# Programe user statice, puse in /bin din initrd
 USER_SRCS := $(wildcard user/test/*.S)
 USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS))
 USER_ASFLAGS = -m64 -ffreestanding -nostdlib -Ikernel/include
 USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000 \
                -z max-page-size=0x1000 -z separate-code -z noexecstack --build-id=none
+
+# initrd.tar (ustar) = rootfs/ + layout-ul din blueprint + programele user in /bin; GRUB il incarca ca modul "initrd"
+# si kernelul il monteaza pe "/" cu tarfs (read-only)
+ROOTFS     = $(BUILD)/rootfs
+INITRD     = $(BUILD)/initrd.tar
+ROOT_DIRS  = bin boot dev etc home lib mnt media opt proc root run sbin sys tmp usr var
+ROOTFS_SRC := $(shell find rootfs -type f 2>/dev/null)
 
 # test-rt: jitter strict (<= 1 ms) cu KVM daca /dev/kvm e accesibil, altfel -icount (timp virtual, fara pauzele gazdei)
 RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-icount shift=auto")
@@ -74,18 +81,32 @@ $(BUILD)/user/%.o: user/test/%.S
 $(BUILD)/user/%.elf: $(BUILD)/user/%.o
 	$(LD) $(USER_LDFLAGS) -o $@ $<
 
-$(ISO): $(KERNEL) $(USER_ELFS) boot/grub.cfg
+$(INITRD): $(USER_ELFS) $(ROOTFS_SRC) Makefile
+	rm -rf $(ROOTFS)
+	mkdir -p $(addprefix $(ROOTFS)/,$(ROOT_DIRS))
+	cp -r rootfs/. $(ROOTFS)/
+	for f in $(USER_ELFS); do cp $$f $(ROOTFS)/bin/$$(basename $$f .elf); done
+	ln -s ../proc/mounts $(ROOTFS)/etc/mtab
+	find $(ROOTFS) -type d -exec chmod 755 {} +
+	find $(ROOTFS) -type f -exec chmod 644 {} +
+	chmod 755 $(ROOTFS)/bin/*
+	chmod 700 $(ROOTFS)/root
+	chmod 1777 $(ROOTFS)/tmp
+	tar --format=ustar --owner=0 --group=0 --numeric-owner --sort=name --mtime='2026-01-01 00:00Z' \
+	    -cf $@ -C $(ROOTFS) .
+
+$(ISO): $(KERNEL) $(INITRD) boot/grub.cfg
 	@mkdir -p $(BUILD)/iso/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso/boot/
 	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso 2>/dev/null
 
 run: $(ISO)
 	$(QEMU) $(QEMU_FLAGS)
 
-$(TEST_ISO): $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+$(TEST_ISO): $(KERNEL) $(INITRD) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-test/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-test/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-test/boot/
 	cp boot/grub-test.cfg $(BUILD)/iso-test/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
@@ -93,9 +114,9 @@ test: $(TEST_ISO)
 	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
 
 # Acelasi kernel cu cmdline "test=<nume>": testul trebuie sa se termine intr-un panic anume
-$(BUILD)/panic-%.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+$(BUILD)/panic-%.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-$*/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-$*/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-$*/boot/
 	sed 's/test=[^ ]*/test=$*/' boot/grub-test.cfg > $(BUILD)/iso-$*/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-$* 2>/dev/null
 
@@ -106,13 +127,13 @@ test-relock: $(BUILD)/panic-relock.iso
 	EXPECT_PANIC="re-lock" SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/relock.log
 
 # PCI pe masina q35: config space prin ECAM (MCFG), restul testelor ramana pe i440fx
-$(BUILD)/panic-pci.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+$(BUILD)/panic-pci.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log
 
 # Doar test=drivers; "version<ret>" trimis prin monitorul QEMU: o data pe PS/2 (fara xHCI), o data pe usb-kbd (fara 8042)
-$(BUILD)/panic-drivers.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+$(BUILD)/panic-drivers.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-input-ps2: $(BUILD)/panic-drivers.iso
 	USB=0 EXPECT_FILE=tests/expect-drivers.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/input-ps2.log
@@ -121,9 +142,9 @@ test-input-usb: $(BUILD)/panic-drivers.iso
 	EXPECT_FILE=tests/expect-drivers.txt SMP=$(SMP) QEMU_EXTRA="-machine pc,i8042=off $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/input-usb.log
 
 # Boot normal cu "debug=mouse"; miscarea mouse-ului injectata prin monitorul QEMU trebuie sa apara pe serial
-$(BUILD)/yokai-mouse.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg
+$(BUILD)/yokai-mouse.iso: $(KERNEL) $(INITRD) boot/grub.cfg
 	@mkdir -p $(BUILD)/iso-mouse/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-mouse/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-mouse/boot/
 	sed 's|/boot/kernel.bin|/boot/kernel.bin debug=mouse|' boot/grub.cfg > $(BUILD)/iso-mouse/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-mouse 2>/dev/null
 
@@ -131,9 +152,9 @@ test-mouse: $(BUILD)/yokai-mouse.iso
 	QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_mouse.sh $< $(BUILD)/mouse.log
 
 # Boot normal cu "debug=usb" pe o masina fara 8042: tastatura si mouse-ul vin doar prin xHCI
-$(BUILD)/yokai-usb.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg
+$(BUILD)/yokai-usb.iso: $(KERNEL) $(INITRD) boot/grub.cfg
 	@mkdir -p $(BUILD)/iso-usb/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-usb/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-usb/boot/
 	sed 's|/boot/kernel.bin|/boot/kernel.bin debug=usb|' boot/grub.cfg > $(BUILD)/iso-usb/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-usb 2>/dev/null
 
@@ -141,18 +162,18 @@ test-usb: $(BUILD)/yokai-usb.iso
 	QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_usb.sh $< $(BUILD)/usb.log
 
 # Acelasi test cu cmdline "nofb": consola VGA text in loc de framebuffer
-$(BUILD)/yokai-nofb.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+$(BUILD)/yokai-nofb.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-nofb/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-nofb/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-nofb/boot/
 	sed 's|/boot/kernel.bin|/boot/kernel.bin nofb|' boot/grub-test.cfg > $(BUILD)/iso-nofb/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-nofb 2>/dev/null
 
 test-nofb: $(BUILD)/yokai-nofb.iso
 	FB=0 SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/nofb.log
 
-$(BUILD)/yokai-rt.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+$(BUILD)/yokai-rt.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	@mkdir -p $(BUILD)/iso-rt/boot/grub
-	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-rt/boot/
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-rt/boot/
 	sed 's/test=[^ ]*/test=rt rt_strict/' boot/grub-test.cfg > $(BUILD)/iso-rt/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-rt 2>/dev/null
 

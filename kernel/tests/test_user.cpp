@@ -24,7 +24,7 @@ void run(const char* module, const char* const* argv, int n, int* codes){
     uint64_t tasks_before = task_count();
     uint64_t pids[MAX_PROCS];
     for(int i = 0; i < n; i++){
-        pids[i] = exec_spawn_module(module, argv, envp);
+        pids[i] = exec_spawn(module, argv, envp);
         if(!pids[i]){
             panic("test_user: %s nu a pornit", module);
         }
@@ -48,7 +48,7 @@ void test_user_run(){
     // Doua procese in paralel: tick-ul le intrerupe in ring 3 si comuta intre spatiile lor de adrese
     static const char* const hello_argv[] = {"hello", nullptr};
     int codes[MAX_PROCS];
-    run("hello", hello_argv, MAX_PROCS, codes);
+    run("/bin/hello", hello_argv, MAX_PROCS, codes);
     for(int i = 0; i < MAX_PROCS; i++){
         if(codes[i] != 0){
             panic("test_user: hello #%d a iesit cu %d (verificarea %d din hello.S a esuat)", i, codes[i], codes[i]);
@@ -63,7 +63,7 @@ void test_user_run(){
     for(const char* m = modes; *m; m++){
         char arg[2] = {*m, 0};
         const char* const fault_argv[] = {"fault", arg, nullptr};
-        run("fault", fault_argv, 1, codes);
+        run("/bin/fault", fault_argv, 1, codes);
         if(codes[0] != KILLED_SEGV){
             panic("test_user: fault %c a iesit cu %d, asteptat %d (omorat)", *m, codes[0], KILLED_SEGV);
         }

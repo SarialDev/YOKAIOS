@@ -1,6 +1,7 @@
 #include "tests/test_vfs.h"
 #include "uapi/syscall_nr.h"
 #include "fs/vfs/vfs.h"
+#include "fs/tarfs.h"
 #include "core/panic.h"
 #include "mm/kmalloc.h"
 #include "lib/string.h"
@@ -857,7 +858,8 @@ void test_user_syscalls(){
     uint64_t inodes = inode_count();
     uint64_t tasks_before = task_count();
     uint64_t procs_before = process_count();
-    uint64_t pid = exec_spawn_module("fstest", argv, envp);
+    EQ(vfs_mount(no_base, "initrd", "/mnt", "tarfs", MS_RDONLY, nullptr), 0);   // fstest.elf vine din initrd
+    uint64_t pid = exec_spawn("/mnt/bin/fstest", argv, envp);
     if(!pid){
         panic("test_vfs: fstest nu a pornit");
     }
@@ -877,6 +879,7 @@ void test_user_syscalls(){
     if(code != 0){
         panic("test_vfs: fstest a iesit cu %d (verificarea %d din fstest.S a esuat)", code, code);
     }
+    EQ(vfs_umount(no_base, "/mnt"), 0);
     EQ(process_count(), procs_before);
     EQ(dentry_count(), dentries);                          // cwd-urile procesului si ale copilului s-au eliberat
     EQ(inode_count(), inodes);
@@ -885,6 +888,9 @@ void test_user_syscalls(){
 }
 
 void test_vfs_run(){
+    // Testele pornesc de la un VFS gol (fara initrd pe "/"); la sfarsit radacina initrd se pune la loc
+    bool had_root = umount_root_do() == 0;
+    CHECK(had_root);
     test_files();
     kprintf("[OK] test_vfs files\n");
     test_paths();
@@ -902,6 +908,8 @@ void test_vfs_run(){
     test_user_syscalls();
     __asm__ volatile("cli");
     kprintf("[OK] test_vfs syscalls\n");
+    EQ(umount_root_do(), 0);
+    EQ(tarfs_mount_root(), 0);
     kprintf("[OK] test_vfs (memfs: open/read/write/lseek/stat, cai relative, symlink max %u, mount/umount, getdents, FdTable, syscall-uri din ring 3, fara scurgeri)\n",
             (unsigned)MAX_SYMLINKS);
 }

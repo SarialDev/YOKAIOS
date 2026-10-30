@@ -51,6 +51,10 @@
 #include "tests/test_proc.h"
 #include "tests/test_smp.h"
 #include "syscall/syscall.h"
+#include "fs/vfs/vfs.h"
+#include "fs/tarfs.h"
+#include "sync/semaphore.h"
+#include "tests/test_tarfs.h"
 
 // Ecranul de text vine din HAL (VGA)
 Console* screen = nullptr;
@@ -58,6 +62,11 @@ Console* screen = nullptr;
 // Doar pentru teste: output-ul shell-ului se oglindeste pe consolele fara ecran (serial)
 volatile bool shell_serial_echo = false;
 volatile int shell_command_count = 0;
+volatile int shell_done_count = 0;
+// cat / ls ating VFS-ul (mutex): ruleaza intr-un task, iar shell-ul ignora tastele pana termina
+static volatile bool shell_busy = false;
+static Semaphore fs_cmd_sem;
+static char fs_cmd[256];
 static bool in_command = false;
 
 void out(const char* text, int x, int y){
@@ -235,6 +244,14 @@ void afiseaza_date(int x, int y){
     out(buf, x, y);
 }
 
+bool starts_with(const char* s , const char* prefix){
+    while(*prefix && *s == *prefix){
+        s++;
+        prefix++;
+    }
+    return *prefix == '\0';
+}
+
 // lspci / lspci -v: o linie pe rand; cand ecranul se umple, il curata
 void afiseaza_lspci(bool verbose, int& cursor_y){
     char buf[LATIME_ECRAN];
@@ -257,7 +274,9 @@ void afiseaza_lspci(bool verbose, int& cursor_y){
     }
 }
 
-void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
+// true = comanda continua intr-un task (shell_fs_worker), care tipareste si prompt-ul
+bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
+    bool deferred = false;
     cursor_y++;
     cursor_x = 0;
     shell_command_count++;
@@ -266,7 +285,7 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime , date , lspci" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime , date , lspci , ls , cat" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -283,6 +302,14 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         cursor_y++;
     } else if (sunt_egale(comanda , "lspci") || sunt_egale(comanda , "lspci -v")){
         afiseaza_lspci(comanda[5] != '\0', cursor_y);
+    } else if(starts_with(comanda , "cat ") || sunt_egale(comanda , "ls") || starts_with(comanda , "ls ")){
+        for(int i = 0 ; i < 255 && comanda[i] ; i++){
+            fs_cmd[i] = comanda[i];
+            fs_cmd[i + 1] = '\0';
+        }
+        shell_busy = true;
+        deferred = true;
+        fs_cmd_sem.up();
     } else if(sunt_egale(comanda , "color ")){
 
     } else if (TERMINALBOOL == 0) {
@@ -290,28 +317,35 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         cursor_y++;
     }
     in_command = false;
-    
-    
-    
-    
+    return deferred;
+}
+
+// Dupa o comanda: linie noua cu prompt
+void shell_finish(){
+    comanda_lungime = 0;
+    if(screen && cursor_y >= screen->rows()){
+        curata_ecran();
+        cursor_y = 0;
+    }
+    out("yokai@drone_terminal:~$ " , 2 , cursor_y);
+    cursor_x = 26;
+    for(int i = 0 ; i < 256 ; i++){
+        comanda_buffer[i] = '\0';
+    }
+    muta_cursor(cursor_x , cursor_y);
+    shell_done_count++;
 }
 
 // Apelat din IRQ1 (ps2kbd) pentru fiecare tasta apasata; k.ascii are deja Shift/Caps aplicate
 void shell_on_key(const KeyEvent& k){
+    if(shell_busy){
+        return;
+    }
     if(k.keycode == KEY_ENTER){
         comanda_buffer[comanda_lungime] = '\0';
-        executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime);
-        comanda_lungime = 0;
-        if(screen && cursor_y >= screen->rows()){
-            curata_ecran();
-            cursor_y = 0;
+        if(!executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime)){
+            shell_finish();
         }
-        out("yokai@drone_terminal:~$ " , 2 , cursor_y);
-        cursor_x = 26;
-        for(int i = 0 ; i < 256 ; i++){
-            comanda_buffer[i] = '\0';
-        }
-        muta_cursor(cursor_x , cursor_y);
     } else if(k.keycode == KEY_BACKSPACE){
         if(comanda_lungime > 0) {
             comanda_lungime--;
@@ -327,6 +361,148 @@ void shell_on_key(const KeyEvent& k){
         out(sir , cursor_x , cursor_y);
         cursor_x++;
         muta_cursor(cursor_x , cursor_y);
+    }
+}
+
+// "pre" + path + ": " + msg (taiat la latimea ecranului)
+static void snprint_err(const char* pre , const char* path , const char* msg , char* out_line){
+    int n = 0;
+    auto add = [&](const char* t){
+        while(*t && n < LATIME_ECRAN - 1){
+            out_line[n++] = *t++;
+        }
+    };
+    add(pre);
+    add(path);
+    add(": ");
+    add(msg);
+    out_line[n] = '\0';
+}
+
+// Linie de iesire pentru cat / ls; cand ecranul se umple, il curata (ca lspci)
+static void fs_line(const char* text){
+    if(cursor_y >= INALTIME_ECRAN - 1){
+        curata_ecran();
+        cursor_y = 1;
+    }
+    out(text , 0 , cursor_y++);
+}
+
+static const char* fs_error(int64_t e){
+    switch(-e){
+    case ENOENT: return "No such file or directory";
+    case ENOTDIR: return "Not a directory";
+    case EISDIR: return "Is a directory";
+    case ELOOP: return "Too many symbolic links";
+    case ENAMETOOLONG: return "File name too long";
+    default: return "I/O error";
+    }
+}
+
+static void fs_cat(const char* path){
+    static char data[512];
+    File* f;
+    int err = vfs_open(Path{} , path , O_RDONLY , 0 , f);
+    if(err){
+        char line[LATIME_ECRAN + 1];
+        snprint_err("cat: " , path , fs_error(err) , line);
+        fs_line(line);
+        return;
+    }
+    char line[LATIME_ECRAN];
+    int n = 0;
+    uint64_t total = 0;
+    int64_t got = 0;
+    while(total < 4096 && (got = f->ops->read(f , data , sizeof(data) , false)) > 0){
+        for(int64_t i = 0 ; i < got ; i++){
+            char c = data[i];
+            if(c == '\n'){
+                line[n] = '\0';
+                fs_line(line);
+                n = 0;
+                continue;
+            }
+            line[n++] = (c >= ' ' && c < 127) ? c : '.';
+            if(n == LATIME_ECRAN - 1){
+                line[n] = '\0';
+                fs_line(line);
+                n = 0;
+            }
+        }
+        total += (uint64_t)got;
+    }
+    if(got < 0){
+        fs_line(fs_error(got));
+    } else if(n){
+        line[n] = '\0';
+        fs_line(line);
+    }
+    file_put(f);
+}
+
+static void fs_ls(const char* path){
+    static char data[1024];
+    File* f;
+    int err = vfs_open(Path{} , path , O_RDONLY | O_DIRECTORY , 0 , f);
+    if(err){
+        char line[LATIME_ECRAN + 1];
+        snprint_err("ls: " , path , fs_error(err) , line);
+        fs_line(line);
+        return;
+    }
+    char line[LATIME_ECRAN];
+    int n = 0;
+    int64_t got;
+    while((got = f->ops->getdents(f , data , sizeof(data))) > 0){
+        for(int64_t off = 0 ; off < got ;){
+            Dirent64* d = (Dirent64*)(data + off);
+            off += d->d_reclen;
+            const char* nm = d->d_name;
+            int len = 0;
+            while(nm[len]){
+                len++;
+            }
+            if((nm[0] == '.' && (len == 1 || (len == 2 && nm[1] == '.'))) || len > LATIME_ECRAN - 4){
+                continue;
+            }
+            if(n + len + 2 > LATIME_ECRAN - 1){
+                line[n] = '\0';
+                fs_line(line);
+                n = 0;
+            }
+            for(int i = 0 ; i < len ; i++){
+                line[n++] = nm[i];
+            }
+            if(d->d_type == DT_DIR){
+                line[n++] = '/';
+            }
+            line[n++] = ' ';
+        }
+    }
+    if(n){
+        line[n] = '\0';
+        fs_line(line);
+    }
+    file_put(f);
+}
+
+static void shell_fs_worker(void*){
+    for(;;){
+        fs_cmd_sem.down();
+        in_command = true;
+        cursor_x = 0;
+        const char* arg = fs_cmd + (fs_cmd[0] == 'c' ? 3 : 2);
+        while(*arg == ' '){
+            arg++;
+        }
+        if(fs_cmd[0] == 'c'){
+            fs_cat(arg);
+        } else {
+            fs_ls(*arg ? arg : "/");
+        }
+        in_command = false;
+        shell_finish();
+        shell_busy = false;
     }
 }
 
@@ -457,6 +633,19 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     kprintf("[OK] hal\n");
     kprintf("[OK] rtc\n");
     vfs_init();
+    tarfs_init();
+    if(boot_find_module("initrd")){
+        int err = tarfs_mount_root();
+        if(err){
+            kprintf("initrd: montarea pe / a esuat (%d)\n", err);
+        } else {
+            kprintf("[OK] initrd montat pe / (tarfs, read-only)\n");
+        }
+    }
+    Task* fs_worker = task_create_kernel("shell-fs", shell_fs_worker, nullptr);
+    if(fs_worker){
+        sched_add(fs_worker);
+    }
 
     // De aici nu se mai apeleaza cod __init
     fault_protect_kernel();
@@ -506,6 +695,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "drivers")){
         test_drivers_run();
+    }
+    if(test_named(test, "tarfs")){
+        test_tarfs_run();
     }
     if(test_named(test, "vfs")){
         test_vfs_run();

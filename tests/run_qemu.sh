@@ -3,7 +3,7 @@
 # Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
 # FB=0: boot cu "nofb" (consola VGA text); liniile "@fb " / "@nofb " din expect.txt se cer doar cu / fara framebuffer
-# Cand kernelul tipareste "drivers: astept intrare" (test=drivers), scriptul tasteaza "version<ret>" prin monitorul QEMU
+# Cand kernelul tipareste "drivers: astept intrare" (test=drivers), scriptul tasteaza "version<ret>" si "cat /etc/hostname<ret>" prin monitorul QEMU
 # USB=0: fara xHCI; QEMU_EXTRA="-machine pc,i8042=off": fara PS/2 (tastatura doar prin usb-kbd)
 # SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
 set -u
@@ -43,7 +43,12 @@ import socket, sys, time
 s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
 time.sleep(0.3)
-for k in ["v", "e", "r", "s", "i", "o", "n", "ret"]:
+# "version", apoi "cat /etc/hostname" (citit din initrd prin VFS)
+for k in ["v", "e", "r", "s", "i", "o", "n", "ret", "wait",
+          "c", "a", "t", "spc", "slash", "e", "t", "c", "slash", "h", "o", "s", "t", "n", "a", "m", "e", "ret"]:
+    if k == "wait":
+        time.sleep(1.0)
+        continue
     s.sendall(("sendkey " + k + "\n").encode())
     time.sleep(0.2)
 PY

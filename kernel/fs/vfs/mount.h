@@ -23,4 +23,7 @@ int mount_do(const Path& base, const char* dev_name, const char* target, const c
              const char* data);
 // target = radacina unui mount; -EINVAL altfel, -EBUSY daca are sub-mount-uri, fisiere deschise sau cwd in el
 int umount_do(const Path& base, const char* target);
+// Desprinde radacina arborelui (doar fara sub-mount-uri si fara referinte externe), ca testele sa porneasca de la un
+// VFS gol; -EBUSY / -EINVAL (nimic montat). Nu exista umount("/") obisnuit
+int umount_root_do();
 uint64_t mount_count();

@@ -172,6 +172,35 @@ int umount_do(const Path& base, const char* target){
     return 0;
 }
 
+int umount_root_do(){
+    Mount* m = root_mount;
+    if(!m){
+        return -EINVAL;
+    }
+    bool busy = false;
+    for(Mount* x = mounts; x; x = x->next){
+        busy |= x->parent == m;
+    }
+    for(Dentry* d = m->sb->dentries; d && !busy; d = d->sb_next){
+        busy = d_external_refs(d) > (d == m->root ? 1u : 0u);
+    }
+    if(busy){
+        return -EBUSY;
+    }
+    mounts = nullptr;
+    root_mount = nullptr;
+    live_mounts--;
+    SuperBlock* sb = m->sb;
+    d_kill_sb(sb);
+    dentry_put(m->root);
+    if(sb->ops && sb->ops->kill){
+        sb->ops->kill(sb);
+    }
+    kfree(sb);
+    kfree(m);
+    return 0;
+}
+
 uint64_t mount_count(){
     return live_mounts;
 }

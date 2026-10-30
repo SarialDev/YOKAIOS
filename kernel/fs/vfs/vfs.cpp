@@ -185,6 +185,8 @@ int vfs_open(const Path& base, const char* path, int flags, uint32_t mode, File*
     Inode* i = p.dentry->inode;
     if(S_ISLNK(i->mode)){
         err = -ELOOP;                               // O_NOFOLLOW pe un symlink
+    } else if((p.mnt->sb->flags & MS_RDONLY) && (acc != O_RDONLY || (flags & O_TRUNC))){
+        err = -EROFS;
     } else if(S_ISDIR(i->mode) && (acc != O_RDONLY || (flags & O_TRUNC))){
         err = -EISDIR;
     } else if((flags & O_DIRECTORY) && !S_ISDIR(i->mode)){

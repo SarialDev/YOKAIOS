@@ -45,6 +45,9 @@ struct BootInfo {
 
 extern BootInfo boot_info;
 
+// Modulul Multiboot2 cu numele (cmdline-ul din grub.cfg) exact "name", nullptr daca lipseste
+const BootModule* boot_find_module(const char* name);
+
 bool multiboot2_parse(uint32_t magic, uint64_t mbi_phys);
 uint64_t multiboot2_usable_ram();
 void multiboot2_print();

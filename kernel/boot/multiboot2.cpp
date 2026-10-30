@@ -219,3 +219,18 @@ const char* cmdline_get(const char* key_eq){
     }
     return nullptr;
 }
+
+const BootModule* boot_find_module(const char* name){
+    for(uint32_t i = 0; i < boot_info.module_count; i++){
+        const char* a = boot_info.modules[i].name;
+        const char* b = name;
+        while(*a && *a == *b){
+            a++;
+            b++;
+        }
+        if(*a == *b){
+            return &boot_info.modules[i];
+        }
+    }
+    return nullptr;
+}

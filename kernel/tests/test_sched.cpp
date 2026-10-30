@@ -295,7 +295,7 @@ void test_forktest(){
     static const char* const argv[] = {"forktest", nullptr};
     static const char* const envp[] = {"YOKAI=1", nullptr};
     uint64_t before = task_count();
-    uint64_t pid = exec_spawn_module("forktest", argv, envp);
+    uint64_t pid = exec_spawn("/bin/forktest", argv, envp);
     if(!pid){
         panic("test_sched fork: forktest nu a pornit");
     }

@@ -26,6 +26,7 @@ usb: hid mouse
 [OK] usb 1 controller(e), 2 dispozitive
 [OK] hal
 [OK] rtc
+[OK] initrd montat
 [OK] vfs
 [OK] pci 
 [OK] protect
@@ -84,7 +85,14 @@ Ethernet controller
 @fb [OK] test_drivers fb 1024x768
 [OK] test_drivers input
 YOKAI OS version
+yokai-drone
 [OK] test_drivers (
+[OK] test_tarfs layout
+[OK] test_tarfs files
+[OK] test_tarfs paths
+[OK] test_tarfs read-only
+[OK] test_tarfs mounts
+[OK] test_tarfs (
 [OK] test_vfs files
 [OK] test_vfs paths
 [OK] test_vfs symlinks

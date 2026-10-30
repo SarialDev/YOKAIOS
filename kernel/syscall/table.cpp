@@ -13,7 +13,7 @@ namespace {
 const uint64_t IO_CHUNK = 256;
 const int MAX_EXEC_ARGS = 32;
 const uint64_t MAX_EXEC_BYTES = 4096;
-const uint64_t MAX_PATH = 64;
+const uint64_t MAX_PATH = PATH_MAX;
 
 File* current_file(uint64_t fd){
     Process* p = process_current();
@@ -175,16 +175,7 @@ int64_t sys_execve(uint64_t path, uint64_t argv, uint64_t envp, uint64_t, uint64
         err = copy_vector(*a, a->envp, envp, used);
     }
     if(err >= 0){
-        // Pana la VFS, calea numeste un modul Multiboot2: "/boot/hello", "/hello" si "hello" sunt acelasi
-        const char* name = a->path;
-        if(name[0] == '/' && name[1] == 'b' && name[2] == 'o' && name[3] == 'o' && name[4] == 't' && name[5] == '/'){
-            name += 6;
-        }
-        while(*name == '/'){
-            name++;
-        }
-        // La reusita nu revine: a se elibereaza dupa ce argumentele sunt pe stiva noului program
-        err = exec_replace_module(name, a->argv, a->envp, a);
+        err = exec_replace(a->path, a->argv, a->envp, a);
     }
     kfree(a);
     return err;

@@ -8,6 +8,7 @@
 
 extern volatile bool shell_serial_echo;
 extern volatile int shell_command_count;
+extern volatile int shell_done_count;
 
 namespace {
 
@@ -41,13 +42,16 @@ void check_input(){
     __asm__ volatile("sti");                    // ca in test_sched: intreruperile pot fi oprite pana aici
     shell_serial_echo = true;
     int before = shell_command_count;
+    int done_before = shell_done_count;
     kprintf("drivers: astept intrare\n");
+    // "version" si "cat /etc/hostname" (a doua se executa intr-un task, nu in IRQ)
     uint64_t start = uptime_ms();
-    while(shell_command_count == before && uptime_ms() - start < INPUT_TIMEOUT_MS){
+    while(shell_done_count < done_before + 2 && uptime_ms() - start < INPUT_TIMEOUT_MS){
         sleep_ms(20);
     }
     shell_serial_echo = false;
-    CHECK(shell_command_count > before);
+    CHECK(shell_command_count >= before + 2);
+    CHECK(shell_done_count >= done_before + 2);
     kprintf("[OK] test_drivers input\n");
 }
 

@@ -40,6 +40,8 @@
 #define DT_REG          8
 #define DT_LNK          10
 
+#define MS_RDONLY       1
+
 #define PATH_MAX        256
 #define NAME_MAX        255
 
