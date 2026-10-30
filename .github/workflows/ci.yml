@@ -36,6 +36,9 @@ jobs:
       - name: Mouse test
         run: make test-mouse
 
+      - name: USB xHCI + HID (fara PS/2)
+        run: make test-usb
+
       - name: Fallback VGA text (nofb)
         run: make test-nofb
 

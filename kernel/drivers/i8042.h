@@ -50,8 +50,14 @@ inline bool wait_output(){
     return false;
 }
 
+// Fara controler (ex. QEMU -machine i8042=off, PC-uri doar cu USB) portul de status citeste 0xFF
+inline bool present(){
+    return inb(KBD_STATUS) != 0xFF;
+}
+
+// Limitat: fara controler bitul "output full" ar ramane mereu setat
 inline void flush_output(){
-    while(inb(KBD_STATUS) & STATUS_OUTPUT_FULL){
+    for(int i = 0; i < 64 && (inb(KBD_STATUS) & STATUS_OUTPUT_FULL); i++){
         inb(KBD_DATA);
     }
 }

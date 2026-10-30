@@ -18,6 +18,7 @@ timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
     -nographic -serial stdio -monitor none -no-reboot \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -nic user,model=e1000 -device edu -netdev user,id=vn0 -device virtio-net-pci,netdev=vn0 \
+    -device qemu-xhci -device usb-kbd -device usb-mouse \
     ${QEMU_EXTRA:-} < /dev/null > "$LOG.raw" 2>&1
 rc=$?
 tr -d '\r' < "$LOG.raw" > "$LOG"

@@ -48,7 +48,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse test-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -120,6 +120,16 @@ $(BUILD)/yokai-mouse.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg
 
 test-mouse: $(BUILD)/yokai-mouse.iso
 	QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_mouse.sh $< $(BUILD)/mouse.log
+
+# Boot normal cu "debug=usb" pe o masina fara 8042: tastatura si mouse-ul vin doar prin xHCI
+$(BUILD)/yokai-usb.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg
+	@mkdir -p $(BUILD)/iso-usb/boot/grub
+	cp $(KERNEL) $(USER_ELFS) $(BUILD)/iso-usb/boot/
+	sed 's|/boot/kernel.bin|/boot/kernel.bin debug=usb|' boot/grub.cfg > $(BUILD)/iso-usb/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-usb 2>/dev/null
+
+test-usb: $(BUILD)/yokai-usb.iso
+	QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_usb.sh $< $(BUILD)/usb.log
 
 # Acelasi test cu cmdline "nofb": consola VGA text in loc de framebuffer
 $(BUILD)/yokai-nofb.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg

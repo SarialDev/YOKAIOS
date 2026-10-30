@@ -20,6 +20,10 @@
 [OK] smp cpus=@SMP@
 [OK] keyboard
 [OK] mouse
+[OK] xhci
+usb: hid tastatura
+usb: hid mouse
+[OK] usb 1 controller(e), 2 dispozitive
 [OK] hal
 [OK] rtc
 [OK] pci 
@@ -70,4 +74,8 @@ Ethernet controller
 [OK] test_rtc decode
 [OK] test_rtc epoch
 [OK] test_rtc
+[OK] test_usb hid kbd
+[OK] test_usb hid mouse
+[OK] test_usb devices
+[OK] test_usb (
 [OK] boot

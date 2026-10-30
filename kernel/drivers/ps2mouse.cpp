@@ -185,6 +185,10 @@ bool Ps2MouseDecoder::feed(uint8_t byte, MouseEvent& out){
 
 void ps2mouse_init(){
     debug_print = debug_enabled();
+    if(!present()){
+        kprintf("ps2mouse: fara controler 8042\n");
+        return;
+    }
 
     // Tastatura oprita cat dureaza init-ul, ca sa nu-i furam octetii (si invers)
     ctrl_cmd(CTRL_DISABLE_P1);

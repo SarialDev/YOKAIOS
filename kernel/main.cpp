@@ -26,6 +26,8 @@
 #include "tests/test_fb.h"
 #include "tests/test_rtc.h"
 #include "drivers/rtc.h"
+#include "drivers/usb/usb.h"
+#include "tests/test_usb.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -429,6 +431,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     kprintf("[OK] keyboard\n");
     ps2mouse_init();
     kprintf("[OK] mouse\n");
+    usb_init();
     hal_list();
     kprintf("[OK] hal\n");
     kprintf("[OK] rtc\n");
@@ -475,6 +478,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "rtc")){
         test_rtc_run();
+    }
+    if(test_named(test, "usb")){
+        test_usb_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();

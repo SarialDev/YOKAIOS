@@ -273,6 +273,10 @@ void kbd_irq(InterruptFrame*){
 }
 
 void ps2kbd_init(){
+    if(!present()){
+        kprintf("ps2kbd: fara controler 8042\n");
+        return;
+    }
     // Controlerul 8042: opreste porturile, goleste bufferul, self-test
     ctrl_cmd(CTRL_DISABLE_P1);
     ctrl_cmd(CTRL_DISABLE_P2);
