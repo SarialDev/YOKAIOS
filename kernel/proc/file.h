@@ -2,6 +2,8 @@
 #include "types.h"
 
 struct File;
+struct Inode;
+struct Dentry;
 
 // Operatiile unui fisier deschis, pe buffere de kernel (copierea din/in user o face syscall-ul).
 // len > 0; nonblock: fara asteptare, -EAGAIN daca nu se poate face nimic acum.
@@ -10,12 +12,20 @@ struct FileOps {
     int64_t (*read)(File* f, void* buf, uint64_t len, bool nonblock);
     int64_t (*write)(File* f, const void* buf, uint64_t len, bool nonblock);
     void (*close)(File* f);         // la eliberarea ultimei referinte
+    // Optionale (nullptr = nu se poate: -ESPIPE / -ENOTDIR)
+    int64_t (*lseek)(File* f, int64_t off, int whence);
+    int64_t (*getdents)(File* f, void* buf, uint64_t len);   // Dirent64 pe buffer de kernel
 };
 
 struct File {
     const FileOps* ops;
     void* priv;
     uint32_t refs;
+    // Fisiere VFS: inode-ul, dentry-ul (cu referinta), pozitia (comuna dupa fork/dup), flags = O_*
+    Inode* inode;
+    Dentry* dentry;
+    uint64_t pos;
+    uint32_t flags;
 };
 
 // Fisier nou cu o referinta; nullptr fara memorie

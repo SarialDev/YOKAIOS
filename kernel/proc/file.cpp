@@ -22,8 +22,8 @@ int64_t console_write(File*, const void* buf, uint64_t len, bool){
 void console_close(File*){
 }
 
-const FileOps console_ops = {console_read, console_write, console_close};
-File console = {&console_ops, nullptr, CONSOLE_REFS};
+const FileOps console_ops = {console_read, console_write, console_close, nullptr, nullptr};
+File console = {&console_ops, nullptr, CONSOLE_REFS, nullptr, nullptr, 0, 0};
 
 }
 
@@ -33,6 +33,10 @@ File* file_alloc(const FileOps* ops, void* priv){
         f->ops = ops;
         f->priv = priv;
         f->refs = 1;
+        f->inode = nullptr;
+        f->dentry = nullptr;
+        f->pos = 0;
+        f->flags = 0;
     }
     return f;
 }

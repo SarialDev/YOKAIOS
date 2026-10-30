@@ -1,5 +1,6 @@
 #include "syscall/table.h"
 #include "syscall/syscall.h"
+#include "syscall/fs.h"
 #include "uapi/syscall_nr.h"
 #include "proc/process.h"
 #include "ipc/pipe.h"
@@ -225,6 +226,21 @@ constexpr Table make_table(){
     t.fn[SYS_EXIT] = sys_exit;
     t.fn[SYS_WAIT4] = sys_wait4;
     t.fn[SYS_GETPPID] = sys_getppid;
+    t.fn[SYS_OPEN] = sys_open;
+    t.fn[SYS_STAT] = sys_stat;
+    t.fn[SYS_FSTAT] = sys_fstat;
+    t.fn[SYS_LSTAT] = sys_lstat;
+    t.fn[SYS_LSEEK] = sys_lseek;
+    t.fn[SYS_GETCWD] = sys_getcwd;
+    t.fn[SYS_CHDIR] = sys_chdir;
+    t.fn[SYS_MKDIR] = sys_mkdir;
+    t.fn[SYS_RMDIR] = sys_rmdir;
+    t.fn[SYS_UNLINK] = sys_unlink;
+    t.fn[SYS_SYMLINK] = sys_symlink;
+    t.fn[SYS_READLINK] = sys_readlink;
+    t.fn[SYS_MOUNT] = sys_mount;
+    t.fn[SYS_UMOUNT2] = sys_umount2;
+    t.fn[SYS_GETDENTS64] = sys_getdents64;
     return t;
 }
 

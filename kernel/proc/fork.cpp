@@ -1,4 +1,5 @@
 #include "proc/process.h"
+#include "fs/vfs/vfs.h"
 #include "uapi/syscall_nr.h"
 #include "syscall/syscall.h"
 #include "sched/sched.h"
@@ -52,6 +53,7 @@ int64_t process_fork(const InterruptFrame& parent_frame){
     }
     process_set_name(child, parent->name);
     fd_copy(child->fds, parent->fds);
+    vfs_path_copy(child->cwd, parent->cwd);
     int64_t pid = (int64_t)child->pid;
     sched_add(t);
     return pid;

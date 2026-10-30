@@ -26,6 +26,7 @@ usb: hid mouse
 [OK] usb 1 controller(e), 2 dispozitive
 [OK] hal
 [OK] rtc
+[OK] vfs
 [OK] pci 
 [OK] protect
 [OK] test_exceptions
@@ -84,4 +85,12 @@ Ethernet controller
 [OK] test_drivers input
 YOKAI OS version
 [OK] test_drivers (
+[OK] test_vfs files
+[OK] test_vfs paths
+[OK] test_vfs symlinks
+[OK] test_vfs mounts
+[OK] test_vfs getdents
+[OK] test_vfs fd
+[OK] test_vfs syscalls
+[OK] test_vfs (
 [OK] boot

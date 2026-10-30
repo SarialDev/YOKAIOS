@@ -29,6 +29,8 @@
 #include "drivers/usb/usb.h"
 #include "tests/test_usb.h"
 #include "tests/test_drivers.h"
+#include "tests/test_vfs.h"
+#include "fs/vfs/vfs.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -454,6 +456,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     hal_list();
     kprintf("[OK] hal\n");
     kprintf("[OK] rtc\n");
+    vfs_init();
 
     // De aici nu se mai apeleaza cod __init
     fault_protect_kernel();
@@ -503,6 +506,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "drivers")){
         test_drivers_run();
+    }
+    if(test_named(test, "vfs")){
+        test_vfs_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();

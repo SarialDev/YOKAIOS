@@ -110,8 +110,8 @@ void close_write(File* f){
     close_end((Pipe*)f->priv, false);
 }
 
-const FileOps read_ops = {pipe_read, no_write, close_read};
-const FileOps write_ops = {no_read, pipe_write, close_write};
+const FileOps read_ops = {pipe_read, no_write, close_read, nullptr, nullptr};
+const FileOps write_ops = {no_read, pipe_write, close_write, nullptr, nullptr};
 
 }
 

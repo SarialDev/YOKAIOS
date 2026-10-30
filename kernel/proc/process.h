@@ -4,6 +4,7 @@
 #include "sched/task.h"
 #include "sync/waitqueue.h"
 #include "proc/file.h"
+#include "fs/vfs/path.h"
 
 enum class ProcState : uint8_t { ALIVE, ZOMBIE };
 
@@ -21,6 +22,7 @@ struct Process {
     ListLink children;
     ListLink sibling;
     FdTable fds;
+    Path cwd;                       // dentry == nullptr = radacina VFS; referinta tinuta pana la exit
     WaitQueue child_exit;           // parintele asteapta aici in waitpid
     char name[TASK_NAME_LEN];
 };

@@ -1,6 +1,7 @@
 #include "proc/process.h"
 #include "uapi/syscall_nr.h"
 #include "sched/sched.h"
+#include "fs/vfs/vfs.h"
 #include "mm/kmalloc.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
@@ -59,6 +60,7 @@ int kill_signal(uint64_t vector){
     }
     // Inchiderea capetelor de pipe poate trezi alte procese, deci in afara lock-ului
     fd_close_all(p->fds);
+    vfs_path_release(p->cwd);
     {
         uint64_t flags = tree_lock.lock_irqsave();
         exits[exit_count++ % EXIT_HISTORY] = ExitRecord{p->pid, code};
@@ -127,6 +129,7 @@ void process_abort(Process* p){
         tree_lock.unlock_irqrestore(flags);
     }
     fd_close_all(p->fds);
+    vfs_path_release(p->cwd);
     if(p->main){
         p->main->proc = nullptr;
     }
