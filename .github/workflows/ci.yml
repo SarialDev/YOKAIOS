@@ -33,6 +33,9 @@ jobs:
       - name: PCI (q35, ECAM)
         run: make test-pci-q35
 
+      - name: AHCI + block layer (GPT si MBR)
+        run: make test-ahci
+
       - name: Mouse test
         run: make test-mouse
 

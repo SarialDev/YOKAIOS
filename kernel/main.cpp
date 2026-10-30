@@ -58,6 +58,11 @@
 #include "tests/test_tarfs.h"
 #include "tests/test_tmpfs.h"
 #include "tests/test_devfs.h"
+#include "tests/test_block.h"
+#include "tests/test_ahci.h"
+#include "drivers/ahci/ahci.h"
+#include "block/blockdev.h"
+#include "block/bcache.h"
 #include "tests/test_procfs.h"
 
 // Ecranul de text vine din HAL (VGA)
@@ -278,6 +283,18 @@ void afiseaza_lspci(bool verbose, int& cursor_y){
     }
 }
 
+// lsblk: discurile si partitiile din HAL, cate una pe linie
+void afiseaza_lsblk(int& cursor_y){
+    char buf[LATIME_ECRAN];
+    for(int i = 0; block_format(i, buf, sizeof(buf)); i++){
+        if(cursor_y >= INALTIME_ECRAN - 1){
+            curata_ecran();
+            cursor_y = 1;
+        }
+        out(buf, 0, cursor_y++);
+    }
+}
+
 // true = comanda continua intr-un task (shell_fs_worker), care tipareste si prompt-ul
 bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
     bool deferred = false;
@@ -289,7 +306,7 @@ bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime , date , lspci , ls , cat , echo" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime , date , lspci , lsblk , ls , cat , echo" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -306,6 +323,8 @@ bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         cursor_y++;
     } else if (sunt_egale(comanda , "lspci") || sunt_egale(comanda , "lspci -v")){
         afiseaza_lspci(comanda[5] != '\0', cursor_y);
+    } else if (sunt_egale(comanda , "lsblk")){
+        afiseaza_lsblk(cursor_y);
     } else if(starts_with(comanda , "cat ") || sunt_egale(comanda , "ls") || starts_with(comanda , "ls ") ||
               sunt_egale(comanda , "echo") || starts_with(comanda , "echo ")){
         for(int i = 0 ; i < 255 && comanda[i] ; i++){
@@ -687,6 +706,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     ps2mouse_init();
     kprintf("[OK] mouse\n");
     usb_init();
+    ahci_init();
     hal_list();
     kprintf("[OK] hal\n");
     kprintf("[OK] rtc\n");
@@ -708,6 +728,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(fs_worker){
         sched_add(fs_worker);
     }
+    bcache_start_flusher();
 
     // De aici nu se mai apeleaza cod __init
     fault_protect_kernel();
@@ -766,6 +787,12 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "devfs")){
         test_devfs_run();
+    }
+    if(test_named(test, "block")){
+        test_block_run();
+    }
+    if(test_named(test, "ahci")){
+        test_ahci_run();
     }
     if(test_named(test, "procfs")){
         test_procfs_run();

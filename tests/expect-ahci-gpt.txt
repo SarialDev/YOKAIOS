@@ -1,0 +1,16 @@
+[OK] serial
+[OK] multiboot2
+[OK] pci 
+[OK] hal
+ahci: sda "QEMU HARDDISK" 65536 sectoare x 512 B (32 MiB)
+[OK] test_block cache
+[OK] test_block gpt
+[OK] test_ahci sector0
+partition: sda1 GPT start=2048 sectoare=16384
+partition: sda2 GPT start=18432 sectoare=32768
+[OK] test_ahci partitii GPT 2
+[OK] test_ahci dma poll
+[OK] test_ahci dma irq
+[OK] test_ahci cache
+[OK] test_ahci (
+[OK] boot

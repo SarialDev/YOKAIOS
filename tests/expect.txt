@@ -121,6 +121,14 @@ devfs: scris prin /dev/ttyS0
 [OK] test_procfs pid
 [OK] test_procfs self
 [OK] test_procfs (
+[OK] test_block cache
+[OK] test_block write-back
+[OK] test_block lru
+[OK] test_block aged
+[OK] test_block mbr
+[OK] test_block gpt
+[OK] test_block partition
+[OK] test_block (
 [OK] test_vfs files
 [OK] test_vfs paths
 [OK] test_vfs symlinks

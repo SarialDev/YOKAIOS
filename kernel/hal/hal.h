@@ -21,7 +21,7 @@ protected:
     ~HalDevice() = default;
 };
 
-const int HAL_MAX_PER_KIND = 8;
+const int HAL_MAX_PER_KIND = 16;
 
 // false daca registrul pentru kind e plin sau dev/name sunt nuli; name trebuie sa fie static
 bool hal_register(HalKind kind, HalDevice* dev, const char* name);

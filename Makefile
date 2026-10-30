@@ -55,7 +55,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -131,6 +131,27 @@ $(BUILD)/panic-pci.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log
+
+# Disc SATA real: tests/mkdisk.py face imaginile (GPT si MBR cu partitie extinsa), kernelul ruleaza doar test=block,ahci
+$(BUILD)/disk-%.img: tests/mkdisk.py
+	@mkdir -p $(BUILD)
+	python3 tests/mkdisk.py $* $@
+
+$(BUILD)/yokai-ahci.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-ahci/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-ahci/boot/
+	sed 's/test=[^ ]*/test=block,ahci/' boot/grub-test.cfg > $(BUILD)/iso-ahci/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-ahci 2>/dev/null
+
+AHCI_QEMU = -boot order=d -device ahci,id=ahci0 -drive file=$(BUILD)/disk-$(1).img,if=none,id=d0,format=raw -device ide-hd,drive=d0,bus=ahci0.0
+
+test-ahci-gpt: $(BUILD)/yokai-ahci.iso $(BUILD)/disk-gpt.img
+	EXPECT_FILE=tests/expect-ahci-gpt.txt SMP=$(SMP) QEMU_EXTRA="$(call AHCI_QEMU,gpt) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ahci-gpt.log
+
+test-ahci-mbr: $(BUILD)/yokai-ahci.iso $(BUILD)/disk-mbr.img
+	EXPECT_FILE=tests/expect-ahci-mbr.txt SMP=$(SMP) QEMU_EXTRA="$(call AHCI_QEMU,mbr) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ahci-mbr.log
+
+test-ahci: test-ahci-gpt test-ahci-mbr
 
 # Doar test=drivers; "version<ret>" trimis prin monitorul QEMU: o data pe PS/2 (fara xHCI), o data pe usb-kbd (fara 8042)
 $(BUILD)/panic-drivers.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
