@@ -1,0 +1,9 @@
+[OK] serial
+[OK] multiboot2
+[OK] hal
+ext4: flag-uri incompatibile nesuportate
+root=/dev/sda2: montarea ext4 a esuat (-22), folosesc initrd
+[OK] initrd montat pe / (tarfs, read-only)
+[OK] test_ext4 refuz
+[OK] test_ext4 (montare refuzata)
+[OK] boot

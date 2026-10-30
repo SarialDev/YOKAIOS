@@ -55,7 +55,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -169,6 +169,51 @@ test-fat32-%: $(BUILD)/yokai-fat32.iso tests/mkfat32.sh tests/check_fat32.sh
 	sh tests/check_fat32.sh $(BUILD)/fat32-$*.img
 
 test-fat32: test-fat32-1 test-fat32-8
+
+# ext4 read-only: tests/mkext4.sh face discul (MBR, sda1 gol, sda2 = ext4 cu mke2fs -d din rootfs + date de test) in
+# 3 variante (ext4 / ext2 / linear), kernelul porneste cu root=/dev/sda2, parcurge arborele si tipareste CRC32 pentru
+# fiecare fisier; tests/check_ext4.sh il compara cu sursa si ruleaza e2fsck. Necesita e2fsprogs (mke2fs, e2fsck, debugfs)
+EXT4_QEMU = -boot order=d -device ahci,id=ahci0 -drive file=$(1),if=none,id=d0,format=raw -device ide-hd,drive=d0,bus=ahci0.0
+
+$(BUILD)/ext4-%.img: tests/mkext4.sh tests/ext4_list.py $(INITRD)
+	sh tests/mkext4.sh $@ $* $(ROOTFS)
+
+$(BUILD)/ext4-refuse.img: $(BUILD)/ext4-ext4.img tests/mkext4.sh
+	sh tests/mkext4.sh patch $< $@ refuse
+
+$(BUILD)/ext4-recover.img: $(BUILD)/ext4-ext4.img tests/mkext4.sh
+	sh tests/mkext4.sh patch $< $@ recover
+
+$(BUILD)/yokai-ext4-%.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-ext4-$*/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-ext4-$*/boot/
+	sed 's|test=[^ ]*|root=/dev/sda2 test=ext4 ext4mode=$*|' boot/grub-test.cfg > $(BUILD)/iso-ext4-$*/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-ext4-$* 2>/dev/null
+
+test-ext4-%: $(BUILD)/yokai-ext4-ok.iso $(BUILD)/ext4-%.img tests/check_ext4.sh
+	TEST_TIMEOUT=900 EXPECT_FILE=tests/expect-ext4.txt SMP=$(SMP) QEMU_EXTRA="$(call EXT4_QEMU,$(BUILD)/ext4-$*.img) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ext4-$*.log
+	sh tests/check_ext4.sh $(BUILD)/ext4-$*.img $(BUILD)/ext4-$*.log ok
+
+# Flag INCOMPAT necunoscut: montarea esueaza, radacina ramane initrd; jurnal cu needs_recovery: refuzat fara "noload"
+test-ext4-refuse: $(BUILD)/yokai-ext4-refuse.iso $(BUILD)/ext4-refuse.img tests/check_ext4.sh
+	TEST_TIMEOUT=900 EXPECT_FILE=tests/expect-ext4-refuse.txt SMP=$(SMP) QEMU_EXTRA="$(call EXT4_QEMU,$(BUILD)/ext4-refuse.img) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ext4-refuse.log
+	sh tests/check_ext4.sh $(BUILD)/ext4-refuse.img $(BUILD)/ext4-refuse.log refuse
+
+test-ext4-recover: $(BUILD)/yokai-ext4-recover.iso $(BUILD)/ext4-recover.img $(BUILD)/ext4-ext4.img tests/check_ext4.sh
+	TEST_TIMEOUT=900 EXPECT_FILE=tests/expect-ext4-recover.txt SMP=$(SMP) QEMU_EXTRA="$(call EXT4_QEMU,$(BUILD)/ext4-recover.img) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ext4-recover.log
+	sh tests/check_ext4.sh $(BUILD)/ext4-recover.img $(BUILD)/ext4-recover.log recover $(BUILD)/ext4-ext4.img.list
+
+test-ext4: test-ext4-ext4 test-ext4-ext2 test-ext4-linear test-ext4-refuse test-ext4-recover
+
+# Boot normal cu radacina ext4 pe sda2 (fara module necesare in afara de fallback)
+$(BUILD)/yokai-rootext4.iso: $(KERNEL) $(INITRD) boot/grub.cfg
+	@mkdir -p $(BUILD)/iso-rootext4/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-rootext4/boot/
+	sed 's|/boot/kernel.bin|/boot/kernel.bin root=/dev/sda2|' boot/grub.cfg > $(BUILD)/iso-rootext4/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-rootext4 2>/dev/null
+
+run-ext4: $(BUILD)/yokai-rootext4.iso $(BUILD)/ext4-ext4.img
+	$(QEMU) -cdrom $< -m 512M -smp $(SMP) -serial stdio -boot order=d -device ahci,id=ahci0 -drive file=$(BUILD)/ext4-ext4.img,if=none,id=d0,format=raw -device ide-hd,drive=d0,bus=ahci0.0 $(QEMU_EXTRA)
 
 # Doar test=drivers; "version<ret>" trimis prin monitorul QEMU: o data pe PS/2 (fara xHCI), o data pe usb-kbd (fara 8042)
 $(BUILD)/panic-drivers.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg

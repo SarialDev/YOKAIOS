@@ -55,6 +55,7 @@
 #include "fs/tarfs.h"
 #include "fs/pseudofs.h"
 #include "fs/fat32/fat32.h"
+#include "fs/ext4/ext4.h"
 #include "sync/semaphore.h"
 #include "tests/test_tarfs.h"
 #include "tests/test_tmpfs.h"
@@ -62,6 +63,7 @@
 #include "tests/test_block.h"
 #include "tests/test_ahci.h"
 #include "tests/test_fat32.h"
+#include "tests/test_ext4.h"
 #include "drivers/ahci/ahci.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
@@ -800,15 +802,37 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     devfs_init();
     procfs_init();
     fat32_init();
-    if(boot_find_module("initrd")){
+    ext4_init();
+    // Radacina: cmdline root=<dispozitiv> (ext4, ex. root=/dev/sda2); daca lipseste sau nu se monteaza, initrd-ul
+    bool have_root = false;
+    const char* root_arg = cmdline_get("root=");
+    if(root_arg){
+        char root_dev[32];
+        uint32_t rn = 0;
+        while(root_arg[rn] && root_arg[rn] != ' ' && rn < sizeof(root_dev) - 1){
+            root_dev[rn] = root_arg[rn];
+            rn++;
+        }
+        root_dev[rn] = 0;
+        int err = ext4_mount_root(root_dev);
+        if(err){
+            kprintf("root=%s: montarea ext4 a esuat (%d)%s\n", root_dev, err,
+                    boot_find_module("initrd") ? ", folosesc initrd" : "");
+        }
+        have_root = err == 0;
+    }
+    if(!have_root && boot_find_module("initrd")){
         int err = tarfs_mount_root();
         if(err){
             kprintf("initrd: montarea pe / a esuat (%d)\n", err);
         } else {
             kprintf("[OK] initrd montat pe / (tarfs, read-only)\n");
-            fs_mount_pseudo();
-            fat32_automount();
+            have_root = true;
         }
+    }
+    if(have_root){
+        fs_mount_pseudo();
+        fat32_automount();
     }
     Task* fs_worker = task_create_kernel("shell-fs", shell_fs_worker, nullptr);
     if(fs_worker){
@@ -882,6 +906,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "fat32")){
         test_fat32_run();
+    }
+    if(test_named(test, "ext4")){
+        test_ext4_run(cmdline_get("ext4mode="));
     }
     if(test_named(test, "procfs")){
         test_procfs_run();

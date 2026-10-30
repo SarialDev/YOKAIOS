@@ -13,7 +13,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 grub-pc-bin grub-common xorriso mtools dosfstools
+          sudo apt-get install -y qemu-system-x86 grub-pc-bin grub-common xorriso mtools dosfstools e2fsprogs
 
       - name: Toolchain info
         run: |
@@ -38,6 +38,9 @@ jobs:
 
       - name: FAT32 (mkfs.fat + fsck.fat)
         run: make test-fat32
+
+      - name: ext4 read-only (mke2fs + e2fsck)
+        run: make test-ext4
 
       - name: Mouse test
         run: make test-mouse

@@ -1,0 +1,14 @@
+[OK] serial
+[OK] multiboot2
+[OK] hal
+partition: sda2 MBR start=18432 sectoare=114688
+[OK] ext4 montat pe / (/dev/sda2, read-only)
+[OK] test_ext4 read-only
+[OK] test_ext4 fisiere
+[OK] test_ext4 sparse
+[OK] test_ext4 insule
+[OK] test_ext4 directoare mari
+[OK] test_ext4 montare
+[OK] test_ext4 arbore
+[OK] test_ext4 (ext4 read-only
+[OK] boot
