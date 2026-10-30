@@ -54,12 +54,14 @@
 #include "fs/vfs/vfs.h"
 #include "fs/tarfs.h"
 #include "fs/pseudofs.h"
+#include "fs/fat32/fat32.h"
 #include "sync/semaphore.h"
 #include "tests/test_tarfs.h"
 #include "tests/test_tmpfs.h"
 #include "tests/test_devfs.h"
 #include "tests/test_block.h"
 #include "tests/test_ahci.h"
+#include "tests/test_fat32.h"
 #include "drivers/ahci/ahci.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
@@ -295,6 +297,23 @@ void afiseaza_lsblk(int& cursor_y){
     }
 }
 
+// Comenzile care ating sistemul de fisiere si ruleaza in task-ul shell-fs (pot bloca pe I/O)
+static const char* const FS_COMMANDS[] = {"cat", "ls", "echo", "mkdir", "rmdir", "rm", "mv", "sync", "umount"};
+
+// Lungimea cuvantului-comanda daca linia incepe cu una din FS_COMMANDS (urmata de spatiu sau de sfarsit), altfel 0
+static int fs_command_len(const char* c){
+    for(const char* name : FS_COMMANDS){
+        int n = 0;
+        while(name[n] && c[n] == name[n]){
+            n++;
+        }
+        if(!name[n] && (c[n] == ' ' || c[n] == '\0')){
+            return n;
+        }
+    }
+    return 0;
+}
+
 // true = comanda continua intr-un task (shell_fs_worker), care tipareste si prompt-ul
 bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
     bool deferred = false;
@@ -306,7 +325,7 @@ bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime , date , lspci , lsblk , ls , cat , echo" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime , date , lspci , lsblk , ls , cat , echo , mkdir , rmdir , rm , mv , sync , umount" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -325,8 +344,7 @@ bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         afiseaza_lspci(comanda[5] != '\0', cursor_y);
     } else if (sunt_egale(comanda , "lsblk")){
         afiseaza_lsblk(cursor_y);
-    } else if(starts_with(comanda , "cat ") || sunt_egale(comanda , "ls") || starts_with(comanda , "ls ") ||
-              sunt_egale(comanda , "echo") || starts_with(comanda , "echo ")){
+    } else if(fs_command_len(comanda)){
         for(int i = 0 ; i < 255 && comanda[i] ; i++){
             fs_cmd[i] = comanda[i];
             fs_cmd[i + 1] = '\0';
@@ -425,6 +443,11 @@ static const char* fs_error(int64_t e){
     case EEXIST: return "File exists";
     case ENOMEM: return "Out of memory";
     case EFBIG: return "File too large";
+    case EBUSY: return "Device or resource busy";
+    case ENOTEMPTY: return "Directory not empty";
+    case EXDEV: return "Invalid cross-device link";
+    case EINVAL: return "Invalid argument";
+    case ENODEV: return "No such device";
     default: return "I/O error";
     }
 }
@@ -561,12 +584,71 @@ static void fs_echo(const char* arg){
     file_put(f);
 }
 
+// mkdir / rmdir / rm / mv / sync / umount: o singura linie de eroare, tacut la succes
+static void fs_other(const char* cmd , int cmd_len , const char* arg){
+    char word[12];
+    for(int i = 0 ; i < cmd_len && i < 7 ; i++){
+        word[i] = cmd[i];
+        word[i + 1] = '\0';
+    }
+    char pre[12];
+    int pn = 0;
+    for(const char* w = word ; *w ; w++){
+        pre[pn++] = *w;
+    }
+    pre[pn++] = ':';
+    pre[pn++] = ' ';
+    pre[pn] = '\0';
+    char line[LATIME_ECRAN + 1];
+    char src[PATH_MAX];
+    int err = 0;
+    const char* culprit = arg;
+    if(word[0] == 's'){
+        err = bsync(nullptr);
+        culprit = "";
+    } else if(!*arg){
+        fs_line("missing operand");
+        return;
+    } else if(word[0] == 'm' && word[1] == 'v'){
+        // mv <sursa> <destinatie>
+        int n = 0;
+        while(arg[n] && arg[n] != ' ' && n < PATH_MAX - 1){
+            src[n] = arg[n];
+            n++;
+        }
+        src[n] = '\0';
+        const char* dst = arg + n;
+        while(*dst == ' '){
+            dst++;
+        }
+        if(!*dst){
+            fs_line("mv: missing destination");
+            return;
+        }
+        err = vfs_rename(Path{} , src , dst);
+        culprit = src;
+    } else if(word[0] == 'u'){
+        err = vfs_umount(Path{} , arg);
+    } else if(word[1] == 'k'){
+        err = vfs_mkdir(Path{} , arg , 0755);
+    } else if(word[2] == 'd'){
+        err = vfs_rmdir(Path{} , arg);
+    } else {
+        err = vfs_unlink(Path{} , arg);
+    }
+    if(err){
+        snprint_err(pre , culprit , fs_error(err) , line);
+        fs_line(line);
+    }
+}
+
 static void shell_fs_worker(void*){
     for(;;){
         fs_cmd_sem.down();
         in_command = true;
         cursor_x = 0;
-        const char* arg = fs_cmd + (fs_cmd[0] == 'c' ? 3 : fs_cmd[0] == 'e' ? 4 : 2);
+        int cmd_len = fs_command_len(fs_cmd);
+        const char* arg = fs_cmd + cmd_len;
         while(*arg == ' '){
             arg++;
         }
@@ -574,8 +656,10 @@ static void shell_fs_worker(void*){
             fs_cat(arg);
         } else if(fs_cmd[0] == 'e'){
             fs_echo(arg);
-        } else {
+        } else if(fs_cmd[0] == 'l'){
             fs_ls(*arg ? arg : "/");
+        } else {
+            fs_other(fs_cmd , cmd_len , arg);
         }
         in_command = false;
         shell_finish();
@@ -715,6 +799,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     tmpfs_init();
     devfs_init();
     procfs_init();
+    fat32_init();
     if(boot_find_module("initrd")){
         int err = tarfs_mount_root();
         if(err){
@@ -722,6 +807,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         } else {
             kprintf("[OK] initrd montat pe / (tarfs, read-only)\n");
             fs_mount_pseudo();
+            fat32_automount();
         }
     }
     Task* fs_worker = task_create_kernel("shell-fs", shell_fs_worker, nullptr);
@@ -793,6 +879,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "ahci")){
         test_ahci_run();
+    }
+    if(test_named(test, "fat32")){
+        test_fat32_run();
     }
     if(test_named(test, "procfs")){
         test_procfs_run();

@@ -658,13 +658,13 @@ int64_t proc_readlink(Inode*, char* buf, uint64_t len){
 }
 
 const InodeOps root_ops = {root_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                           root_readdir, nullptr};
+                           root_readdir, nullptr, nullptr};
 const InodeOps pid_ops = {pid_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                          pid_readdir, nullptr};
+                          pid_readdir, nullptr, nullptr};
 const InodeOps file_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, proc_read, nullptr, nullptr,
-                           nullptr, nullptr};
+                           nullptr, nullptr, nullptr};
 const InodeOps link_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                           nullptr, proc_readlink};
+                           nullptr, proc_readlink, nullptr};
 
 // Fara cache: inode-urile dispar cu dentry-urile care le tin (radacina e eliberata de kill)
 void proc_release(Inode* i){

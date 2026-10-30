@@ -13,7 +13,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 grub-pc-bin grub-common xorriso mtools
+          sudo apt-get install -y qemu-system-x86 grub-pc-bin grub-common xorriso mtools dosfstools
 
       - name: Toolchain info
         run: |
@@ -35,6 +35,9 @@ jobs:
 
       - name: AHCI + block layer (GPT si MBR)
         run: make test-ahci
+
+      - name: FAT32 (mkfs.fat + fsck.fat)
+        run: make test-fat32
 
       - name: Mouse test
         run: make test-mouse

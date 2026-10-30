@@ -381,7 +381,7 @@ int64_t tar_readlink(Inode* ino, char* buf, uint64_t len){
 }
 
 const InodeOps tar_ops = {tar_lookup, tar_create, tar_create, tar_symlink, tar_unlink, tar_unlink,
-                          tar_read, tar_write, tar_truncate, tar_readdir, tar_readlink};
+                          tar_read, tar_write, tar_truncate, tar_readdir, tar_readlink, nullptr};
 
 // Inode-urile raman ale fs-ului pana la umount (nlink >= 1)
 void tar_release(Inode*){

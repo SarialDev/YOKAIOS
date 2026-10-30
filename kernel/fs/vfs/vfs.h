@@ -21,6 +21,9 @@ int vfs_stat(const Path& base, const char* path, bool follow, Stat& st);
 int vfs_mkdir(const Path& base, const char* path, uint32_t mode);
 int vfs_rmdir(const Path& base, const char* path);
 int vfs_unlink(const Path& base, const char* path);
+// Muta / redenumeste (ca rename(2)): fisier peste fisier si director gol peste director gol inlocuiesc; -EXDEV intre
+// sisteme de fisiere, -EPERM daca fs-ul nu stie rename
+int vfs_rename(const Path& base, const char* oldpath, const char* newpath);
 int vfs_symlink(const Path& base, const char* target, const char* linkpath);
 // Lungimea tintei (fara terminator, trunchiata la size) sau -errno
 int64_t vfs_readlink(const Path& base, const char* path, char* buf, uint64_t size);

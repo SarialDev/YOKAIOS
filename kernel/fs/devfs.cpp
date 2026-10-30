@@ -378,9 +378,9 @@ int root_readdir(Inode* dir, uint64_t index, DirEntry& out){
 
 // Doar lookup si readdir: create/mkdir/unlink dau -EPERM (nu exista udev)
 const InodeOps root_ops = {root_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                           root_readdir, nullptr};
+                           root_readdir, nullptr, nullptr};
 const InodeOps dev_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, dev_read, dev_write, nullptr,
-                          nullptr, nullptr};
+                          nullptr, nullptr, nullptr};
 
 void dev_release(Inode*){
 }

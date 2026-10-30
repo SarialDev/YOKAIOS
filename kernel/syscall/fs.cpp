@@ -110,6 +110,17 @@ int64_t sys_chdir(uint64_t path, uint64_t, uint64_t, uint64_t, uint64_t, uint64_
     return err ? err : vfs_chdir(p->cwd, kp);
 }
 
+int64_t sys_rename(uint64_t oldpath, uint64_t newpath, uint64_t, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    char ko[PATH_MAX];
+    char kn[PATH_MAX];
+    int err = p ? path_from_user(ko, oldpath) : -EINVAL;
+    if(!err){
+        err = path_from_user(kn, newpath);
+    }
+    return err ? err : vfs_rename(p->cwd, ko, kn);
+}
+
 int64_t sys_mkdir(uint64_t path, uint64_t mode, uint64_t, uint64_t, uint64_t, uint64_t){
     Process* p = process_current();
     char kp[PATH_MAX];

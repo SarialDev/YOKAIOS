@@ -1,0 +1,17 @@
+[OK] serial
+[OK] multiboot2
+[OK] hal
+ahci: sda "QEMU HARDDISK" 131072 sectoare x 512 B (64 MiB)
+partition: sda1 MBR start=2048 sectoare=129024
+[OK] fat32 montat pe /media (sda1)
+[OK] test_fat32 automount
+[OK] test_fat32 citire
+[OK] test_fat32 scriere
+[OK] test_fat32 nume
+[OK] test_fat32 directoare mari
+[OK] test_fat32 mkdir / rmdir / unlink / rename
+[OK] test_fat32 extindere
+[OK] test_fat32 volum plin
+[OK] test_fat32 remontare
+[OK] test_fat32 (FAT32
+[OK] boot

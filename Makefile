@@ -55,7 +55,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -152,6 +152,23 @@ test-ahci-mbr: $(BUILD)/yokai-ahci.iso $(BUILD)/disk-mbr.img
 	EXPECT_FILE=tests/expect-ahci-mbr.txt SMP=$(SMP) QEMU_EXTRA="$(call AHCI_QEMU,mbr) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ahci-mbr.log
 
 test-ahci: test-ahci-gpt test-ahci-mbr
+
+# FAT32: imagine de 64 MiB facuta cu mkfs.fat (clustere de 512 B si de 4 KiB) si populata cu mtools (tests/mkfat32.sh);
+# kernelul ruleaza doar test=fat32 si modifica discul, apoi tests/check_fat32.sh il verifica cu fsck.fat si mtools
+$(BUILD)/yokai-fat32.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-fat32/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-fat32/boot/
+	sed 's/test=[^ ]*/test=fat32/' boot/grub-test.cfg > $(BUILD)/iso-fat32/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-fat32 2>/dev/null
+
+FAT32_QEMU = -boot order=d -device ahci,id=ahci0 -drive file=$(BUILD)/fat32-$(1).img,if=none,id=d0,format=raw -device ide-hd,drive=d0,bus=ahci0.0
+
+test-fat32-%: $(BUILD)/yokai-fat32.iso tests/mkfat32.sh tests/check_fat32.sh
+	sh tests/mkfat32.sh $(BUILD)/fat32-$*.img $*
+	EXPECT_FILE=tests/expect-fat32.txt SMP=$(SMP) QEMU_EXTRA="$(call FAT32_QEMU,$*) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/fat32-$*.log
+	sh tests/check_fat32.sh $(BUILD)/fat32-$*.img
+
+test-fat32: test-fat32-1 test-fat32-8
 
 # Doar test=drivers; "version<ret>" trimis prin monitorul QEMU: o data pe PS/2 (fara xHCI), o data pe usb-kbd (fara 8042)
 $(BUILD)/panic-drivers.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg

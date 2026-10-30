@@ -426,8 +426,62 @@ int64_t tmp_readlink(Inode* i, char* buf, uint64_t len){
     return (int64_t)len;
 }
 
+// Muta src sub numele nou; victim (daca exista) dispare. Intrarea noua se aloca inainte de orice modificare
+int tmp_rename(Inode* odir, const char* oname, uint32_t olen, Inode* ndir, const char* nname, uint32_t nlen,
+               Inode* src, Inode* victim){
+    TmpNode* od = node_of(odir);
+    TmpNode* nd = node_of(ndir);
+    if(nlen == 0 || nlen > NAME_MAX){
+        return nlen ? -ENAMETOOLONG : -EINVAL;
+    }
+    TmpEntry* before;
+    TmpEntry* old = entry_find(od, oname, olen, &before);
+    if(!old || old->node->ino != src){
+        return -ENOENT;
+    }
+    TmpEntry* ne = (TmpEntry*)kmalloc(sizeof(TmpEntry) + nlen);
+    if(!ne){
+        return -ENOMEM;
+    }
+    if(victim){
+        int err = tmp_remove(ndir, nname, nlen, victim, S_ISDIR(victim->mode));
+        if(err){
+            kfree(ne);
+            return err;
+        }
+        if(od == nd){
+            old = entry_find(od, oname, olen, &before);     // tmp_remove a mutat lista
+        }
+    }
+    if(before){
+        before->next = old->next;
+    } else {
+        od->ents = old->next;
+    }
+    if(od->last == old){
+        od->last = before;
+    }
+    kfree(old);
+    ne->next = nullptr;
+    ne->node = node_of(src);
+    ne->len = (uint8_t)nlen;
+    memcpy(ne->name, nname, nlen);
+    if(nd->last){
+        nd->last->next = ne;
+    } else {
+        nd->ents = ne;
+    }
+    nd->last = ne;
+    if(S_ISDIR(src->mode) && odir != ndir){
+        odir->nlink--;
+        ndir->nlink++;
+    }
+    odir->mtime = odir->ctime = ndir->mtime = ndir->ctime = vfs_now();
+    return 0;
+}
+
 const InodeOps tmp_ops = {tmp_lookup, tmp_create, tmp_create, tmp_symlink, tmp_unlink, tmp_rmdir,
-                          tmp_read, tmp_write, tmp_truncate, tmp_readdir, tmp_readlink};
+                          tmp_read, tmp_write, tmp_truncate, tmp_readdir, tmp_readlink, tmp_rename};
 
 // Un inode scos din arbore (nlink 0) dispare la ultima referinta; restul raman ale fs-ului pana la kill
 void tmp_release(Inode* i){

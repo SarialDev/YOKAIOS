@@ -246,7 +246,7 @@ int64_t mem_readlink(Inode* i, char* buf, uint64_t len){
 }
 
 const InodeOps mem_ops = {mem_lookup, mem_make, mem_make, mem_symlink, mem_unlink, mem_rmdir, mem_read, mem_write,
-                          mem_truncate, mem_readdir, mem_readlink};
+                          mem_truncate, mem_readdir, mem_readlink, nullptr};
 
 void mem_release(Inode* i){
     if(i->nlink != 0){

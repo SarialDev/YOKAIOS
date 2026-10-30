@@ -38,6 +38,11 @@ struct InodeOps {
     int (*readdir)(Inode* dir, uint64_t index, DirEntry& out);
     // Tinta symlink-ului (fara terminator): lungimea copiata sau -errno
     int64_t (*readlink)(Inode* ino, char* buf, uint64_t len);
+    // Muta src (numit oname in odir) sub numele nname in ndir (acelasi sb). victim = inode-ul care exista deja sub
+    // nname (fisier peste fisier, director gol peste director gol) si dispare; nullptr daca numele e liber sau
+    // doar difera ca majuscule (fs fara diferenta de majuscule). VFS a verificat tipurile si ciclurile
+    int (*rename)(Inode* odir, const char* oname, uint32_t olen, Inode* ndir, const char* nname, uint32_t nlen,
+                  Inode* src, Inode* victim);
 };
 
 struct Inode {

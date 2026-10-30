@@ -224,6 +224,7 @@ constexpr Table make_table(){
     t.fn[SYS_LSEEK] = sys_lseek;
     t.fn[SYS_GETCWD] = sys_getcwd;
     t.fn[SYS_CHDIR] = sys_chdir;
+    t.fn[SYS_RENAME] = sys_rename;
     t.fn[SYS_MKDIR] = sys_mkdir;
     t.fn[SYS_RMDIR] = sys_rmdir;
     t.fn[SYS_UNLINK] = sys_unlink;

@@ -294,6 +294,44 @@ void check_limit(){
 
 }
 
+// rename: fisier si director, peste existent, intre directoare, tipuri si cicluri, cu fisier deschis
+void check_rename(){
+    char names[128];
+    EQ(vfs_mkdir(none, "/tmp/rd1", 0755), 0);
+    EQ(vfs_mkdir(none, "/tmp/rd2", 0755), 0);
+    File* f = open_ok("/tmp/rd1/a", O_CREAT | O_RDWR);
+    EQ(wr(f, "AAA", 3), 3);
+    EQ(vfs_rename(none, "/tmp/rd1/a", "/tmp/rd2/b"), 0);
+    EQ(open_err("/tmp/rd1/a", O_RDONLY), -ENOENT);
+    seek(f, 0);
+    char buf[8];
+    EQ(rd(f, buf, 8), 3);                           // descriptorul ramane valid
+    file_put(f);
+    EQ(stat_ok("/tmp/rd2/b").st_size, 3);
+    // Peste un fisier existent: il inlocuieste
+    f = open_ok("/tmp/rd2/c", O_CREAT | O_RDWR);
+    EQ(wr(f, "CCCCC", 5), 5);
+    file_put(f);
+    EQ(vfs_rename(none, "/tmp/rd2/b", "/tmp/rd2/c"), 0);
+    EQ(stat_ok("/tmp/rd2/c").st_size, 3);
+    list_dir("/tmp/rd2", names, sizeof(names));
+    CHECK(same(names, "c,"));
+    // Directoare
+    EQ(vfs_mkdir(none, "/tmp/rd1/sub", 0755), 0);
+    EQ(vfs_rename(none, "/tmp/rd1/sub", "/tmp/rd2/moved"), 0);
+    EQ(vfs_rename(none, "/tmp/rd2", "/tmp/rd2/moved/inside"), -EINVAL);
+    EQ(vfs_rename(none, "/tmp/rd2/c", "/tmp/rd2/moved"), -EISDIR);
+    EQ(vfs_rename(none, "/tmp/rd2/moved", "/tmp/rd2/c"), -ENOTDIR);
+    EQ(vfs_rename(none, "/tmp/rd2", "/tmp/rd1"), 0);    // rd1 e gol: este inlocuit
+    EQ(vfs_rename(none, "/tmp/nu", "/tmp/x"), -ENOENT);
+    EQ(vfs_rename(none, "/tmp/rd1", "/run/rd1"), -EXDEV);
+    list_dir("/tmp/rd1", names, sizeof(names));
+    CHECK(same(names, "c,moved,"));
+    EQ(vfs_rmdir(none, "/tmp/rd1/moved"), 0);
+    EQ(vfs_unlink(none, "/tmp/rd1/c"), 0);
+    EQ(vfs_rmdir(none, "/tmp/rd1"), 0);
+}
+
 void test_tmpfs_run(){
     check_mounts();
     kprintf("[OK] test_tmpfs mounts\n");
@@ -309,5 +347,7 @@ void test_tmpfs_run(){
     kprintf("[OK] test_tmpfs dirs\n");
     check_limit();
     kprintf("[OK] test_tmpfs limit\n");
+    check_rename();
+    kprintf("[OK] test_tmpfs rename\n");
     kprintf("[OK] test_tmpfs (pagini la cerere, goluri, truncate, directoare, symlink, limita size=, fara scurgeri)\n");
 }

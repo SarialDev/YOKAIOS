@@ -235,6 +235,78 @@ int vfs_unlink(const Path& base, const char* path){
     return remove_node(base, path, false);
 }
 
+int vfs_rename(const Path& base, const char* oldpath, const char* newpath){
+    MutexGuard g(lock);
+    Path od;
+    LastName ol;
+    Dentry* oc;
+    int err = parent_and_child(base, oldpath, od, ol, oc);
+    if(err){
+        return err;
+    }
+    if(!oc){
+        path_put(od);
+        return ol.len == 0 ? -EBUSY : -EINVAL;
+    }
+    Path nd;
+    LastName nl;
+    Dentry* nc;
+    err = parent_and_child(base, newpath, nd, nl, nc);
+    if(err){
+        dentry_put(oc);
+        path_put(od);
+        return err;
+    }
+    if(!nc){
+        err = nl.len == 0 ? -EBUSY : -EINVAL;
+    } else if(!oc->inode){
+        err = -ENOENT;
+    } else if(oc == nc){
+        err = 0;                                    // acelasi nume: nimic de facut
+    } else if(oc->sb != nc->sb){
+        err = -EXDEV;
+    } else if(oc->mounted || nc->mounted){
+        err = -EBUSY;
+    } else if(od.mnt->sb->flags & MS_RDONLY){
+        err = -EROFS;
+    } else {
+        Inode* src = oc->inode;
+        Inode* victim = nc->inode && nc->inode != src ? nc->inode : nullptr;
+        bool src_dir = S_ISDIR(src->mode);
+        if((ol.trailing_slash || nl.trailing_slash) && !src_dir){
+            err = -ENOTDIR;
+        } else if(victim && src_dir && !S_ISDIR(victim->mode)){
+            err = -ENOTDIR;
+        } else if(victim && !src_dir && S_ISDIR(victim->mode)){
+            err = -EISDIR;
+        } else {
+            // Un director nu se muta in propriul subarbore
+            for(Dentry* d = nd.dentry; src_dir && d && !err; d = d->parent){
+                err = d == oc ? -EINVAL : 0;
+            }
+            Inode* odi = od.dentry->inode;
+            Inode* ndi = nd.dentry->inode;
+            if(!err){
+                err = odi->ops && odi->ops->rename ? odi->ops->rename(odi, ol.name, ol.len, ndi, nl.name, nl.len, src,
+                                                                      victim)
+                                                   : -EPERM;
+            }
+            if(!err){
+                // Numele vechi si cel nou dispar din cache; cele deja deschise raman valide pana la ultima referinta
+                d_drop(oc);
+                d_drop(nc);
+            }
+        }
+    }
+    dentry_put(nc ? nc : oc);
+    if(nc){
+        dentry_put(oc);
+    }
+    path_put(nd);
+    path_put(od);
+    return err;
+}
+
 int vfs_symlink(const Path& base, const char* target, const char* linkpath){
     uint64_t n = 0;
     while(target[n]){

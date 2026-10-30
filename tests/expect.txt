@@ -106,6 +106,7 @@ MemFree:
 [OK] test_tmpfs unlink-open
 [OK] test_tmpfs dirs
 [OK] test_tmpfs limit
+[OK] test_tmpfs rename
 [OK] test_tmpfs (
 [OK] test_devfs null zero
 [OK] test_devfs random
