@@ -53,8 +53,11 @@
 #include "syscall/syscall.h"
 #include "fs/vfs/vfs.h"
 #include "fs/tarfs.h"
+#include "fs/pseudofs.h"
 #include "sync/semaphore.h"
 #include "tests/test_tarfs.h"
+#include "tests/test_tmpfs.h"
+#include "tests/test_devfs.h"
 
 // Ecranul de text vine din HAL (VGA)
 Console* screen = nullptr;
@@ -285,7 +288,7 @@ bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
     if(comanda_lungime == 0){
 
     }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime , date , lspci , ls , cat" , cursor_x, cursor_y);
+        out("Available commands: help , clear , version , uptime , date , lspci , ls , cat , echo" , cursor_x, cursor_y);
         cursor_y++;
     }
     else if(sunt_egale(comanda , "clear") ){
@@ -302,7 +305,8 @@ bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         cursor_y++;
     } else if (sunt_egale(comanda , "lspci") || sunt_egale(comanda , "lspci -v")){
         afiseaza_lspci(comanda[5] != '\0', cursor_y);
-    } else if(starts_with(comanda , "cat ") || sunt_egale(comanda , "ls") || starts_with(comanda , "ls ")){
+    } else if(starts_with(comanda , "cat ") || sunt_egale(comanda , "ls") || starts_with(comanda , "ls ") ||
+              sunt_egale(comanda , "echo") || starts_with(comanda , "echo ")){
         for(int i = 0 ; i < 255 && comanda[i] ; i++){
             fs_cmd[i] = comanda[i];
             fs_cmd[i + 1] = '\0';
@@ -395,6 +399,12 @@ static const char* fs_error(int64_t e){
     case EISDIR: return "Is a directory";
     case ELOOP: return "Too many symbolic links";
     case ENAMETOOLONG: return "File name too long";
+    case EROFS: return "Read-only file system";
+    case ENOSPC: return "No space left on device";
+    case EPERM: return "Operation not permitted";
+    case EEXIST: return "File exists";
+    case ENOMEM: return "Out of memory";
+    case EFBIG: return "File too large";
     default: return "I/O error";
     }
 }
@@ -486,17 +496,64 @@ static void fs_ls(const char* path){
     file_put(f);
 }
 
+// echo [text] [> | >> path]: fara redirectare scrie textul pe ecran, altfel in fisier (creat daca lipseste)
+static void fs_echo(const char* arg){
+    char text[256];
+    int n = 0;
+    const char* redir = nullptr;
+    bool append = false;
+    for(const char* p = arg ; *p ; p++){
+        if(*p == '>'){
+            append = p[1] == '>';
+            redir = p + (append ? 2 : 1);
+            break;
+        }
+        text[n++] = *p;
+    }
+    while(n > 0 && text[n - 1] == ' '){
+        n--;
+    }
+    text[n] = '\0';
+    if(!redir){
+        fs_line(text);
+        return;
+    }
+    while(*redir == ' '){
+        redir++;
+    }
+    if(!*redir){
+        fs_line("echo: missing file name");
+        return;
+    }
+    File* f;
+    int err = vfs_open(Path{} , redir , O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC) , 0644 , f);
+    if(err){
+        char line[LATIME_ECRAN + 1];
+        snprint_err("echo: " , redir , fs_error(err) , line);
+        fs_line(line);
+        return;
+    }
+    text[n++] = '\n';
+    int64_t w = f->ops->write(f , text , (uint64_t)n , false);
+    if(w < 0){
+        fs_line(fs_error(w));
+    }
+    file_put(f);
+}
+
 static void shell_fs_worker(void*){
     for(;;){
         fs_cmd_sem.down();
         in_command = true;
         cursor_x = 0;
-        const char* arg = fs_cmd + (fs_cmd[0] == 'c' ? 3 : 2);
+        const char* arg = fs_cmd + (fs_cmd[0] == 'c' ? 3 : fs_cmd[0] == 'e' ? 4 : 2);
         while(*arg == ' '){
             arg++;
         }
         if(fs_cmd[0] == 'c'){
             fs_cat(arg);
+        } else if(fs_cmd[0] == 'e'){
+            fs_echo(arg);
         } else {
             fs_ls(*arg ? arg : "/");
         }
@@ -634,12 +691,15 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     kprintf("[OK] rtc\n");
     vfs_init();
     tarfs_init();
+    tmpfs_init();
+    devfs_init();
     if(boot_find_module("initrd")){
         int err = tarfs_mount_root();
         if(err){
             kprintf("initrd: montarea pe / a esuat (%d)\n", err);
         } else {
             kprintf("[OK] initrd montat pe / (tarfs, read-only)\n");
+            fs_mount_pseudo();
         }
     }
     Task* fs_worker = task_create_kernel("shell-fs", shell_fs_worker, nullptr);
@@ -698,6 +758,12 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "tarfs")){
         test_tarfs_run();
+    }
+    if(test_named(test, "tmpfs")){
+        test_tmpfs_run();
+    }
+    if(test_named(test, "devfs")){
+        test_devfs_run();
     }
     if(test_named(test, "vfs")){
         test_vfs_run();

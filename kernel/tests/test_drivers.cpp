@@ -44,14 +44,14 @@ void check_input(){
     int before = shell_command_count;
     int done_before = shell_done_count;
     kprintf("drivers: astept intrare\n");
-    // "version" si "cat /etc/hostname" (a doua se executa intr-un task, nu in IRQ)
+    // "version", "cat /etc/hostname", "echo tmpfsok > /tmp/x", "cat /tmp/x" (ultimele trei se executa intr-un task, nu in IRQ)
     uint64_t start = uptime_ms();
-    while(shell_done_count < done_before + 2 && uptime_ms() - start < INPUT_TIMEOUT_MS){
+    while(shell_done_count < done_before + 4 && uptime_ms() - start < INPUT_TIMEOUT_MS){
         sleep_ms(20);
     }
     shell_serial_echo = false;
-    CHECK(shell_command_count >= before + 2);
-    CHECK(shell_done_count >= done_before + 2);
+    CHECK(shell_command_count >= before + 4);
+    CHECK(shell_done_count >= done_before + 4);
     kprintf("[OK] test_drivers input\n");
 }
 

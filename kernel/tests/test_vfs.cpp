@@ -2,6 +2,7 @@
 #include "uapi/syscall_nr.h"
 #include "fs/vfs/vfs.h"
 #include "fs/tarfs.h"
+#include "fs/pseudofs.h"
 #include "core/panic.h"
 #include "mm/kmalloc.h"
 #include "lib/string.h"
@@ -889,6 +890,7 @@ void test_user_syscalls(){
 
 void test_vfs_run(){
     // Testele pornesc de la un VFS gol (fara initrd pe "/"); la sfarsit radacina initrd se pune la loc
+    EQ(fs_umount_pseudo(), 0);                      // /dev, /tmp si /run stau peste radacina initrd
     bool had_root = umount_root_do() == 0;
     CHECK(had_root);
     test_files();
@@ -910,6 +912,7 @@ void test_vfs_run(){
     kprintf("[OK] test_vfs syscalls\n");
     EQ(umount_root_do(), 0);
     EQ(tarfs_mount_root(), 0);
+    EQ(fs_mount_pseudo(), 0);
     kprintf("[OK] test_vfs (memfs: open/read/write/lseek/stat, cai relative, symlink max %u, mount/umount, getdents, FdTable, syscall-uri din ring 3, fara scurgeri)\n",
             (unsigned)MAX_SYMLINKS);
 }

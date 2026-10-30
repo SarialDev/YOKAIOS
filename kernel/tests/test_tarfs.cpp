@@ -149,7 +149,7 @@ void check_read_only(){
     EQ(vfs_mkdir(none, "/etc/d", 0755), -EROFS);
     EQ(vfs_symlink(none, "x", "/etc/l"), -EROFS);
     EQ(vfs_unlink(none, "/etc/hostname"), -EROFS);
-    EQ(vfs_rmdir(none, "/tmp"), -EROFS);
+    EQ(vfs_rmdir(none, "/home"), -EROFS);
     char buf[16];
     EQ(slurp("/etc/hostname", buf, sizeof(buf)), 12);          // continutul a ramas neatins
 }

@@ -6,5 +6,6 @@
 [OK] test_drivers input
 YOKAI OS version
 yokai-drone
+tmpfsok
 [OK] test_drivers (
 [OK] boot
