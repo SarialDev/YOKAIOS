@@ -58,6 +58,28 @@ Task* task_create_idle(uint32_t cpu);
 // Elibereaza stiva si structura unui task care nu ruleaza (ZOMBIE sau inca nepornit)
 void task_destroy(Task* t);
 
+// Copie consistenta a unui task pentru procfs; pid/ppid/cmdline vin din Process daca task-ul e thread principal
+const int PROC_CMDLINE_MAX = 256;
+struct TaskInfo {
+    uint64_t tid;
+    uint64_t pid;                   // pid-ul procesului, altfel tid
+    uint64_t ppid;
+    TaskState state;
+    TaskClass cls;
+    bool zombie;                    // task ZOMBIE sau proces terminat
+    bool user;                      // are spatiu de adrese propriu
+    uint8_t prio;
+    uint32_t cpu;
+    uint64_t pml4_phys;             // 0 pentru thread-urile de kernel
+    uint16_t cmdline_len;
+    char name[TASK_NAME_LEN];
+    char cmdline[PROC_CMDLINE_MAX]; // argv separat prin '\0'
+};
+// Task-ul cu tid-ul dat (fara idle); false daca nu exista
+bool task_info(uint64_t tid, TaskInfo& out);
+// Al n-lea task (fara idle), in ordinea crearii
+bool task_nth(uint64_t n, TaskInfo& out);
+
 // Task-ul care ruleaza pe CPU-ul curent (PerCpu::current)
 Task* task_current();
 uint64_t task_count();

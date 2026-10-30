@@ -4,6 +4,7 @@
 #include "syscall/syscall.h"
 #include "sched/sched.h"
 #include "mm/kmalloc.h"
+#include "lib/string.h"
 
 namespace {
 
@@ -52,6 +53,11 @@ int64_t process_fork(const InterruptFrame& parent_frame){
         return -ENOMEM;
     }
     process_set_name(child, parent->name);
+    {
+        SpinlockGuard lock(process_tree_lock());
+        memcpy(child->cmdline, parent->cmdline, parent->cmdline_len);
+        child->cmdline_len = parent->cmdline_len;
+    }
     fd_copy(child->fds, parent->fds);
     vfs_path_copy(child->cwd, parent->cwd);
     int64_t pid = (int64_t)child->pid;

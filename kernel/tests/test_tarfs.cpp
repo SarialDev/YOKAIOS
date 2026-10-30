@@ -129,12 +129,13 @@ void check_paths_and_links(){
     char buf[64];
     CHECK(S_ISDIR(stat_ok("/etc/../bin/./").st_mode));
     CHECK(S_ISREG(stat_ok("/bin/../etc//hostname").st_mode));
-    // /etc/mtab -> ../proc/mounts (tinta nu exista: /proc e gol)
+    // /etc/mtab -> ../proc/mounts (tinta exista doar cat timp procfs e montat pe /proc)
     CHECK(S_ISLNK(stat_ok("/etc/mtab", false).st_mode));
     EQ(vfs_readlink(none, "/etc/mtab", buf, sizeof(buf)), 14);
     CHECK(memcmp(buf, "../proc/mounts", 14) == 0);
     Stat st;
-    EQ(vfs_stat(none, "/etc/mtab", true, st), -ENOENT);
+    EQ(vfs_stat(none, "/etc/mtab", true, st), 0);
+    CHECK(S_ISREG(st.st_mode));
     EQ(open_err("/nu-exista", O_RDONLY), -ENOENT);
     EQ(open_err("/etc/hostname/x", O_RDONLY), -ENOTDIR);
     EQ(open_err("/etc/hostname", O_RDONLY | O_DIRECTORY), -ENOTDIR);

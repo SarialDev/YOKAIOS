@@ -64,6 +64,9 @@ struct SuperBlockOps {
     void (*kill)(SuperBlock* sb);
 };
 
+// Flag intern al sb (peste MS_*): dentry-urile nu raman in cache dupa ultima referinta (fs cu continut dinamic, ex. procfs)
+const uint32_t SB_NOCACHE = 1u << 16;
+
 struct SuperBlock {
     FileSystemType* type;
     const SuperBlockOps* ops;

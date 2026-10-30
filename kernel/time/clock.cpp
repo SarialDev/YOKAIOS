@@ -152,3 +152,7 @@ void sleep_ms(uint32_t ms){
         __asm__ volatile("hlt");
     }
 }
+
+uint64_t clock_tsc_hz(){
+    return tsc_hz;
+}

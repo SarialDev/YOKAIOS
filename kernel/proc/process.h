@@ -25,6 +25,8 @@ struct Process {
     Path cwd;                       // dentry == nullptr = radacina VFS; referinta tinuta pana la exit
     WaitQueue child_exit;           // parintele asteapta aici in waitpid
     char name[TASK_NAME_LEN];
+    uint16_t cmdline_len;           // argv separat prin '\0', trunchiat la PROC_CMDLINE_MAX
+    char cmdline[PROC_CMDLINE_MAX];
 };
 
 // Proces nou pentru task-ul main (care are deja spatiul lui de adrese); fd-urile sunt goale.
@@ -36,6 +38,8 @@ void process_abort(Process* p);
 void process_free(Process* p);
 Process* process_current();
 void process_set_name(Process* p, const char* name);
+// Pentru /proc/<pid>/cmdline; argv terminat cu nullptr (poate fi nullptr)
+void process_set_cmdline(Process* p, const char* const* argv);
 
 // Termina procesul curent cu codul dat (exit sau fault fatal): inchide fd-urile, devine ZOMBIE si
 // trezeste parintele. Nu revine

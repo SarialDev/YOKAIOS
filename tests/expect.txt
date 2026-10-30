@@ -29,6 +29,7 @@ usb: hid mouse
 [OK] initrd montat
 [OK] devfs montat pe /dev
 [OK] tmpfs montat pe /tmp si /run
+[OK] procfs montat pe /proc
 [OK] vfs
 [OK] pci 
 [OK] protect
@@ -89,6 +90,8 @@ Ethernet controller
 YOKAI OS version
 yokai-drone
 tmpfsok
+MemTotal:
+MemFree:
 [OK] test_drivers (
 [OK] test_tarfs layout
 [OK] test_tarfs files
@@ -112,6 +115,12 @@ devfs: scris prin /dev/ttyS0
 [OK] test_devfs fb0
 [OK] test_devfs block
 [OK] test_devfs (
+[OK] test_procfs files
+[OK] test_procfs meminfo
+[OK] test_procfs mounts
+[OK] test_procfs pid
+[OK] test_procfs self
+[OK] test_procfs (
 [OK] test_vfs files
 [OK] test_vfs paths
 [OK] test_vfs symlinks

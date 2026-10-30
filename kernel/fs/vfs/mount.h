@@ -9,6 +9,15 @@ struct Mount {
     Dentry* root;
     SuperBlock* sb;
     Mount* next;
+    char dev_name[32];
+};
+
+const uint32_t MOUNT_SNAPSHOT_MAX = 16;
+struct MountInfo {
+    char dev_name[32];
+    char path[PATH_MAX];
+    const char* fstype;
+    uint32_t flags;
 };
 
 // Lock-ul VFS luat pentru toate
@@ -27,3 +36,5 @@ int umount_do(const Path& base, const char* target);
 // VFS gol; -EBUSY / -EINVAL (nimic montat). Nu exista umount("/") obisnuit
 int umount_root_do();
 uint64_t mount_count();
+// Mount-urile in ordinea montarii (radacina prima), cel mult max; cate a completat. Lock-ul VFS luat
+uint64_t mount_snapshot(MountInfo* out, uint64_t max);

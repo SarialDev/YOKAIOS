@@ -149,7 +149,7 @@ void dentry_get(Dentry* d){
 }
 
 void dentry_put(Dentry* d){
-    if(--d->refs == 0 && (!(d->flags & D_HASHED) || !d->inode)){
+    if(--d->refs == 0 && (!(d->flags & D_HASHED) || !d->inode || (d->sb->flags & SB_NOCACHE))){
         release(d);
     }
 }

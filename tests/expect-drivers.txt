@@ -7,5 +7,7 @@
 YOKAI OS version
 yokai-drone
 tmpfsok
+MemTotal:
+MemFree:
 [OK] test_drivers (
 [OK] boot

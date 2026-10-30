@@ -10,6 +10,7 @@
 #include "lib/kprintf.h"
 #include "sync/spinlock.h"
 #include "arch/x86_64/percpu.h"
+#include "lib/string.h"
 #include "init.h"
 
 extern "C" char stack_bottom[];
@@ -175,6 +176,73 @@ void task_destroy(Task* t){
         all_count--;
     }
     kmem_cache_free(task_cache, t);
+}
+
+namespace {
+
+bool is_idle(const Task* t){
+    for(uint32_t i = 0; i < MAX_CPUS; i++){
+        if(cpus[i].idle == t){
+            return true;
+        }
+    }
+    return false;
+}
+
+// tasks_lock luat; cele din Process vin sub lock-ul arborelui (task_destroy scoate Process-ul inainte de a elibera Task)
+void fill_info(const Task* t, TaskInfo& out){
+    out.tid = t->tid;
+    out.pid = t->tid;
+    out.ppid = 0;
+    out.state = t->state;
+    out.cls = t->cls;
+    out.zombie = t->state == TaskState::ZOMBIE;
+    out.user = t->as && t->as != &kernel_as;
+    out.prio = t->prio;
+    out.cpu = t->cpu;
+    out.pml4_phys = out.user ? t->as->pml4_phys : 0;
+    out.cmdline_len = 0;
+    memcpy(out.name, t->name, TASK_NAME_LEN);
+    if(t->proc){
+        Process* p = t->proc;
+        uint64_t flags = process_tree_lock().lock_irqsave();
+        out.pid = p->pid;
+        out.ppid = p->ppid;
+        out.zombie |= p->state == ProcState::ZOMBIE;
+        memcpy(out.name, p->name, TASK_NAME_LEN);
+        out.cmdline_len = p->cmdline_len;
+        memcpy(out.cmdline, p->cmdline, p->cmdline_len);
+        process_tree_lock().unlock_irqrestore(flags);
+    }
+}
+
+}
+
+bool task_info(uint64_t tid, TaskInfo& out){
+    SpinlockGuard lock(tasks_lock);
+    for(ListLink* l = all_tasks.next; l != &all_tasks; l = l->next){
+        Task* t = (Task*)((uint8_t*)l - __builtin_offsetof(Task, all));
+        if(t->tid == tid && !is_idle(t)){
+            fill_info(t, out);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool task_nth(uint64_t n, TaskInfo& out){
+    SpinlockGuard lock(tasks_lock);
+    for(ListLink* l = all_tasks.next; l != &all_tasks; l = l->next){
+        Task* t = (Task*)((uint8_t*)l - __builtin_offsetof(Task, all));
+        if(is_idle(t)){
+            continue;
+        }
+        if(n-- == 0){
+            fill_info(t, out);
+            return true;
+        }
+    }
+    return false;
 }
 
 Task* task_current(){

@@ -1,6 +1,7 @@
 #include "fs/vfs/mount.h"
 #include "uapi/syscall_nr.h"
 #include "mm/kmalloc.h"
+#include "lib/string.h"
 
 namespace {
 
@@ -111,6 +112,9 @@ int mount_do(const Path& base, const char* dev_name, const char* target, const c
         return err;
     }
     m->sb = sb;
+    for(uint32_t i = 0; dev_name && dev_name[i] && i < sizeof(m->dev_name) - 1; i++){
+        m->dev_name[i] = dev_name[i];
+    }
     if(!first){
         m->parent = tp.mnt;
         m->mountpoint = tp.dentry;      // preia referinta din tp
@@ -203,4 +207,74 @@ int umount_root_do(){
 
 uint64_t mount_count(){
     return live_mounts;
+}
+
+namespace {
+
+// Calea mount-ului: calea mount point-ului in mount-ul parinte, concatenata la calea parintelui. false daca nu incape
+bool mount_path(const Mount* m, char* buf, uint64_t size){
+    if(!m->parent){
+        if(size < 2){
+            return false;
+        }
+        buf[0] = '/';
+        buf[1] = 0;
+        return true;
+    }
+    char tmp[PATH_MAX];
+    uint64_t pos = sizeof(tmp) - 1;
+    tmp[pos] = 0;
+    for(const Dentry* d = m->mountpoint; d->parent; d = d->parent){
+        if(pos < d->name_len + 1u){
+            return false;
+        }
+        pos -= d->name_len;
+        memcpy(tmp + pos, d->name, d->name_len);
+        tmp[--pos] = '/';
+    }
+    char parent[PATH_MAX];
+    if(!mount_path(m->parent, parent, sizeof(parent))){
+        return false;
+    }
+    uint64_t plen = 0;
+    while(parent[plen]){
+        plen++;
+    }
+    if(plen == 1){
+        plen = 0;
+    }
+    uint64_t rest = sizeof(tmp) - 1 - pos;
+    if(plen + rest + 1 > size){
+        return false;
+    }
+    memcpy(buf, parent, plen);
+    memcpy(buf + plen, tmp + pos, rest + 1);
+    return true;
+}
+
+}
+
+uint64_t mount_snapshot(MountInfo* out, uint64_t max){
+    uint64_t n = 0;
+    for(Mount* m = mounts; m; m = m->next){
+        n++;
+    }
+    uint64_t filled = 0;
+    // Lista are cele mai noi primele: parcurg indicii de la cel mai vechi
+    for(uint64_t want = n; want > 0 && filled < max; want--){
+        Mount* m = mounts;
+        for(uint64_t k = 1; k < want; k++){
+            m = m->next;
+        }
+        MountInfo& e = out[filled];
+        memcpy(e.dev_name, m->dev_name, sizeof(e.dev_name));
+        if(!mount_path(m, e.path, sizeof(e.path))){
+            e.path[0] = '?';
+            e.path[1] = 0;
+        }
+        e.fstype = m->sb->type->name;
+        e.flags = m->sb->flags;
+        filled++;
+    }
+    return filled;
 }

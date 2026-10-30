@@ -58,6 +58,7 @@
 #include "tests/test_tarfs.h"
 #include "tests/test_tmpfs.h"
 #include "tests/test_devfs.h"
+#include "tests/test_procfs.h"
 
 // Ecranul de text vine din HAL (VGA)
 Console* screen = nullptr;
@@ -693,6 +694,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     tarfs_init();
     tmpfs_init();
     devfs_init();
+    procfs_init();
     if(boot_find_module("initrd")){
         int err = tarfs_mount_root();
         if(err){
@@ -764,6 +766,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "devfs")){
         test_devfs_run();
+    }
+    if(test_named(test, "procfs")){
+        test_procfs_run();
     }
     if(test_named(test, "vfs")){
         test_vfs_run();

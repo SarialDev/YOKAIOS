@@ -154,6 +154,28 @@ void process_set_name(Process* p, const char* name){
     p->name[i] = 0;
 }
 
+void process_set_cmdline(Process* p, const char* const* argv){
+    char buf[PROC_CMDLINE_MAX];
+    uint16_t n = 0;
+    for(int i = 0; argv && argv[i]; i++){
+        for(const char* s = argv[i]; ; s++){
+            if(n == PROC_CMDLINE_MAX){
+                break;
+            }
+            buf[n++] = *s;
+            if(!*s){
+                break;
+            }
+        }
+    }
+    uint64_t flags = tree_lock.lock_irqsave();
+    for(uint16_t i = 0; i < n; i++){
+        p->cmdline[i] = buf[i];
+    }
+    p->cmdline_len = n;
+    tree_lock.unlock_irqrestore(flags);
+}
+
 void process_exit(int code){
     exit_with(code, W_EXITCODE(code));
 }

@@ -355,6 +355,7 @@ uint64_t exec_spawn(const char* path, const char* const* argv, const char* const
         return 0;
     }
     fd_init_console(p->fds);
+    process_set_cmdline(p, argv);
     uint64_t pid = p->pid;
     sched_add(t);
     return pid;
@@ -388,6 +389,7 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
     t->name[i] = 0;
     if(t->proc){
         process_set_name(t->proc, name);
+        process_set_cmdline(t->proc, argv);
     }
     kfree(release);
     enter_user(start.rip, start.rsp);

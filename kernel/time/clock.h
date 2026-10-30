@@ -17,5 +17,7 @@ void clock_reprogram();
 // true daca timer-ul merge one-shot (evenimente RT la rezolutia LAPIC), false daca e periodic la 1 ms
 bool clock_high_res();
 uint64_t uptime_ms();
+// Frecventa TSC calibrata (Hz), 0 inainte de clock_init
+uint64_t clock_tsc_hz();
 // Blocheaza task-ul curent (scheduler); in task 0 asteapta cu hlt. Cere intreruperile active
 void sleep_ms(uint32_t ms);
