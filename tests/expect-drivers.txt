@@ -1,0 +1,9 @@
+[OK] hal
+8086:100e
+[OK] test_drivers lspci e1000
+@fb [OK] fb 1024x768
+@fb [OK] test_drivers fb 1024x768
+[OK] test_drivers input
+YOKAI OS version
+[OK] test_drivers (
+[OK] boot

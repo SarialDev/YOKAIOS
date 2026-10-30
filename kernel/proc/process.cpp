@@ -18,7 +18,7 @@ struct ExitRecord {
     int code;
 };
 
-const int EXIT_HISTORY = 16;
+const int EXIT_HISTORY = 64;
 
 Spinlock tree_lock("proc");
 ExitRecord exits[EXIT_HISTORY];

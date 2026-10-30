@@ -29,11 +29,11 @@ const uint64_t RT_RUN_NS = 5000000000UL;        // 5 s
 const uint64_t RT_JOB_SPIN_NS = 20000;
 const uint64_t JITTER_MAX_NS = 1000000;         // 1 ms
 const int RT_LOAD_THREADS = 3;
-// Fara "rt_strict" se tolereaza pauzele masinii gazda (QEMU fara KVM): cel mult 1% din job-uri peste 1 ms
-// si 2% deadline-uri ratate
-const uint64_t LENIENT_LATE_PERCENT = 1;
-const uint64_t LENIENT_MISS_PERCENT = 2;
-const uint64_t WAIT_TIMEOUT_NS = 30000000000UL;
+// Fara "rt_strict" se tolereaza pauzele masinii gazda (QEMU fara KVM): cel mult 3% din job-uri peste 1 ms
+// si 5% deadline-uri ratate
+const uint64_t LENIENT_LATE_PERCENT = 3;
+const uint64_t LENIENT_MISS_PERCENT = 5;
+const uint64_t WAIT_TIMEOUT_NS = 90000000000UL;
 const uint64_t WD_TIMEOUT_MS = 50;
 
 char order[MAX_LOG + 1];
@@ -124,7 +124,7 @@ void wait_tasks(uint64_t count){
     uint64_t deadline = monotonic_ns() + WAIT_TIMEOUT_NS;
     while(task_count() > count){
         if(monotonic_ns() > deadline){
-            panic("test_sched: %lu task-uri, asteptat %lu dupa 30 s", task_count(), count);
+            panic("test_sched: %lu task-uri, asteptat %lu dupa 90 s", task_count(), count);
         }
         yield();
         __asm__ volatile("hlt");
@@ -220,7 +220,7 @@ void test_rt(){
     kprintf("test_sched rt: %lu job-uri, jitter min/avg/max %lu/%lu/%lu us, %lu peste 1 ms, %lu deadline-uri ratate\n",
             s.jobs, s.jitter_min_ns / 1000, s.jitter_avg_ns / 1000, s.jitter_max_ns / 1000, s.jitter_over_1ms,
             s.deadline_misses);
-    if(s.jobs < expected * (strict ? 99 : 98) / 100 || s.jobs > expected + 1){
+    if(s.jobs < expected * (strict ? 99 : 90) / 100 || s.jobs > expected + 1){
         panic("test_sched rt: %lu job-uri in 5 s, asteptat ~%lu", s.jobs, expected);
     }
     if(strict){

@@ -48,7 +48,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse test-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -110,6 +110,15 @@ $(BUILD)/panic-pci.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log
+
+# Doar test=drivers; "version<ret>" trimis prin monitorul QEMU: o data pe PS/2 (fara xHCI), o data pe usb-kbd (fara 8042)
+$(BUILD)/panic-drivers.iso: $(KERNEL) $(USER_ELFS) boot/grub-test.cfg
+
+test-input-ps2: $(BUILD)/panic-drivers.iso
+	USB=0 EXPECT_FILE=tests/expect-drivers.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/input-ps2.log
+
+test-input-usb: $(BUILD)/panic-drivers.iso
+	EXPECT_FILE=tests/expect-drivers.txt SMP=$(SMP) QEMU_EXTRA="-machine pc,i8042=off $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/input-usb.log
 
 # Boot normal cu "debug=mouse"; miscarea mouse-ului injectata prin monitorul QEMU trebuie sa apara pe serial
 $(BUILD)/yokai-mouse.iso: $(KERNEL) $(USER_ELFS) boot/grub.cfg

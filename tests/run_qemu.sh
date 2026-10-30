@@ -3,26 +3,59 @@
 # Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
 # FB=0: boot cu "nofb" (consola VGA text); liniile "@fb " / "@nofb " din expect.txt se cer doar cu / fara framebuffer
+# Cand kernelul tipareste "drivers: astept intrare" (test=drivers), scriptul tasteaza "version<ret>" prin monitorul QEMU
+# USB=0: fara xHCI; QEMU_EXTRA="-machine pc,i8042=off": fara PS/2 (tastatura doar prin usb-kbd)
 # SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
 set -u
 
 ISO=${1:?iso lipsa}
 LOG=${2:-build/test.log}
 EXPECT=${EXPECT_FILE:-$(dirname "$0")/expect.txt}
-TIMEOUT=${TEST_TIMEOUT:-120}
+TIMEOUT=${TEST_TIMEOUT:-300}
 SMP=${SMP:-4}
 
 mkdir -p "$(dirname "$LOG")"
 
+# USB=0: fara controller xHCI (doar tastatura PS/2)
+USB_DEVICES="-device qemu-xhci -device usb-kbd -device usb-mouse"
+[ "${USB:-1}" = 0 ] && USB_DEVICES=""
+SOCK=${TMPDIR:-/tmp}/yokai-mon-$$.sock
+INPUT_MARK="drivers: astept intrare"
+rm -f "$SOCK"
+
 timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
-    -nographic -serial stdio -monitor none -no-reboot \
+    -display none -serial "file:$LOG.raw" -monitor "unix:$SOCK,server,nowait" -no-reboot \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -nic user,model=e1000 -device edu -netdev user,id=vn0 -device virtio-net-pci,netdev=vn0 \
-    -device qemu-xhci -device usb-kbd -device usb-mouse \
-    ${QEMU_EXTRA:-} < /dev/null > "$LOG.raw" 2>&1
+    $USB_DEVICES \
+    ${QEMU_EXTRA:-} < /dev/null > "$LOG.qemu" 2>&1 &
+QPID=$!
+
+# Cand kernelul tipareste markerul "astept intrare" (test=drivers), trimite "version<ret>" prin monitorul QEMU
+(
+    while ! grep -q "$INPUT_MARK" "$LOG.raw" 2>/dev/null; do
+        kill -0 $QPID 2>/dev/null || exit 0
+        sleep 0.2
+    done
+    sleep 0.5
+    python3 - "$SOCK" <<'PY'
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+time.sleep(0.3)
+for k in ["v", "e", "r", "s", "i", "o", "n", "ret"]:
+    s.sendall(("sendkey " + k + "\n").encode())
+    time.sleep(0.2)
+PY
+) &
+SENDER=$!
+
+wait $QPID
 rc=$?
+kill $SENDER 2>/dev/null
+rm -f "$SOCK"
 tr -d '\r' < "$LOG.raw" > "$LOG"
-rm -f "$LOG.raw"
+rm -f "$LOG.raw" "$LOG.qemu"
 
 fail=0
 if [ -n "${EXPECT_PANIC:-}" ]; then

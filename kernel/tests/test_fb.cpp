@@ -168,7 +168,7 @@ void check_console(){
 void test_fb_run(){
     if(!fb_ready()){
         CHECK(!fbcon_active());
-        CHECK(hal_console_screen() && hal_fb(0) == nullptr);
+        CHECK(hal_console_screen());            // fb0 real lipseste (test_hal poate fi inregistrat un fake-fb inainte)
         kprintf("[OK] test_fb (fara framebuffer, VGA text)\n");
         return;
     }

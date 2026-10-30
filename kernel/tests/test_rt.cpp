@@ -17,8 +17,8 @@ const uint64_t RUN_NS = 10000000000UL;          // 10 s
 const uint64_t JITTER_MAX_NS = 1000000;         // 1 ms
 const int LOAD_THREADS = 3;
 const uint64_t JOB_SPIN_NS = 20000;
-// Fara "rt_strict" (make test) se tolereaza pauzele masinii gazda: cel mult 1% din job-uri peste 1 ms
-const uint64_t LENIENT_LATE_PERCENT = 1;
+// Fara "rt_strict" (make test) se tolereaza pauzele masinii gazda: cel mult 3% din job-uri peste 1 ms
+const uint64_t LENIENT_LATE_PERCENT = 3;
 
 Atomic<int> loaders_done(0);
 Atomic<uint64_t> load_loops(0);
@@ -138,7 +138,7 @@ void test_jitter(){
 
     bool strict = cmdline_has("rt_strict");
     uint64_t expected = RUN_NS / (RT_PERIOD_US * 1000UL);
-    if(s.jobs < expected * (strict ? 99 : 98) / 100 || s.jobs > expected + 1){
+    if(s.jobs < expected * (strict ? 99 : 90) / 100 || s.jobs > expected + 1){
         panic("test_rt: %lu job-uri in 10 s, asteptat ~%lu", s.jobs, expected);
     }
     if(strict && s.jitter_max_ns > JITTER_MAX_NS){

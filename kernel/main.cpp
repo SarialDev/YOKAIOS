@@ -28,6 +28,7 @@
 #include "drivers/rtc.h"
 #include "drivers/usb/usb.h"
 #include "tests/test_usb.h"
+#include "tests/test_drivers.h"
 #include "acpi/acpi.h"
 #include "arch/x86_64/lapic.h"
 #include "arch/x86_64/ioapic.h"
@@ -52,9 +53,24 @@
 // Ecranul de text vine din HAL (VGA)
 Console* screen = nullptr;
 
+// Doar pentru teste: output-ul shell-ului se oglindeste pe consolele fara ecran (serial)
+volatile bool shell_serial_echo = false;
+volatile int shell_command_count = 0;
+static bool in_command = false;
+
 void out(const char* text, int x, int y){
     if(screen){
         screen->put_at(text, x, y);
+    }
+    if(shell_serial_echo && in_command){
+        for(int i = 0; Console* c = hal_console(i); i++){
+            if(!(c->flags() & CONSOLE_SCREEN)){
+                for(const char* t = text; *t; t++){
+                    c->putc(*t);
+                }
+                c->putc('\n');
+            }
+        }
     }
 }
 
@@ -242,6 +258,8 @@ void afiseaza_lspci(bool verbose, int& cursor_y){
 void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
     cursor_y++;
     cursor_x = 0;
+    shell_command_count++;
+    in_command = true;
     
     if(comanda_lungime == 0){
 
@@ -269,6 +287,7 @@ void executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int c
         out("command not found:" , cursor_x , cursor_y);
         cursor_y++;
     }
+    in_command = false;
     
     
     
@@ -481,6 +500,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "usb")){
         test_usb_run();
+    }
+    if(test_named(test, "drivers")){
+        test_drivers_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();

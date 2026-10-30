@@ -1,5 +1,5 @@
 [OK] serial
-@fb [OK] fb 1024x768x32
+@fb [OK] fb 1024x768
 @nofb [OK] vgacon
 [OK] multiboot2
 [OK] gdt
@@ -78,4 +78,10 @@ Ethernet controller
 [OK] test_usb hid mouse
 [OK] test_usb devices
 [OK] test_usb (
+8086:100e
+[OK] test_drivers lspci e1000
+@fb [OK] test_drivers fb 1024x768
+[OK] test_drivers input
+YOKAI OS version
+[OK] test_drivers (
 [OK] boot

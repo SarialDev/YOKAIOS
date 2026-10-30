@@ -228,11 +228,17 @@ int run_forktest(){
     if(!pid){
         panic("test_proc: forktest nu a pornit");
     }
-    wait_tasks(tasks_before);
+    // task_count() poate scadea si din alt task care moare in acelasi timp: intai asteptam exit-ul lui forktest
     int code;
-    if(!process_exit_status(pid, code)){
-        panic("test_proc: forktest (pid %lu) a disparut fara exit", pid);
+    uint64_t deadline = monotonic_ns() + 60000000000UL;
+    while(!process_exit_status(pid, code)){
+        if(monotonic_ns() > deadline){
+            panic("test_proc: forktest (pid %lu) nu a iesit in 60 s", pid);
+        }
+        yield();
+        __asm__ volatile("hlt");
     }
+    wait_tasks(tasks_before);
     return code;
 }
 
