@@ -1,0 +1,6 @@
+[OK] serial
+[OK] hal
+[OK] ext4w replay2
+[OK] ext4w umount curat
+[OK] test_ext4w
+[OK] boot

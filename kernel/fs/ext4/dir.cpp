@@ -55,7 +55,7 @@ uint32_t dir_blocks(Node* d){
 }
 
 // Blocul logic lblk al directorului, pinned in b; nullptr la gaura sau eroare de I/O
-uint8_t* dir_block(Node* d, uint32_t lblk, Buf*& b){
+uint8_t* dir_block_(Node* d, uint32_t lblk, Buf*& b){
     uint64_t phys, run;
     b = nullptr;
     if(map_block(d, lblk, 1, phys, run) || phys == 0){
@@ -68,7 +68,7 @@ uint8_t* dir_block(Node* d, uint32_t lblk, Buf*& b){
 int scan_block(Node* d, uint32_t lblk, const char* name, uint32_t len, uint32_t& ino){
     Volume* v = d->vol;
     Buf* b;
-    uint8_t* blk = dir_block(d, lblk, b);
+    uint8_t* blk = dir_block_(d, lblk, b);
     if(!blk){
         return -EIO;
     }
@@ -270,7 +270,7 @@ struct DxFrame {
 // neasteptata (se cade pe scanare liniara), <0 eroare de I/O. Pinned in b
 int dx_load(Node* d, uint32_t lblk, uint32_t off, Buf*& b, const uint8_t*& ent, uint32_t& count){
     Volume* v = d->vol;
-    uint8_t* p = dir_block(d, lblk, b);
+    uint8_t* p = dir_block_(d, lblk, b);
     if(!p){
         return -EIO;
     }
@@ -302,7 +302,7 @@ uint32_t dx_block(const uint8_t* ent, uint32_t i){
 int dx_lookup(Node* d, const char* name, uint32_t len, uint32_t& ino){
     Volume* v = d->vol;
     Buf* b;
-    uint8_t* p = dir_block(d, 0, b);
+    uint8_t* p = dir_block_(d, 0, b);
     if(!p){
         return -EIO;
     }
@@ -394,6 +394,14 @@ int dx_lookup(Node* d, const char* name, uint32_t len, uint32_t& ino){
 
 }
 
+uint8_t* dir_block(Node* d, uint32_t lblk, Buf*& b){
+    return dir_block_(d, lblk, b);
+}
+
+bool dir_name_hash(Volume* v, uint32_t ver, const char* name, uint32_t len, uint32_t& out){
+    return name_hash(v, ver, name, len, out);
+}
+
 int dir_lookup(Node* d, const char* name, uint32_t len, uint32_t& ino){
     if(len == 0 || len > NAME_MAX){
         return -ENOENT;
@@ -421,7 +429,7 @@ int dir_readdir(Node* d, uint64_t index, DirEntry& out){
     uint32_t nblocks = dir_blocks(d);
     for(; lblk < nblocks; lblk++, off = 0){
         Buf* b;
-        uint8_t* blk = dir_block(d, lblk, b);
+        uint8_t* blk = dir_block_(d, lblk, b);
         if(!blk){
             return -EIO;
         }

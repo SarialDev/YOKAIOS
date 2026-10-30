@@ -13,6 +13,25 @@ BufferCache* global_cache;
 const uint64_t FLUSH_AGE_MS = 5000;
 const uint32_t FLUSH_PERIOD_MS = 1000;
 const int MAX_SYNC_DEVS = 16;
+const int MAX_HOOKS = 8;
+
+struct Hook {
+    SyncHookFn fn;
+    void* arg;
+};
+
+Mutex hook_mtx("bcache-hooks");
+Hook hooks[MAX_HOOKS];
+
+void run_hooks(bool periodic){
+    // Cu hook_mtx luat: bcache_del_hook asteapta sfarsitul unui hook in curs (hook-urile nu apeleaza bsync(nullptr))
+    MutexGuard g(hook_mtx);
+    for(int i = 0; i < MAX_HOOKS; i++){
+        if(hooks[i].fn){
+            hooks[i].fn(hooks[i].arg, periodic);
+        }
+    }
+}
 
 uint32_t sectors_per_block(BlockDevice* dev){
     return BCACHE_BLOCK / dev->block_size();
@@ -190,6 +209,9 @@ void BufferCache::release(Buf* b){
 }
 
 int BufferCache::sync(BlockDevice* dev){
+    if(!dev){
+        run_hooks(false);
+    }
     MutexGuard g(mtx);
     BlockDevice* touched[MAX_SYNC_DEVS];
     int ntouched = 0;
@@ -269,6 +291,26 @@ BcacheStats BufferCache::stats(){
     return s;
 }
 
+bool bcache_add_hook(SyncHookFn fn, void* arg){
+    MutexGuard g(hook_mtx);
+    for(int i = 0; i < MAX_HOOKS; i++){
+        if(!hooks[i].fn){
+            hooks[i] = Hook{fn, arg};
+            return true;
+        }
+    }
+    return false;
+}
+
+void bcache_del_hook(void* arg){
+    MutexGuard g(hook_mtx);
+    for(int i = 0; i < MAX_HOOKS; i++){
+        if(hooks[i].fn && hooks[i].arg == arg){
+            hooks[i] = Hook{nullptr, nullptr};
+        }
+    }
+}
+
 void bcache_init(uint32_t max_buffers){
     if(!global_cache){
         global_cache = new BufferCache(max_buffers);
@@ -277,7 +319,7 @@ void bcache_init(uint32_t max_buffers){
 
 BufferCache& bcache(){
     if(!global_cache){
-        bcache_init(256);
+        bcache_init(1024);              // 4 MiB; o tranzactie ext4 tine pinned pana la 160 de blocuri
     }
     return *global_cache;
 }
@@ -287,6 +329,7 @@ namespace {
 void flusher(void*){
     for(;;){
         sleep_ms(FLUSH_PERIOD_MS);
+        run_hooks(true);
         bcache().writeback_aged(FLUSH_AGE_MS);
     }
 }

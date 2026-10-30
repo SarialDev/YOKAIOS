@@ -42,6 +42,12 @@ jobs:
       - name: ext4 read-only (mke2fs + e2fsck)
         run: make test-ext4
 
+      - name: ext4 scriere + jurnal JBD2 (caderi, kill -9, replay, e2fsck)
+        run: make test-ext4w
+
+      - name: ext4/jbd2 pe gazda (ASAN, caderi simulate)
+        run: make test-ext4-host
+
       - name: Mouse test
         run: make test-mouse
 

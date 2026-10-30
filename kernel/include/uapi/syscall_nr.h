@@ -62,6 +62,8 @@
 #define ENAMETOOLONG    36
 #define ENOSYS          38
 #define ENOTEMPTY       39
+#define EMLINK          31
+#define EOPNOTSUPP      95
 #define ELOOP           40
 
 /* wait4: optiuni si codificarea starii (ca pe Linux) */

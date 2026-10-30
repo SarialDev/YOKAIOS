@@ -1,0 +1,7 @@
+[OK] serial
+[OK] hal
+[OK] ext4w replay (
+[OK] ext4w starea S
+[OK] ext4w umount curat
+[OK] test_ext4w
+[OK] boot

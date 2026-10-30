@@ -55,7 +55,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -204,6 +204,28 @@ test-ext4-recover: $(BUILD)/yokai-ext4-recover.iso $(BUILD)/ext4-recover.img $(B
 	sh tests/check_ext4.sh $(BUILD)/ext4-recover.img $(BUILD)/ext4-recover.log recover $(BUILD)/ext4-ext4.img.list
 
 test-ext4: test-ext4-ext4 test-ext4-ext2 test-ext4-linear test-ext4-refuse test-ext4-recover
+
+# ext4 cu scriere si jurnal JBD2 (T6.8): tests/check_ext4w.sh porneste QEMU de mai multe ori pe acelasi disc (sectorul 0
+# din sda1 spune fiecarui boot ce sa faca) si opreste masina brusc: la etapele commit-ului (crash1..crash5), cu
+# kill -9 in timpul scrierilor (kill), sau pornind de la un jurnal scris de debugfs (replay, replay-csum). Dupa replay:
+# e2fsck -fn curat, continutul citit de kernel = cel citit de debugfs, iar replay-ul facut de e2fsprogs pe o copie da
+# acelasi arbore. SEED=n repeta un kill anume
+EXT4W_CASES = crash1 crash2 crash3 crash4 crash5 clean kill replay replay-csum
+
+$(BUILD)/yokai-ext4w.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-ext4w/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-ext4w/boot/
+	sed 's|test=[^ ]*|test=ext4w|' boot/grub-test.cfg > $(BUILD)/iso-ext4w/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-ext4w 2>/dev/null
+
+test-ext4w-%: $(BUILD)/yokai-ext4w.iso $(BUILD)/ext4-ext4.img tests/check_ext4w.sh tests/ext4w_check.py
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/check_ext4w.sh $< $(BUILD)/ext4-ext4.img $* $(BUILD)/ext4w-$*
+
+test-ext4w: $(addprefix test-ext4w-,$(EXT4W_CASES))
+
+# Acelasi cod ext4/jbd2 compilat pe gazda cu ASAN/UBSan: model aleator + sute de caderi simulate (tests/host/run.sh)
+test-ext4-host: $(BUILD)/ext4-ext4.img
+	sh tests/host/run.sh $<
 
 # Boot normal cu radacina ext4 pe sda2 (fara module necesare in afara de fallback)
 $(BUILD)/yokai-rootext4.iso: $(KERNEL) $(INITRD) boot/grub.cfg

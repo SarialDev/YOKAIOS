@@ -64,6 +64,7 @@
 #include "tests/test_ahci.h"
 #include "tests/test_fat32.h"
 #include "tests/test_ext4.h"
+#include "tests/test_ext4w.h"
 #include "drivers/ahci/ahci.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
@@ -814,7 +815,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
             rn++;
         }
         root_dev[rn] = 0;
-        int err = ext4_mount_root(root_dev);
+        const char* rw_arg = cmdline_get("rw");
+        bool root_rw = rw_arg && (*rw_arg == 0 || *rw_arg == ' ');
+        int err = ext4_mount_root(root_dev, root_rw);
         if(err){
             kprintf("root=%s: montarea ext4 a esuat (%d)%s\n", root_dev, err,
                     boot_find_module("initrd") ? ", folosesc initrd" : "");
@@ -909,6 +912,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "ext4")){
         test_ext4_run(cmdline_get("ext4mode="));
+    }
+    if(test_named(test, "ext4w")){
+        test_ext4w_run();
     }
     if(test_named(test, "procfs")){
         test_procfs_run();

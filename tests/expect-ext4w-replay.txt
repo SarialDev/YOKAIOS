@@ -1,0 +1,4 @@
+[OK] serial
+[OK] hal
+[OK] ext4w replay debugfs
+[OK] ext4w cadere la etapa 2

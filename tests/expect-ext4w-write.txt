@@ -1,0 +1,6 @@
+[OK] serial
+[OK] hal
+ext4w: control "ext4w mode=write
+[OK] ext4w starea S1 verificata
+[OK] ext4w S1 comis
+[OK] ext4w S2 pregatita

@@ -1,5 +1,9 @@
 #include "fs/ext4/ext4_priv.h"
 #include "lib/string.h"
+#include "lib/new.h"
+#include "mm/kmalloc.h"
+#include "drivers/rtc.h"
+#include "time/clock.h"
 #include "uapi/syscall_nr.h"
 
 namespace ext4 {
@@ -242,6 +246,181 @@ int64_t node_read(Node* n, uint64_t pos, void* buf, uint64_t len){
         done += chunk;
     }
     return (int64_t)done;
+}
+
+
+namespace {
+
+Timespec ts_of(uint32_t secs, uint32_t extra, bool has_extra){
+    Timespec t;
+    t.sec = (int32_t)secs;
+    t.nsec = 0;
+    if(has_extra){
+        t.sec += (int64_t)(extra & 3) << 32;
+        t.nsec = extra >> 2;
+    }
+    return t;
+}
+
+void ts_put(uint8_t* raw, uint32_t lo_off, uint32_t extra_off, bool has_extra, const Timespec& t){
+    put32(raw + lo_off, (uint32_t)t.sec);
+    if(has_extra){
+        put32(raw + extra_off, (uint32_t)(((t.sec - (int32_t)t.sec) >> 32) & 3) | (uint32_t)t.nsec << 2);
+    }
+}
+
+}
+
+uint64_t inode_offset(Volume* v, uint32_t ino){
+    uint32_t g = (ino - 1) / v->ipg;
+    uint32_t idx = (ino - 1) % v->ipg;
+    return (v->itable[g] << v->bs_shift) + (uint64_t)idx * v->inode_size;
+}
+
+// Inode-ul ino (incarcat o singura data; ramane in memorie). Cu lock-ul volumului luat
+int node_load(Volume* v, uint32_t ino, Node*& out, bool allow_dead){
+    for(Node* n = v->hash[ino % NODE_BUCKETS]; n; n = n->next){
+        if(n->ino->ino == ino){
+            out = n;
+            return 0;
+        }
+    }
+    if(ino == 0 || ino > v->inodes){
+        return -EIO;
+    }
+    uint32_t g = (ino - 1) / v->ipg;
+    if(g >= v->groups){
+        return -EIO;
+    }
+    uint8_t raw[160];
+    uint32_t rl = v->inode_size < sizeof(raw) ? v->inode_size : sizeof(raw);
+    int err = read_bytes(v, inode_offset(v, ino), raw, rl);
+    if(err){
+        return err;
+    }
+    uint32_t mode = le16(raw);
+    uint32_t type = mode & S_IFMT;
+    if(type != S_IFREG && type != S_IFDIR && type != S_IFLNK && type != S_IFCHR && type != S_IFBLK &&
+       type != S_IFIFO && type != S_IFSOCK_){
+        return -EIO;
+    }
+    uint32_t links = le16(raw + 26);
+    uint32_t flags = le32(raw + 32);
+    if((links == 0 && !allow_dead) || (flags & INODE_INLINE_FL)){
+        return links == 0 ? -ENOENT : -EIO;
+    }
+    uint32_t extra = v->inode_size > 128 ? le16(raw + 128) : 0;
+    if(extra > v->inode_size - 128){
+        extra = 0;
+    }
+    auto fits = [&](uint32_t field){ return field + 4 <= 128 + extra && field + 4 <= rl; };
+
+    void* mem = kzalloc(sizeof(Node));
+    if(!mem){
+        return -ENOMEM;
+    }
+    Node* n = (Node*)mem;
+    Inode* i = inode_alloc(v->sb, ino, mode, v->iops);
+    if(!i){
+        kfree(n);
+        return -ENOMEM;
+    }
+    i->priv = n;
+    i->uid = le16(raw + 2) | (uint32_t)le16(raw + 120) << 16;
+    i->gid = le16(raw + 24) | (uint32_t)le16(raw + 122) << 16;
+    i->nlink = links;
+    i->size = le32(raw + 4);
+    if(type == S_IFREG){
+        i->size |= (uint64_t)le32(raw + 108) << 32;
+    }
+    i->atime = ts_of(le32(raw + 8), fits(140) ? le32(raw + 140) : 0, fits(140));
+    i->ctime = ts_of(le32(raw + 12), fits(132) ? le32(raw + 132) : 0, fits(132));
+    i->mtime = ts_of(le32(raw + 16), fits(136) ? le32(raw + 136) : 0, fits(136));
+    n->vol = v;
+    n->ino = i;
+    n->flags = flags;
+    n->extra_isize = extra;
+    n->gen = le32(raw + 100);
+    n->dtime = le32(raw + 20);
+    n->file_acl = le32(raw + 104);
+    memcpy(n->blk, raw + 40, 60);
+    n->blocks512 = le32(raw + 28) | (uint64_t)le16(raw + 116) << 32;
+    uint32_t ea = n->file_acl ? v->bs >> 9 : 0;
+    n->fast_symlink = type == S_IFLNK && n->blocks512 == ea;
+    if(n->fast_symlink && i->size > 60){
+        inode_free(i);
+        kfree(n);
+        return -EIO;
+    }
+    n->next = v->hash[ino % NODE_BUCKETS];
+    v->hash[ino % NODE_BUCKETS] = n;
+    out = n;
+    return 0;
+}
+
+int inode_store(Node* n){
+    Volume* v = n->vol;
+    Inode* i = n->ino;
+    uint64_t off = inode_offset(v, (uint32_t)i->ino);
+    uint8_t* blk = tx_get(v, off >> v->bs_shift, true);
+    if(!blk){
+        return -ENOSPC;
+    }
+    uint8_t* raw = blk + (off & (v->bs - 1));
+    uint32_t extra = n->extra_isize;
+    auto fits = [&](uint32_t field){ return field + 4 <= 128 + extra; };
+    put16(raw, i->mode);
+    put16(raw + 2, i->uid);
+    put16(raw + 120, i->uid >> 16);
+    put16(raw + 24, i->gid);
+    put16(raw + 122, i->gid >> 16);
+    put16(raw + 26, i->nlink);
+    put32(raw + 4, (uint32_t)i->size);
+    if(S_ISREG(i->mode)){
+        put32(raw + 108, (uint32_t)(i->size >> 32));
+    }
+    ts_put(raw, 8, 140, fits(140), i->atime);
+    ts_put(raw, 12, 132, fits(132), i->ctime);
+    ts_put(raw, 16, 136, fits(136), i->mtime);
+    put32(raw + 20, n->dtime);
+    put32(raw + 28, (uint32_t)n->blocks512);
+    put16(raw + 116, (uint32_t)(n->blocks512 >> 32));
+    put32(raw + 32, n->flags);
+    put32(raw + 104, n->file_acl);
+    memcpy(raw + 40, n->blk, 60);
+    inode_csum_set(v, (uint32_t)i->ino, raw);
+    return 0;
+}
+
+int inode_init(Volume* v, uint32_t ino, uint32_t mode, uint32_t flags, Node*& out){
+    uint64_t off = inode_offset(v, ino);
+    uint8_t* blk = tx_get(v, off >> v->bs_shift, true);
+    if(!blk){
+        return -ENOSPC;
+    }
+    uint8_t* raw = blk + (off & (v->bs - 1));
+    memset(raw, 0, v->inode_size);
+    Timespec now = vfs_now();
+    uint32_t extra = v->inode_size > 128 ? (v->inode_size - 128 < 32 ? v->inode_size - 128 : 32) : 0;
+    put16(raw, mode);
+    put16(raw + 26, 1);
+    put32(raw + 32, flags);
+    put32(raw + 100, ++v->gen_ctr * 2654435761u ^ (uint32_t)uptime_ms());
+    if(extra){
+        put16(raw + 128, extra);
+    }
+    auto fits = [&](uint32_t field){ return field + 4 <= 128 + extra; };
+    ts_put(raw, 8, 140, fits(140), now);
+    ts_put(raw, 12, 132, fits(132), now);
+    ts_put(raw, 16, 136, fits(136), now);
+    ts_put(raw, 144, 148, fits(148), now);        // crtime
+    if(flags & INODE_EXTENTS_FL){
+        uint32_t root[15] = {};
+        ext_init_root(root);
+        memcpy(raw + 40, root, 60);
+    }
+    inode_csum_set(v, ino, raw);
+    return node_load(v, ino, out);
 }
 
 }

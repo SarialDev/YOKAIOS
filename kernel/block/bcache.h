@@ -68,6 +68,13 @@ BufferCache& bcache();
 // Task kernel care scrie periodic blocurile murdare mai vechi de 5 s
 void bcache_start_flusher();
 
+// Cai de sincronizare ale sistemelor de fisiere cu jurnal: fn(arg, periodic) se cheama inainte de bsync(nullptr)
+// (periodic = false) si la fiecare perioada a task-ului bflush (periodic = true). Nu se cheama sub lock-ul cache-ului
+// si pot apela bsync(dev)
+typedef void (*SyncHookFn)(void* arg, bool periodic);
+bool bcache_add_hook(SyncHookFn fn, void* arg);
+void bcache_del_hook(void* arg);
+
 inline Buf* bread(BlockDevice* d, uint64_t blk){ return bcache().read(d, blk); }
 inline Buf* bget(BlockDevice* d, uint64_t blk){ return bcache().get(d, blk); }
 inline void bdirty(Buf* b){ bcache().mark_dirty(b); }
