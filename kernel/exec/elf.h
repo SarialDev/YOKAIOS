@@ -6,6 +6,10 @@
 const uint64_t USER_STACK_TOP = 0x00007FFFFFFFE000UL;
 const uint64_t USER_STACK_SIZE = 64 * 1024;
 
+// mmap anonim: adresele se aloca crescator de aici pana la MMAP_END (kernel/syscall/mem.cpp)
+const uint64_t MMAP_BASE = 0x0000400000000000UL;
+const uint64_t MMAP_END = 0x0000700000000000UL;
+
 // Tipuri din vectorul auxiliar (auxv) pus pe stiva dupa envp
 const uint64_t AT_NULL = 0;
 const uint64_t AT_PHDR = 3;
@@ -19,6 +23,7 @@ struct ElfImage {
     uint64_t phdr;              // adresa user a tabelului de program headere, 0 daca nu e incarcat
     uint16_t phent;
     uint16_t phnum;
+    uint64_t end;               // primul octet dupa ultimul segment (rotunjit la pagina): de aici incepe brk
 };
 
 // Verifica un ELF64 static x86-64 si mapeaza segmentele PT_LOAD in as (NX unde nu e X); 0 sau -errno

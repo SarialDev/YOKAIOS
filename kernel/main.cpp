@@ -66,6 +66,7 @@
 #include "tests/test_ext4.h"
 #include "tests/test_ext4w.h"
 #include "tests/test_fs.h"
+#include "tests/test_libc.h"
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
 #include "fs/iso9660.h"
@@ -935,6 +936,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "procfs")){
         test_procfs_run();
+    }
+    if(test_named(test, "libc")){
+        test_libc_run();
     }
     if(test_named(test, "vfs")){
         test_vfs_run();

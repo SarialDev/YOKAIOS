@@ -48,7 +48,7 @@ void test_user_run(){
     // Doua procese in paralel: tick-ul le intrerupe in ring 3 si comuta intre spatiile lor de adrese
     static const char* const hello_argv[] = {"hello", nullptr};
     int codes[MAX_PROCS];
-    run("/bin/hello", hello_argv, MAX_PROCS, codes);
+    run("/bin/hello_asm", hello_argv, MAX_PROCS, codes);
     for(int i = 0; i < MAX_PROCS; i++){
         if(codes[i] != 0){
             panic("test_user: hello #%d a iesit cu %d (verificarea %d din hello.S a esuat)", i, codes[i], codes[i]);

@@ -139,3 +139,11 @@ devfs: scris prin /dev/ttyS0
 [OK] test_vfs syscalls
 [OK] test_vfs (
 [OK] boot
+hello from libc: argc=3 argv[0]=hello
+  arg 1 = "unu"
+  arg 2 = "doi"
+  env=1 YOKAI=1 pid>0=1
+   42|42   |00042|ff|0xff|Z|str|ab|-1234567890123|18446744073709551615
+libctest: atexit ok
+[OK] libctest
+[OK] test_libc

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Compilator pentru aplicatii YokaiOS: tools/yokai-gcc [flaguri gcc] fisier.c -o program
+# Cere "make sysroot" (build/sysroot); YOKAI_SYSROOT schimba locatia
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SYSROOT=${YOKAI_SYSROOT:-$ROOT/build/sysroot}
+exec gcc --sysroot="$SYSROOT" -specs="$SYSROOT/lib/yokai.specs" "$@"

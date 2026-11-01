@@ -1,6 +1,8 @@
 #include "syscall/table.h"
 #include "syscall/syscall.h"
 #include "syscall/fs.h"
+#include "syscall/mem.h"
+#include "syscall/misc.h"
 #include "uapi/syscall_nr.h"
 #include "proc/process.h"
 #include "ipc/pipe.h"
@@ -233,6 +235,16 @@ constexpr Table make_table(){
     t.fn[SYS_MOUNT] = sys_mount;
     t.fn[SYS_UMOUNT2] = sys_umount2;
     t.fn[SYS_GETDENTS64] = sys_getdents64;
+    t.fn[SYS_MMAP] = sys_mmap;
+    t.fn[SYS_MUNMAP] = sys_munmap;
+    t.fn[SYS_BRK] = sys_brk;
+    t.fn[SYS_DUP] = sys_dup;
+    t.fn[SYS_DUP2] = sys_dup2;
+    t.fn[SYS_FCNTL] = sys_fcntl;
+    t.fn[SYS_NANOSLEEP] = sys_nanosleep;
+    t.fn[SYS_CLOCK_GETTIME] = sys_clock_gettime;
+    t.fn[SYS_GETTIMEOFDAY] = sys_gettimeofday;
+    t.fn[SYS_TIME] = sys_time;
     return t;
 }
 

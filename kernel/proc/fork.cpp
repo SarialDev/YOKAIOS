@@ -58,6 +58,9 @@ int64_t process_fork(const InterruptFrame& parent_frame){
         memcpy(child->cmdline, parent->cmdline, parent->cmdline_len);
         child->cmdline_len = parent->cmdline_len;
     }
+    child->brk_base = parent->brk_base;
+    child->brk_cur = parent->brk_cur;
+    child->mmap_next = parent->mmap_next;
     fd_copy(child->fds, parent->fds);
     vfs_path_copy(child->cwd, parent->cwd);
     int64_t pid = (int64_t)child->pid;

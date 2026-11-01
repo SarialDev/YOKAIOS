@@ -244,7 +244,7 @@ orphan_msg:
     .ascii "orfan: parintele s-a terminat, getppid = 0\n"
 orphan_len = . - orphan_msg
 hello_path:
-    .asciz "/bin/hello"
+    .asciz "/bin/hello_asm"
 hello_arg0:
     .asciz "hello"
 hello_env0:

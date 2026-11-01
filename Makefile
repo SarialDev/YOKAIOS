@@ -36,12 +36,25 @@ LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size
 SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
-# Programe user statice, puse in /bin din initrd
+# Programe user statice, puse in /bin din initrd: user/test/*.S (asm pur) si user/test/*.c (C cu libc-ul propriu)
 USER_SRCS := $(wildcard user/test/*.S)
-USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS))
+USER_CSRCS := $(wildcard user/test/*.c)
+USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS)) $(patsubst user/test/%.c,$(BUILD)/user/%.elf,$(USER_CSRCS))
 USER_ASFLAGS = -m64 -ffreestanding -nostdlib -Ikernel/include
 USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000 \
                -z max-page-size=0x1000 -z separate-code -z noexecstack --build-id=none
+
+# libc proprie + SDK: make sysroot instaleaza build/sysroot/{include,lib/{libc.a,crt0.o,yokai.specs}}.
+# Aplicatii: gcc --sysroot=build/sysroot -specs=build/sysroot/lib/yokai.specs prog.c -o prog  (sau tools/yokai-gcc)
+SYSROOT      = $(BUILD)/sysroot
+LIBC_SRCS   := $(wildcard user/libc/src/*.c)
+LIBC_OBJS   := $(patsubst user/libc/src/%.c,$(BUILD)/libc/%.o,$(LIBC_SRCS)) $(BUILD)/libc/syscalls.o $(BUILD)/libc/setjmp.o
+LIBC_HDRS   := $(shell find user/libc/include -type f)
+# Userland fara SSE/x87 (kernelul nu salveaza starea FPU), fara stack protector/PIE/CET
+LIBC_FLAGS   = -m64 -O2 -g0 -Wall -Wextra -Werror -std=gnu11 -ffreestanding -nostdinc -isystem user/libc/include \
+               -fno-pic -fno-pie -fno-stack-protector -fcf-protection=none -fno-asynchronous-unwind-tables \
+               -fno-tree-loop-distribute-patterns -mno-sse -mno-mmx -mno-80387 -march=x86-64
+UCC          = $(CC) --sysroot=$(SYSROOT) -specs=$(SYSROOT)/lib/yokai.specs
 
 # initrd.tar (ustar) = rootfs/ + layout-ul din blueprint + programele user in /bin; GRUB il incarca ca modul "initrd"
 # si kernelul il monteaza pe "/" cu tarfs (read-only)
@@ -55,7 +68,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -80,6 +93,45 @@ $(BUILD)/user/%.o: user/test/%.S
 
 $(BUILD)/user/%.elf: $(BUILD)/user/%.o
 	$(LD) $(USER_LDFLAGS) -o $@ $<
+
+# --- libc / SDK ---
+$(BUILD)/libc/syscalls.S: tools/gen_syscalls.sh kernel/include/uapi/syscall_nr.h
+	@mkdir -p $(dir $@)
+	sh tools/gen_syscalls.sh kernel/include/uapi/syscall_nr.h > $@
+
+$(BUILD)/libc/syscalls.o: $(BUILD)/libc/syscalls.S
+	$(CC) -m64 -c $< -o $@
+
+$(BUILD)/libc/setjmp.o: user/libc/src/setjmp.S
+	@mkdir -p $(dir $@)
+	$(CC) -m64 -c $< -o $@
+
+$(BUILD)/libc/%.o: user/libc/src/%.c $(LIBC_HDRS)
+	@mkdir -p $(dir $@)
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+
+$(BUILD)/libc/crt0.o: user/crt/crt0.S
+	@mkdir -p $(dir $@)
+	$(CC) -m64 -c $< -o $@
+
+$(BUILD)/libc/libc.a: $(LIBC_OBJS)
+	rm -f $@
+	ar rcs $@ $(LIBC_OBJS)
+
+$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs kernel/include/uapi/syscall_nr.h
+	rm -rf $(SYSROOT)
+	mkdir -p $(SYSROOT)/include/uapi $(SYSROOT)/lib
+	cp -r user/libc/include/. $(SYSROOT)/include/
+	cp kernel/include/uapi/syscall_nr.h $(SYSROOT)/include/uapi/
+	cp $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o user/libc/yokai.specs $(SYSROOT)/lib/
+	touch $@
+
+sysroot: $(SYSROOT)/.installed
+
+# Programele C se leaga cu libc-ul din sysroot (spec-ul pune -nostdinc, crt0, libc.a si flagurile de legare)
+$(BUILD)/user/%.elf: user/test/%.c $(SYSROOT)/.installed
+	@mkdir -p $(dir $@)
+	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
 
 $(INITRD): $(USER_ELFS) $(ROOTFS_SRC) Makefile
 	rm -rf $(ROOTFS)
@@ -131,6 +183,12 @@ test-relock: $(BUILD)/panic-relock.iso
 
 # PCI pe masina q35: config space prin ECAM (MCFG), restul testelor ramana pe i440fx
 $(BUILD)/panic-pci.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+# libc proprie: numai test=libc (hello + libctest); `make test` il ruleaza si el, impreuna cu restul
+$(BUILD)/panic-libc.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-libc: $(BUILD)/panic-libc.iso
+	EXPECT_FILE=tests/expect-libc.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/libc.log
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log

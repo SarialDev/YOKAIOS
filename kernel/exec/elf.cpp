@@ -60,6 +60,7 @@ const uint64_t MAX_EXEC_FILE = 4UL << 20;
 struct UserStart {
     uint64_t rip;
     uint64_t rsp;
+    uint64_t brk;
 };
 
 uint64_t page_down(uint64_t v){
@@ -168,6 +169,7 @@ int64_t elf_load(AddressSpace& as, const uint8_t* data, uint64_t size, ElfImage&
     const Elf64Phdr* ph = (const Elf64Phdr*)(data + h->phoff);
     bool entry_ok = false;
     img.phdr = 0;
+    img.end = 0;
     for(uint16_t i = 0; i < h->phnum; i++){
         const Elf64Phdr& p = ph[i];
         if(p.type != PT_LOAD || p.memsz == 0){
@@ -185,6 +187,9 @@ int64_t elf_load(AddressSpace& as, const uint8_t* data, uint64_t size, ElfImage&
         }
         if(!copy_to_as(as, p.vaddr, data + p.offset, p.filesz)){
             return -EFAULT;
+        }
+        if(page_up(p.vaddr + p.memsz) > img.end){
+            img.end = page_up(p.vaddr + p.memsz);
         }
         if((p.flags & PF_X) && h->entry >= p.vaddr && h->entry < p.vaddr + p.memsz){
             entry_ok = true;
@@ -328,6 +333,7 @@ AddressSpace* load_path(const Path& base, const char* path, const char* const* a
     }
     start.rip = img.entry;
     start.rsp = rsp;
+    start.brk = img.end;
     return as;
 }
 
@@ -342,6 +348,10 @@ uint64_t exec_spawn(const char* path, const char* const* argv, const char* const
     if(t){
         t->as = as;
         p = process_create(t, nullptr);
+    }
+    if(p){
+        p->brk_base = p->brk_cur = start->brk;
+        p->mmap_next = MMAP_BASE;
     }
     if(!p){
         kprintf("exec: \"%s\" nu a putut fi incarcat (%ld)\n", path, err ? err : (int64_t)-ENOMEM);
@@ -388,6 +398,8 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
     }
     t->name[i] = 0;
     if(t->proc){
+        t->proc->brk_base = t->proc->brk_cur = start.brk;
+        t->proc->mmap_next = MMAP_BASE;
         process_set_name(t->proc, name);
         process_set_cmdline(t->proc, argv);
     }

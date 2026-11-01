@@ -23,6 +23,9 @@ struct Process {
     ListLink sibling;
     FdTable fds;
     Path cwd;                       // dentry == nullptr = radacina VFS; referinta tinuta pana la exit
+    uint64_t brk_base;              // brk: de la sfarsitul imaginii ELF; paginile pana la brk_cur sunt mapate
+    uint64_t brk_cur;
+    uint64_t mmap_next;             // urmatoarea adresa libera pentru mmap anonim (doar creste)
     WaitQueue child_exit;           // parintele asteapta aici in waitpid
     char name[TASK_NAME_LEN];
     uint16_t cmdline_len;           // argv separat prin '\0', trunchiat la PROC_CMDLINE_MAX
