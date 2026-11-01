@@ -1,0 +1,19 @@
+[OK] serial
+[OK] hal
+ahci: sda
+partition: sda1 GPT
+partition: sda2 GPT
+[OK] fat32 montat pe /media/disk (sda1)
+[OK] test_fs SHA-256 (vectori cunoscuti)
+test_fs: fase 1
+[OK] test_fs montat: FAT32 pe /media/disk (sda1), ext4 pe /mnt (sda2, rw)
+test_fs: fat32: 15 fisiere
+[OK] test_fs fat32 manifest initial verificat
+test_fs: ext4: 15 fisiere
+[OK] test_fs ext4 manifest initial verificat
+[OK] test_fs fat32 fisiere noi scrise
+[OK] test_fs ext4 fisiere noi scrise
+[OK] test_fs fase 1 (scriere) terminata
+[OK] test_fs demontat curat
+[OK] test_fs (FAT32 + ext4
+[OK] boot

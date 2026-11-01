@@ -5,6 +5,7 @@
 # FB=0: boot cu "nofb" (consola VGA text); liniile "@fb " / "@nofb " din expect.txt se cer doar cu / fara framebuffer
 # Cand kernelul tipareste "drivers: astept intrare" (test=drivers), scriptul tasteaza "version<ret>", "cat /etc/hostname<ret>", "echo tmpfsok > /tmp/x<ret>" si "cat /tmp/x<ret>" si "cat /proc/meminfo<ret>" prin monitorul QEMU
 # USB=0: fara xHCI; QEMU_EXTRA="-machine pc,i8042=off": fara PS/2 (tastatura doar prin usb-kbd)
+# DISK=<imagine>: disc SATA (AHCI, format raw) cu imaginea data; boot de pe CD (-boot order=d). Imaginea o poate modifica kernelul
 # SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
 set -u
 
@@ -19,6 +20,8 @@ mkdir -p "$(dirname "$LOG")"
 # USB=0: fara controller xHCI (doar tastatura PS/2)
 USB_DEVICES="-device qemu-xhci -device usb-kbd -device usb-mouse"
 [ "${USB:-1}" = 0 ] && USB_DEVICES=""
+DISK_DEVICES=""
+[ -n "${DISK:-}" ] && DISK_DEVICES="-boot order=d -device ahci,id=ahci0 -drive file=$DISK,if=none,id=d0,format=raw -device ide-hd,drive=d0,bus=ahci0.0"
 SOCK=${TMPDIR:-/tmp}/yokai-mon-$$.sock
 INPUT_MARK="drivers: astept intrare"
 rm -f "$SOCK"
@@ -27,7 +30,7 @@ timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
     -display none -serial "file:$LOG.raw" -monitor "unix:$SOCK,server,nowait" -no-reboot \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -nic user,model=e1000 -device edu -netdev user,id=vn0 -device virtio-net-pci,netdev=vn0 \
-    $USB_DEVICES \
+    $USB_DEVICES $DISK_DEVICES \
     ${QEMU_EXTRA:-} < /dev/null > "$LOG.qemu" 2>&1 &
 QPID=$!
 

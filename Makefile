@@ -55,7 +55,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -110,7 +110,10 @@ $(TEST_ISO): $(KERNEL) $(INITRD) boot/grub-test.cfg
 	cp boot/grub-test.cfg $(BUILD)/iso-test/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
-test: $(TEST_ISO)
+# make test = testele de nucleu (un boot) + integrarea stocarii (test-fs)
+test: test-core test-fs
+
+test-core: $(TEST_ISO)
 	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
 
 # Acelasi kernel cu cmdline "test=<nume>": testul trebuie sa se termine intr-un panic anume
@@ -336,3 +339,19 @@ run-cd: $(ISO) $(BUILD)/nvme-run.img
 	qemu-system-x86_64 -cdrom $(ISO) -m 512M -smp $(SMP) -serial stdio -boot order=d -device ahci,id=ahci0 \
 	    -drive file=$(ISO),if=none,id=cd0,format=raw,media=cdrom,readonly=on -device ide-cd,drive=cd0,bus=ahci0.0 \
 	    -drive file=$(BUILD)/nvme-run.img,if=none,id=nvr,format=raw -device nvme,drive=nvr,serial=yokai1 $(QEMU_EXTRA)
+
+# Stocare, integrare (T6.T): tests/mkdisk.sh face un disc GPT (sda1 FAT32, sda2 ext4) cu fisiere de continut cunoscut si
+# MANIFEST.SHA; kernelul (test=fs) boot 1 verifica SHA-256 si scrie fisiere noi pe ambele, boot 2 le regaseste; dupa
+# fiecare boot tests/check_fs.sh ruleaza fsck.fat -n, e2fsck -fn si compara SHA-256 de pe gazda
+$(BUILD)/yokai-fs.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-fs/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-fs/boot/
+	sed 's/test=[^ ]*/test=fs/' boot/grub-test.cfg > $(BUILD)/iso-fs/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-fs 2>/dev/null
+
+test-fs: $(BUILD)/yokai-fs.iso tests/mkdisk.sh tests/check_fs.sh
+	sh tests/mkdisk.sh $(BUILD)/fs.img $(BUILD)/fs
+	TEST_TIMEOUT=900 DISK=$(BUILD)/fs.img EXPECT_FILE=tests/expect-fs1.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/fs-boot1.log
+	sh tests/check_fs.sh $(BUILD)/fs.img 1 $(BUILD)/fs
+	TEST_TIMEOUT=900 DISK=$(BUILD)/fs.img EXPECT_FILE=tests/expect-fs2.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/fs-boot2.log
+	sh tests/check_fs.sh $(BUILD)/fs.img 2 $(BUILD)/fs

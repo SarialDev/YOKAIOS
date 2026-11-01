@@ -65,6 +65,7 @@
 #include "tests/test_fat32.h"
 #include "tests/test_ext4.h"
 #include "tests/test_ext4w.h"
+#include "tests/test_fs.h"
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
 #include "fs/iso9660.h"
@@ -928,6 +929,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "ext4w")){
         test_ext4w_run();
+    }
+    if(test_named(test, "fs")){
+        test_fs_run();
     }
     if(test_named(test, "procfs")){
         test_procfs_run();
