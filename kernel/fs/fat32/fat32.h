@@ -9,7 +9,7 @@
 // (sda1) sau pe discul intreg (sda), niciodata pe amandoua.
 void fat32_init();
 
-// Monteaza pe /media prima partitie (sau primul disc) cu BPB FAT32 din HAL. 0, -ENODEV daca nu exista niciuna,
+// Monteaza pe /media/disk prima partitie (sau primul disc) cu BPB FAT32 din HAL. 0, -ENODEV daca nu exista niciuna,
 // altfel -errno al montarii
 int fat32_automount();
 

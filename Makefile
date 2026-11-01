@@ -47,7 +47,7 @@ USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000
 # si kernelul il monteaza pe "/" cu tarfs (read-only)
 ROOTFS     = $(BUILD)/rootfs
 INITRD     = $(BUILD)/initrd.tar
-ROOT_DIRS  = bin boot dev etc home lib mnt media opt proc root run sbin sys tmp usr var
+ROOT_DIRS  = bin boot dev etc home lib mnt media media/cdrom media/disk opt proc root run sbin sys tmp usr var
 ROOTFS_SRC := $(shell find rootfs -type f 2>/dev/null)
 
 # test-rt: jitter strict (<= 1 ms) cu KVM daca /dev/kvm e accesibil, altfel -icount (timp virtual, fara pauzele gazdei)
@@ -55,7 +55,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -293,3 +293,46 @@ clean:
 	rm -rf $(BUILD)
 
 -include $(OBJS:.o=.d)
+
+# NVMe: namespace 1 = imaginea GPT de 32 MiB (tests/mkdisk.py), namespace 2 = 4 MiB cu sectoare de 4096 B (tests/mknvme.py);
+# kernelul ruleaza doar test=nvme (MSI-X, PRP cu lista, partitii nvme0n1p1.., cache)
+$(BUILD)/yokai-nvme.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-nvme/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-nvme/boot/
+	sed 's/test=[^ ]*/test=nvme/' boot/grub-test.cfg > $(BUILD)/iso-nvme/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-nvme 2>/dev/null
+
+NVME_QEMU = -boot order=d -drive file=$(BUILD)/nvme-ns1.img,if=none,id=nv0,format=raw -drive file=$(BUILD)/nvme-ns2.img,if=none,id=nv1,format=raw -device nvme,id=nvme0,serial=yokai0 -device nvme-ns,drive=nv0,bus=nvme0,nsid=1 -device nvme-ns,drive=nv1,bus=nvme0,nsid=2,logical_block_size=4096,physical_block_size=4096
+
+# Imaginile se refac la fiecare rulare (testul scrie pe ele)
+test-nvme: $(BUILD)/yokai-nvme.iso
+	python3 tests/mkdisk.py gpt $(BUILD)/nvme-ns1.img
+	python3 tests/mknvme.py $(BUILD)/nvme-ns2.img
+	EXPECT_FILE=tests/expect-nvme.txt SMP=$(SMP) QEMU_EXTRA="$(NVME_QEMU) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/nvme.log
+
+# ISO 9660: CD-ul de boot (cd0 pe AHCI = sr0, acelasi fisier ca -cdrom) montat pe /media/cdrom, plus o imagine facuta cu
+# xorriso (tests/mkiso.sh, cd1 = sr1) montata de test pe /mnt
+$(BUILD)/yokai-iso9660.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-iso9660/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-iso9660/boot/
+	sed 's/test=[^ ]*/test=iso9660/' boot/grub-test.cfg > $(BUILD)/iso-iso9660/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-iso9660 2>/dev/null
+
+$(BUILD)/isotest.iso: tests/mkiso.sh
+	@mkdir -p $(BUILD)
+	sh tests/mkiso.sh $@ $(BUILD)/isotest-work
+
+ISO_QEMU = -boot order=d -device ahci,id=ahci0 -drive file=$(BUILD)/yokai-iso9660.iso,if=none,id=cd0,format=raw,media=cdrom,readonly=on -device ide-cd,drive=cd0,bus=ahci0.0 -drive file=$(BUILD)/isotest.iso,if=none,id=cd1,format=raw,media=cdrom,readonly=on -device ide-cd,drive=cd1,bus=ahci0.1
+
+test-iso: $(BUILD)/yokai-iso9660.iso $(BUILD)/isotest.iso
+	EXPECT_FILE=tests/expect-iso9660.txt SMP=$(SMP) QEMU_EXTRA="$(ISO_QEMU) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/iso9660.log
+
+# Dezvoltare interactiva: ISO-ul apare si ca CD pe AHCI (/media/cdrom) si exista un disc NVMe gol de 64 MiB (nvme0n1)
+build/nvme-run.img:
+	@mkdir -p $(BUILD)
+	truncate -s 64M $@
+
+run-cd: $(ISO) $(BUILD)/nvme-run.img
+	qemu-system-x86_64 -cdrom $(ISO) -m 512M -smp $(SMP) -serial stdio -boot order=d -device ahci,id=ahci0 \
+	    -drive file=$(ISO),if=none,id=cd0,format=raw,media=cdrom,readonly=on -device ide-cd,drive=cd0,bus=ahci0.0 \
+	    -drive file=$(BUILD)/nvme-run.img,if=none,id=nvr,format=raw -device nvme,drive=nvr,serial=yokai1 $(QEMU_EXTRA)

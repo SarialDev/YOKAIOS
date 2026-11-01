@@ -47,6 +47,7 @@ const uint32_t CMD_POD = 1u << 2;
 const uint32_t CMD_FRE = 1u << 4;
 const uint32_t CMD_FR = 1u << 14;
 const uint32_t CMD_CR = 1u << 15;
+const uint32_t CMD_ATAPI = 1u << 24;
 
 const uint32_t TFD_ERR = 1u << 0;
 const uint32_t TFD_DRQ = 1u << 3;
@@ -65,14 +66,18 @@ const uint32_t IS_ERRORS = IS_OFS | IS_IFS | IS_HBDS | IS_HBFS | IS_TFES;
 const uint32_t IE_MASK = IS_DHRS | IS_UFS | IS_ERRORS;
 
 const uint32_t SIG_ATA = 0x00000101;
+const uint32_t SIG_ATAPI = 0xEB140101;
 
 const uint8_t ATA_READ_DMA_EXT = 0x25;
 const uint8_t ATA_WRITE_DMA_EXT = 0x35;
 const uint8_t ATA_FLUSH_EXT = 0xEA;
 const uint8_t ATA_IDENTIFY = 0xEC;
+const uint8_t ATA_PACKET = 0xA0;
+const uint8_t ATA_IDENTIFY_PACKET = 0xA1;
 
 const int MAX_HBA = 2;
 const int MAX_DISKS = 8;
+const int MAX_CDS = 4;
 const uint32_t MAX_XFER = 128 * 1024;                 // un request = cel mult 128 KiB
 const int MAX_SEGS = (int)(MAX_XFER / PAGE_SIZE) + 2; // pagini atinse de un buffer nealiniat + 1
 const uint32_t TABLE_OFF = 1280;                      // in pagina portului: lista 1 KiB, FIS 256 B, tabela (aliniata la 128)
@@ -99,11 +104,14 @@ struct AhciReq {
     BlockRequest base;          // primul membru: start() primeste BlockRequest*
     uint8_t ata_cmd;
     bool write;
+    bool atapi;
+    uint8_t acmd[12];
     int nseg;
     uint64_t seg_pa[MAX_SEGS];
     uint32_t seg_len[MAX_SEGS];
     AhciReq(BlockOp op, uint64_t lba, uint32_t count, void* buf, uint8_t cmd)
-        : base(op, lba, count, buf), ata_cmd(cmd), write(op == BlockOp::Write), nseg(0), seg_pa(), seg_len(){}
+        : base(op, lba, count, buf), ata_cmd(cmd), write(op == BlockOp::Write), atapi(false), acmd(), nseg(0),
+          seg_pa(), seg_len(){}
 };
 
 inline uint32_t rd32(volatile uint8_t* base, uint32_t off){
@@ -127,7 +135,7 @@ bool wait_bits(volatile uint8_t* base, uint32_t off, uint32_t mask, uint32_t wan
 
 class AhciDisk final : public BlockDevice {
 public:
-    AhciDisk() : regs(nullptr), hba(nullptr), port(0), bs(0), blocks(0), lba48(false), dead(false), name{}, model{},
+    AhciDisk() : regs(nullptr), hba(nullptr), port(0), bs(0), blocks(0), lba48(false), atapi(false), dead(false), name{}, model{},
                  page_pa(0), page(nullptr), q(){}
     uint32_t block_size() const override { return bs; }
     uint64_t block_count() const override { return blocks; }
@@ -139,8 +147,10 @@ public:
     void service();
     void recover();
     int start(AhciReq* r);
-    bool setup(AhciHba* h, int port_no, int disk_idx);
+    bool setup(AhciHba* h, int port_no, int disk_idx, int cd_idx);
     bool identify();
+    bool atapi_packet(const uint8_t* cdb, uint64_t pa, uint32_t len);
+    bool atapi_media();
     bool start_port();
     bool stop_port();
 
@@ -150,6 +160,7 @@ public:
     uint32_t bs;
     uint64_t blocks;
     bool lba48;
+    bool atapi;                 // CD/DVD (sr0): doar citire, sectoare de 2048
     bool dead;
     char name[4];
     char model[41];
@@ -175,6 +186,8 @@ AhciHba* hbas[MAX_HBA];
 int hba_count;
 AhciDisk* disks[MAX_DISKS];
 int disk_total;
+AhciDisk* cds[MAX_CDS];
+int cd_total;
 
 volatile uint32_t irq_total;
 
@@ -298,7 +311,10 @@ int AhciDisk::start(AhciReq* r){
     fis[1] = 0x80;                              // C = comanda
     fis[2] = r->ata_cmd;
     uint64_t lba = r->base.lba;
-    if(r->ata_cmd != ATA_IDENTIFY){
+    if(r->atapi){
+        fis[3] = r->nseg ? 1 : 0;               // Features: DMA
+        memcpy(table + 0x40, r->acmd, sizeof(r->acmd));
+    } else if(r->ata_cmd != ATA_IDENTIFY && r->ata_cmd != ATA_IDENTIFY_PACKET){
         fis[7] = 0x40;                          // LBA
         fis[4] = (uint8_t)lba;
         fis[5] = (uint8_t)(lba >> 8);
@@ -317,7 +333,7 @@ int AhciDisk::start(AhciReq* r){
         prdt[i].dbc = (r->seg_len[i] - 1) | (i == r->nseg - 1 ? 1u << 31 : 0);
     }
     uint64_t table_pa = page_pa + TABLE_OFF;
-    h->flags = 5 | (r->write ? 1u << 6 : 0) | ((uint32_t)r->nseg << 16);
+    h->flags = 5 | (r->atapi ? 1u << 5 : 0) | (r->write ? 1u << 6 : 0) | ((uint32_t)r->nseg << 16);
     h->ctba = (uint32_t)table_pa;
     h->ctbau = (uint32_t)(table_pa >> 32);
     __sync_synchronize();
@@ -361,6 +377,9 @@ int AhciDisk::rw(bool is_write, uint64_t lba, uint32_t count, void* buf){
     if(count == 0){
         return 0;
     }
+    if(atapi && is_write){
+        return -EROFS;
+    }
     if(lba >= blocks || count > blocks - lba){
         return -EINVAL;
     }
@@ -369,6 +388,18 @@ int AhciDisk::rw(bool is_write, uint64_t lba, uint32_t count, void* buf){
     while(count){
         uint32_t n = count < max_n ? count : max_n;
         AhciReq r(is_write ? BlockOp::Write : BlockOp::Read, lba, n, p, is_write ? ATA_WRITE_DMA_EXT : ATA_READ_DMA_EXT);
+        if(atapi){
+            // READ(10): LBA pe 32 de biti si lungime pe 16, big-endian
+            r.ata_cmd = ATA_PACKET;
+            r.atapi = true;
+            r.acmd[0] = 0x28;
+            r.acmd[2] = (uint8_t)(lba >> 24);
+            r.acmd[3] = (uint8_t)(lba >> 16);
+            r.acmd[4] = (uint8_t)(lba >> 8);
+            r.acmd[5] = (uint8_t)lba;
+            r.acmd[7] = (uint8_t)(n >> 8);
+            r.acmd[8] = (uint8_t)n;
+        }
         if(!map_buf(r, p, (uint64_t)n * bs)){
             return -EINVAL;
         }
@@ -384,6 +415,9 @@ int AhciDisk::rw(bool is_write, uint64_t lba, uint32_t count, void* buf){
 }
 
 int AhciDisk::flush(){
+    if(atapi){
+        return 0;
+    }
     AhciReq r(BlockOp::Flush, 0, 0, nullptr, ATA_FLUSH_EXT);
     return q.submit_wait(&r.base);
 }
@@ -395,17 +429,27 @@ bool AhciDisk::identify(){
     }
     uint16_t* w = (uint16_t*)phys_to_virt(pa);
     memset(w, 0, 512);
-    AhciReq r(BlockOp::Read, 0, 1, w, ATA_IDENTIFY);
+    AhciReq r(BlockOp::Read, 0, 1, w, atapi ? ATA_IDENTIFY_PACKET : ATA_IDENTIFY);
     r.nseg = 1;
     r.seg_pa[0] = pa;
     r.seg_len[0] = 512;
-    bool ok = q.submit_wait(&r.base, 2000) == 0 && !(w[0] & 0x8000);
+    bool ok = q.submit_wait(&r.base, 2000) == 0;
+    if(ok && atapi){
+        // Dispozitiv ATAPI de tip CD/DVD (clasa 5), pachete de 12 octeti
+        ok = (w[0] >> 14) == 2 && ((w[0] >> 8) & 0x1F) == 5;
+    } else if(ok){
+        ok = !(w[0] & 0x8000);
+    }
     if(ok){
         lba48 = w[83] & (1 << 10);
         blocks = (uint64_t)w[100] | ((uint64_t)w[101] << 16) | ((uint64_t)w[102] << 32) | ((uint64_t)w[103] << 48);
         bs = 512;
         if((w[106] & 0xC000) == 0x4000 && (w[106] & (1 << 12))){
             bs = ((uint32_t)w[117] | ((uint32_t)w[118] << 16)) * 2;
+        }
+        if(atapi){
+            blocks = 0;
+            bs = 2048;
         }
         for(int i = 0; i < 20; i++){
             model[2 * i] = (char)(w[27 + i] >> 8);
@@ -420,15 +464,68 @@ bool AhciDisk::identify(){
     return ok;
 }
 
-// Initializeaza portul n; nullptr daca nu are un disc ATA utilizabil
-bool AhciDisk::setup(AhciHba* h, int port_no, int disk_idx){
+
+// Un pachet ATAPI cu cel mult o zona de date (pa, len) in pagina de lucru; fara date: len = 0
+bool AhciDisk::atapi_packet(const uint8_t* cdb, uint64_t pa, uint32_t len){
+    AhciReq r(BlockOp::Read, 0, 0, nullptr, ATA_PACKET);
+    r.atapi = true;
+    memcpy(r.acmd, cdb, 12);
+    if(len){
+        r.nseg = 1;
+        r.seg_pa[0] = pa;
+        r.seg_len[0] = len;
+    }
+    return q.submit_wait(&r.base, 3000) == 0;
+}
+
+void busy_ms(uint64_t ms){
+    uint64_t end = monotonic_ns() + ms * 1000000;
+    while(monotonic_ns() < end){
+        __builtin_ia32_pause();
+    }
+}
+
+// TEST UNIT READY (cu REQUEST SENSE intre incercari ca sa curete "unit attention"), apoi READ CAPACITY(10).
+// false daca nu e mediu in unitate
+bool AhciDisk::atapi_media(){
+    uint64_t pa = pmm_alloc_page();
+    if(!pa){
+        return false;
+    }
+    uint8_t* v = (uint8_t*)phys_to_virt(pa);
+    static const uint8_t tur[12] = {0x00};
+    static const uint8_t sense[12] = {0x03, 0, 0, 0, 18};
+    static const uint8_t cap[12] = {0x25};
+    bool ready = false;
+    for(int i = 0; i < 6 && !ready; i++){
+        ready = atapi_packet(tur, 0, 0);
+        if(!ready){
+            atapi_packet(sense, pa, 18);
+            busy_ms(50);
+        }
+    }
+    bool ok = false;
+    if(ready){
+        memset(v, 0, 8);
+        if(atapi_packet(cap, pa, 8)){
+            uint32_t last = (uint32_t)v[0] << 24 | (uint32_t)v[1] << 16 | (uint32_t)v[2] << 8 | v[3];
+            uint32_t sz = (uint32_t)v[4] << 24 | (uint32_t)v[5] << 16 | (uint32_t)v[6] << 8 | v[7];
+            if(sz >= 512 && sz <= PAGE_SIZE && !(sz & (sz - 1)) && last != 0xFFFFFFFFu){
+                bs = sz;
+                blocks = (uint64_t)last + 1;
+                ok = true;
+            }
+        }
+    }
+    pmm_free_page(pa);
+    return ok;
+}
+
+// Initializeaza portul n; false daca nu are un disc ATA sau un CD/DVD cu mediu utilizabil
+bool AhciDisk::setup(AhciHba* h, int port_no, int disk_idx, int cd_idx){
     hba = h;
     port = port_no;
     regs = h->abar + PORT_BASE + PORT_STRIDE * port_no;
-    name[0] = 's';
-    name[1] = 'd';
-    name[2] = (char)('a' + disk_idx);
-    name[3] = 0;
 
     uint32_t ssts = rd32(regs, P_SSTS);
     if((ssts & 0xF) == 1){
@@ -460,11 +557,27 @@ bool AhciDisk::setup(AhciHba* h, int port_no, int disk_idx){
         return false;
     }
     uint32_t sig = rd32(regs, P_SIG);
-    if(sig != SIG_ATA){
-        kprintf("ahci: porta %d semnatura %x (ATAPI/alt tip), ignorata\n", port_no, sig);
+    if(sig != SIG_ATA && sig != SIG_ATAPI){
+        kprintf("ahci: porta %d semnatura %x (alt tip), ignorata\n", port_no, sig);
         wr32(regs, P_CMD, rd32(regs, P_CMD) & ~CMD_FRE);
         return false;
     }
+    atapi = sig == SIG_ATAPI;
+    if(atapi){
+        if(cd_idx >= MAX_CDS){
+            wr32(regs, P_CMD, rd32(regs, P_CMD) & ~CMD_FRE);
+            return false;
+        }
+        name[0] = 's';
+        name[1] = 'r';
+        name[2] = (char)('0' + cd_idx);
+        wr32(regs, P_CMD, rd32(regs, P_CMD) | CMD_ATAPI);
+    } else {
+        name[0] = 's';
+        name[1] = 'd';
+        name[2] = (char)('a' + disk_idx);
+    }
+    name[3] = 0;
     wr32(regs, P_CMD, rd32(regs, P_CMD) | CMD_ST);
     q.init(queue_ops, this, h->vector >= 0);
     wr32(regs, P_IE, IE_MASK);
@@ -473,6 +586,15 @@ bool AhciDisk::setup(AhciHba* h, int port_no, int disk_idx){
         stop_port();
         wr32(regs, P_IE, 0);
         return false;
+    }
+    if(atapi){
+        if(!atapi_media()){
+            kprintf("ahci: portul %d: CD/DVD fara mediu, ignorat\n", port_no);
+            stop_port();
+            wr32(regs, P_IE, 0);
+            return false;
+        }
+        return true;
     }
     if(!lba48 || !blocks || bs < 512 || bs > PAGE_SIZE || (bs & (bs - 1))){
         kprintf("ahci: portul %d: fara LBA48 sau sector neobisnuit (%u), ignorat\n", port_no, bs);
@@ -522,16 +644,22 @@ int ahci_probe(PciDevice* p){
             continue;
         }
         AhciDisk* d = new AhciDisk;
-        if(!d->setup(h, n, disk_total)){
+        if(!d->setup(h, n, disk_total, cd_total)){
             continue;
         }
         h->ports[n] = d;
-        disks[disk_total++] = d;
         found++;
+        if(d->atapi){
+            cds[cd_total++] = d;
+        } else {
+            disks[disk_total++] = d;
+        }
         hal_register(HalKind::Block, d, d->name);
         kprintf("ahci: %s \"%s\" %lu sectoare x %u B (%lu MiB)\n", d->name, d->model, d->blocks, d->bs,
                 d->blocks * d->bs >> 20);
-        partition_register(d, d->name);
+        if(!d->atapi){
+            partition_register(d, d->name);
+        }
     }
     hba_count++;
     kprintf("ahci: HBA %02x:%02x.%x v%x.%02x, %u porturi, %d disc(uri), %s\n", pci_bus(p), pci_slot(p), pci_fn(p),
@@ -550,6 +678,14 @@ void ahci_init(){
 
 int ahci_controller_count(){
     return hba_count;
+}
+
+int ahci_cdrom_count(){
+    return cd_total;
+}
+
+BlockDevice* ahci_cdrom(int idx){
+    return idx >= 0 && idx < cd_total ? cds[idx] : nullptr;
 }
 
 int ahci_disk_count(){

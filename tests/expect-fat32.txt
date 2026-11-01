@@ -3,7 +3,7 @@
 [OK] hal
 ahci: sda "QEMU HARDDISK" 131072 sectoare x 512 B (64 MiB)
 partition: sda1 MBR start=2048 sectoare=129024
-[OK] fat32 montat pe /media (sda1)
+[OK] fat32 montat pe /media/disk (sda1)
 [OK] test_fat32 automount
 [OK] test_fat32 citire
 [OK] test_fat32 scriere

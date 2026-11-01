@@ -1,0 +1,16 @@
+[OK] serial
+[OK] multiboot2
+[OK] pci 
+[OK] hal
+nvme: nvme0n1 "QEMU NVMe Ctrl" 65536 sectoare x 512 B (32 MiB)
+nvme: nvme0n2 "QEMU NVMe Ctrl" 1024 sectoare x 4096 B (4 MiB)
+MSI-X
+partition: nvme0n1p1 GPT start=2048 sectoare=16384
+partition: nvme0n1p2 GPT start=18432 sectoare=32768
+[OK] test_nvme identify
+[OK] test_nvme partitii GPT 2
+[OK] test_nvme prp poll
+[OK] test_nvme prp msi-x
+[OK] test_nvme cache
+[OK] test_nvme (NVMe
+[OK] boot

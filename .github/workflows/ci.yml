@@ -36,6 +36,12 @@ jobs:
       - name: AHCI + block layer (GPT si MBR)
         run: make test-ahci
 
+      - name: NVMe (namespace-uri, PRP, MSI-X)
+        run: make test-nvme
+
+      - name: ISO 9660 + Rock Ridge (CD de boot pe AHCI/ATAPI, xorriso)
+        run: make test-iso
+
       - name: FAT32 (mkfs.fat + fsck.fat)
         run: make test-fat32
 

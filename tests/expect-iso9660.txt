@@ -1,0 +1,12 @@
+[OK] serial
+[OK] multiboot2
+[OK] hal
+ahci: sr0 
+ahci: sr1 
+[OK] iso9660 montat pe /media/cdrom (sr0)
+ISO ls /media/cdrom:
+[OK] test_iso9660 cd de boot
+[OK] test_iso9660 rock ridge
+[OK] test_iso9660 fara rock ridge
+[OK] test_iso9660 (ISO 9660
+[OK] boot

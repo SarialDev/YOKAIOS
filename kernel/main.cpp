@@ -66,6 +66,10 @@
 #include "tests/test_ext4.h"
 #include "tests/test_ext4w.h"
 #include "drivers/ahci/ahci.h"
+#include "drivers/nvme/nvme.h"
+#include "fs/iso9660.h"
+#include "tests/test_nvme.h"
+#include "tests/test_iso9660.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
 #include "tests/test_procfs.h"
@@ -794,6 +798,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     kprintf("[OK] mouse\n");
     usb_init();
     ahci_init();
+    nvme_init();
     hal_list();
     kprintf("[OK] hal\n");
     kprintf("[OK] rtc\n");
@@ -804,6 +809,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     procfs_init();
     fat32_init();
     ext4_init();
+    iso9660_init();
     // Radacina: cmdline root=<dispozitiv> (ext4, ex. root=/dev/sda2); daca lipseste sau nu se monteaza, initrd-ul
     bool have_root = false;
     const char* root_arg = cmdline_get("root=");
@@ -836,6 +842,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(have_root){
         fs_mount_pseudo();
         fat32_automount();
+        iso9660_automount();
     }
     Task* fs_worker = task_create_kernel("shell-fs", shell_fs_worker, nullptr);
     if(fs_worker){
@@ -906,6 +913,12 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "ahci")){
         test_ahci_run();
+    }
+    if(test_named(test, "nvme")){
+        test_nvme_run();
+    }
+    if(test_named(test, "iso9660")){
+        test_iso9660_run();
     }
     if(test_named(test, "fat32")){
         test_fat32_run();

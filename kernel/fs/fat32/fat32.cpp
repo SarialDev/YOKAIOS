@@ -961,12 +961,12 @@ int fat32_automount() {
         }
         const char* name = hal_name(HalKind::Block, k);
         Path none = {};
-        int err = vfs_mount(none, name, "/media", "fat32", 0, nullptr);
+        int err = vfs_mount(none, name, "/media/disk", "fat32", 0, nullptr);
         if(err){
-            kprintf("fat32: montarea lui %s pe /media a esuat (%d)\n", name, err);
+            kprintf("fat32: montarea lui %s pe /media/disk a esuat (%d)\n", name, err);
             continue;
         }
-        kprintf("[OK] fat32 montat pe /media (%s)\n", name);
+        kprintf("[OK] fat32 montat pe /media/disk (%s)\n", name);
         return 0;
     }
     return -ENODEV;
