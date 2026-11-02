@@ -39,6 +39,7 @@
 #include "tests/test_mm.h"
 #include "mm/pmm.h"
 #include "mm/vmm.h"
+#include "arch/x86_64/fpu.h"
 #include "mm/kmalloc.h"
 #include "mm/fault.h"
 #include "core/panic.h"
@@ -68,6 +69,7 @@
 #include "tests/test_fs.h"
 #include "tests/test_libc.h"
 #include "tests/test_coreutils.h"
+#include "tests/test_lua.h"
 #include "tests/test_vm.h"
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
@@ -185,6 +187,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
 
     pmm_init();
     vmm_init();
+    fpu_init();
     kmalloc_init();
     // Consola grafica peste framebuffer; fara el (sau cu "nofb") ramane VGA text. Mesajele de pana aici au mers doar pe serial
     if(fbcon_init()){
@@ -389,6 +392,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "coreutils")){
         test_coreutils_run();
+    }
+    if(test_named(test, "lua")){
+        test_lua_run();
     }
     if(test_named(test, "vm")){
         test_vm_run();

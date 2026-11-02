@@ -16,6 +16,8 @@ setjmp:
     xorl %eax, %eax
     ret
 .size setjmp, . - setjmp
+.globl _setjmp
+.set _setjmp, setjmp
 
 .globl longjmp
 .type longjmp, @function
@@ -33,4 +35,6 @@ longjmp:
     movq 48(%rdi), %rsp
     jmpq *56(%rdi)
 .size longjmp, . - longjmp
+.globl _longjmp
+.set _longjmp, longjmp
 .section .note.GNU-stack, "", @progbits

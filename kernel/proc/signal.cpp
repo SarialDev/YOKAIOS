@@ -1,4 +1,5 @@
 #include "proc/signal.h"
+#include "arch/x86_64/fpu.h"
 #include "proc/process.h"
 #include "syscall/syscall.h"
 #include "sched/sched.h"
@@ -56,6 +57,7 @@ struct UContext {
     uint64_t flags;
     uint64_t mask;                              // masca de restaurat la sigreturn
     UserRegs regs;
+    uint8_t fpstate[FPU_STATE_SIZE];            // FXSAVE al codului intrerupt (nealiniat: se copiaza prin tampon)
 };
 
 // Ce se pune pe stiva user cand intra un handler; [rsp] = adresa de intoarcere (trambulina), ca dupa un call
@@ -113,6 +115,9 @@ bool push_frame(InterruptFrame* f, Process* p, int sig, const KSigAction& a, int
     sf.ret = (a.flags & SA_RESTORER) && a.restorer ? a.restorer : SIGTRAMP_ADDR;
     sf.info = info;
     sf.uc.mask = p->sig.has_saved ? p->sig.saved_mask : p->sig.blocked;
+    alignas(16) uint8_t fx[FPU_STATE_SIZE];
+    fpu_save(fx);
+    memcpy(sf.uc.fpstate, fx, sizeof(fx));
     sf.uc.regs = UserRegs{f->r15, f->r14, f->r13, f->r12, f->r11, f->r10, f->r9, f->r8, f->rbp, f->rdi, f->rsi,
                           f->rdx, f->rcx, f->rbx, f->rax, f->rip, f->rflags, f->rsp};
     // Pagini de stiva noi (page fault) se aduc cu intreruperile pornite
@@ -384,6 +389,10 @@ int64_t sys_rt_sigreturn(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint6
         kprintf("proces %lu (%s): sigreturn cu frame invalid\n", p->pid, p->name);
         process_die(SIGSEGV);
     }
+    alignas(16) uint8_t fx[FPU_STATE_SIZE];
+    memcpy(fx, uc.fpstate, sizeof(fx));
+    *(uint32_t*)(fx + 24) &= 0xFFBF;            // MXCSR: bitii rezervati dau #GP in kernel la fxrstor
+    fpu_restore(fx);
     const UserRegs& r = uc.regs;
     f->r15 = r.r15; f->r14 = r.r14; f->r13 = r.r13; f->r12 = r.r12; f->r11 = r.r11; f->r10 = r.r10;
     f->r9 = r.r9; f->r8 = r.r8; f->rbp = r.rbp; f->rdi = r.rdi; f->rsi = r.rsi; f->rdx = r.rdx;

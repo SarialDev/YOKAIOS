@@ -6,6 +6,7 @@
 #include "mm/kmalloc.h"
 #include "lib/string.h"
 #include "mm/vma.h"
+#include "arch/x86_64/fpu.h"
 
 namespace {
 
@@ -47,6 +48,7 @@ int64_t process_fork(const InterruptFrame& parent_frame){
         return -ENOMEM;
     }
     t->as = as;
+    fpu_save(t->fpu);                           // copilul porneste cu registrele FPU/SSE ale parintelui
     VmaList vmas = {};
     Process* child = vma_list_clone(vmas, parent->vmas) ? nullptr : process_create(t, parent);
     if(!child){

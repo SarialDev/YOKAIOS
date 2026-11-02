@@ -45,6 +45,16 @@ STEPS = [
     ("spin{ret}", "spin: pornit", 1),                                       # program in bucla in prim-plan...
     ("{ctrl-c}", "^C", 1),                                                   # ...Ctrl-C = SIGINT pentru grupul lui
     ("echo st-$?{ret}", "st-130", 1),                                        # 128 + SIGINT, shell-ul a supravietuit
+    ("lua -e \"print(6*7)\"{ret}", "42", 1),                                  # Lua: -e
+    ("lua{ret}", "re:^Lua 5\\.4\\.[0-9]+  Copyright", 1),                    # Lua: REPL interactiv
+    ("print(2^10){ret}", "1024.0", 1),
+    ("print(string.format('%.3f', math.pi)){ret}", "3.142", 1),
+    ("s = 0 for i = 1, 100 do s = s + i end print(s, 7 // 2){ret}", "re:^5050\\s+3$", 1),
+    ("x = 0 while true do x = x + 1 end{ret}", None, 0),                     # bucla in Lua...
+    ("{ctrl-c}", "interrupted!", 1),                                    # ...SIGINT -> hook -> eroare, REPL ramane
+    ("print('alive-lua'){ret}", "alive-lua", 1),
+    ("os.exit(7){ret}", None, 0),
+    ("echo lua-st-$?{ret}", "lua-st-7", 1),
     ("echo sync-last{ret}", "sync-last", 1),
     ("exit{ret}", None, 0),
 ]

@@ -66,6 +66,11 @@ extern "C" void syscall_dispatch(InterruptFrame* f){
     SyscallFn fn = syscall_lookup(nr);
     f->rax = fn ? (uint64_t)fn(f->rdi, f->rsi, f->rdx, f->r10, f->r8, f->r9) : (uint64_t)-ENOSYS;
     signal_deliver(f, (int64_t)nr);     // semnalele primite cat timp rula syscall-ul (handler, SA_RESTART, moarte)
+    if(nr == SYS_RT_SIGRETURN){
+        // sysret ar strica rcx si r11 (adresa si flagurile de intoarcere), dar codul intrerupt de semnal le poate folosi:
+        // revenirea din handler se face cu iretq, cu toate registrele din frame
+        user_return(f);
+    }
 }
 
 bool user_access_ok(uint64_t addr, uint64_t len, bool write){

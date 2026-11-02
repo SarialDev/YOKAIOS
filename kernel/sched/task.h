@@ -45,6 +45,7 @@ struct Task {
     uint32_t cpu;               // CPU-ul pe care ruleaza / in a carui coada sta / pe care a rulat ultima data
     int32_t affinity;           // -1 = orice CPU, altfel fixat pe acel CPU
     WaitQueue* intr_wq;         // coada in care asteapta intrerupibil (un semnal il trezeste), protejata de intr_lock
+    alignas(16) uint8_t fpu[512];   // stare FXSAVE, salvata la comutare (arch/x86_64/fpu.h)
     volatile bool on_cpu;       // ales de scheduler si contextul inca nesalvat (de la alegere pana dupa switch_to)
 };
 

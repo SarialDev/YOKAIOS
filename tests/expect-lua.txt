@@ -1,0 +1,4 @@
+[OK] fputest
+[OK] luatest
+[OK] test_lua
+[OK] boot

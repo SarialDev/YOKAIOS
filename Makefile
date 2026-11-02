@@ -42,9 +42,10 @@ USER_CSRCS := $(wildcard user/test/*.c)
 USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS)) $(patsubst user/test/%.c,$(BUILD)/user/%.elf,$(USER_CSRCS))
 # Programe C in /bin si /sbin: user/bin/<nume>.c (un fisier), user/bin/<nume>/*.c (mai multe fisiere, ex. ysh), user/sbin/<nume>.c
 BIN_CSRCS   := $(wildcard user/bin/*.c)
-BIN_DIRS    := $(patsubst %/,%,$(wildcard user/bin/*/))
+BIN_DIRS    := $(filter-out user/bin/lua,$(patsubst %/,%,$(wildcard user/bin/*/)))
 SBIN_CSRCS  := $(wildcard user/sbin/*.c)
 BIN_ELFS    := $(patsubst user/bin/%.c,$(BUILD)/ubin/%.elf,$(BIN_CSRCS)) $(patsubst user/bin/%,$(BUILD)/ubin/%.elf,$(BIN_DIRS))
+BIN_ELFS    += $(BUILD)/ubin/lua.elf
 SBIN_ELFS   := $(patsubst user/sbin/%.c,$(BUILD)/usbin/%.elf,$(SBIN_CSRCS))
 USER_ASFLAGS = -m64 -ffreestanding -nostdlib -Ikernel/include
 USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000 \
@@ -56,10 +57,10 @@ SYSROOT      = $(BUILD)/sysroot
 LIBC_SRCS   := $(wildcard user/libc/src/*.c)
 LIBC_OBJS   := $(patsubst user/libc/src/%.c,$(BUILD)/libc/%.o,$(LIBC_SRCS)) $(BUILD)/libc/syscalls.o $(BUILD)/libc/setjmp.o
 LIBC_HDRS   := $(shell find user/libc/include -type f)
-# Userland fara SSE/x87 (kernelul nu salveaza starea FPU), fara stack protector/PIE/CET
+# Userland cu SSE2/x87 (kernelul salveaza starea FPU la comutare, fork si semnale), fara stack protector/PIE/CET
 LIBC_FLAGS   = -m64 -O2 -g0 -Wall -Wextra -Werror -std=gnu11 -ffreestanding -nostdinc -isystem user/libc/include \
                -fno-pic -fno-pie -fno-stack-protector -fcf-protection=none -fno-asynchronous-unwind-tables \
-               -fno-tree-loop-distribute-patterns -mno-sse -mno-mmx -mno-80387 -march=x86-64
+               -fno-tree-loop-distribute-patterns -fno-math-errno -march=x86-64
 UCC          = $(CC) --sysroot=$(SYSROOT) -specs=$(SYSROOT)/lib/yokai.specs
 
 # initrd.tar (ustar) = rootfs/ + layout-ul din blueprint + programele user in /bin; GRUB il incarca ca modul "initrd"
@@ -74,9 +75,12 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-vm test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
+
+# Lua 5.4 (regulile se declara dupa "all", ca sa nu devina tinta implicita)
+include user/bin/lua/lua.mk
 
 $(BUILD)/%.S.o: %.S
 	@mkdir -p $(dir $@)
@@ -155,12 +159,13 @@ $(BUILD)/usbin/%.elf: user/sbin/%.c $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
 	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
 
-$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) Makefile
+$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) Makefile
 	rm -rf $(ROOTFS)
 	mkdir -p $(addprefix $(ROOTFS)/,$(ROOT_DIRS))
 	cp -r rootfs/. $(ROOTFS)/
 	for f in $(USER_ELFS) $(BIN_ELFS); do cp $$f $(ROOTFS)/bin/$$(basename $$f .elf); done
 	for f in $(SBIN_ELFS); do cp $$f $(ROOTFS)/sbin/$$(basename $$f .elf); done
+	mkdir -p $(ROOTFS)/usr/share/lua && cp $(LUA_SHARE) $(ROOTFS)/usr/share/lua/
 	ln -s ../proc/mounts $(ROOTFS)/etc/mtab
 	find $(ROOTFS) -type d -exec chmod 755 {} +
 	find $(ROOTFS) -type f -exec chmod 644 {} +
@@ -212,6 +217,12 @@ $(BUILD)/panic-libc.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-libc: $(BUILD)/panic-libc.iso
 	EXPECT_FILE=tests/expect-libc.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/libc.log
+
+# Lua 5.4 (/bin/lua): numai test=lua; selftest.lua ruleaza ca proces user
+$(BUILD)/panic-lua.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-lua: $(BUILD)/panic-lua.iso
+	EXPECT_FILE=tests/expect-lua.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/lua.log
 
 # utilitare de baza (user/bin): numai test=coreutils (/bin/coretest porneste fiecare utilitar si verifica iesirea)
 $(BUILD)/panic-coreutils.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg

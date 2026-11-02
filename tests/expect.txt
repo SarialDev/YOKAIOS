@@ -144,5 +144,8 @@ libctest: atexit ok
 [OK] test_libc
 [OK] coretest
 [OK] test_coreutils
+[OK] fputest
+[OK] luatest
+[OK] test_lua
 [OK] mmtest
 [OK] test_vm

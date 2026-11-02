@@ -1,5 +1,5 @@
-/* stdio: FILE* cu buffer (un singur buffer pentru citire sau scriere), familia printf, sscanf simplu.
- * Fara float/double (userland-ul se compileaza fara SSE, kernelul nu salveaza starea FPU). Fara thread-uri: fara lock-uri. */
+/* stdio: FILE* cu buffer (un singur buffer pentru citire sau scriere), familia printf (cu %e %f %g %a prin fpconv.c),
+ * sscanf simplu. Fara thread-uri: fara lock-uri. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +10,11 @@
 #include <limits.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <math.h>
+
+char *__fp_format(double v, char conv, int prec, int alt, int *len);
+char *__fp_format_hex(double v, int prec, int upper, int alt, int *len);
 
 #define F_READ 1
 #define F_WRITE 2
@@ -543,6 +548,8 @@ static int format(Out *o, const char *fmt, va_list ap){
             else break;
         }
         char tmp[24];
+        char *fbuf = NULL;                      // corpul unui numar in virgula mobila (malloc)
+        int is_float = 0, finite = 1;
         const char *body = tmp;
         int blen = 0;
         const char *prefix = "";
@@ -617,10 +624,36 @@ static int format(Out *o, const char *fmt, va_list ap){
                 tmp[0] = '%';
                 blen = 1;
                 break;
-            case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': case 'a': case 'A':
-                body = "<float>";            // fara suport pentru virgula mobila
-                blen = 7;
+            case 'f': case 'F': case 'e': case 'E': case 'g': case 'G': case 'a': case 'A': {
+                double v = va_arg(ap, double);
+                int upper = conv == 'F' || conv == 'E' || conv == 'G' || conv == 'A';
+                is_float = 1;
+                prefix = signbit(v) ? "-" : plus ? "+" : space ? " " : "";
+                plen = *prefix ? 1 : 0;
+                if(isnan(v) || isinf(v)){
+                    finite = 0;
+                    body = isnan(v) ? (upper ? "NAN" : "nan") : (upper ? "INF" : "inf");
+                    if(isnan(v)){
+                        prefix = signbit(v) ? "-" : plus ? "+" : space ? " " : "";
+                        plen = *prefix ? 1 : 0;
+                    }
+                    blen = 3;
+                    break;
+                }
+                double av = fabs(v);
+                if(conv == 'a' || conv == 'A'){
+                    fbuf = __fp_format_hex(av, prec, upper, alt, &blen);
+                } else {
+                    fbuf = __fp_format(av, conv, prec < 0 ? 6 : prec, alt, &blen);
+                }
+                if(!fbuf){
+                    body = "";
+                    blen = 0;
+                } else {
+                    body = fbuf;
+                }
                 break;
+            }
             case 0:
                 return (int)o->count;
             default:
@@ -644,9 +677,21 @@ static int format(Out *o, const char *fmt, va_list ap){
             }
         }
         int total = plen + zeros + blen;
-        if(is_int && prec < 0 && zero && !left && width > total){
+        if(((is_int && prec < 0) || (is_float && finite)) && zero && !left && width > total){
             zeros += width - total;
             total = width;
+        }
+        if(is_float && fbuf && (conv == 'a' || conv == 'A') && zeros){
+            // zerourile de umplere vin dupa "0x"
+            for(int i = 0; i < plen; i++){
+                out_char(o, prefix[i]);
+            }
+            plen = 0;
+            out_char(o, body[0]);
+            out_char(o, body[1]);
+            body += 2;
+            blen -= 2;
+            total -= 2;
         }
         if(!left){
             out_pad(o, ' ', width - total);
@@ -661,6 +706,7 @@ static int format(Out *o, const char *fmt, va_list ap){
         if(left){
             out_pad(o, ' ', width - total);
         }
+        free(fbuf);
     }
     return (int)o->count;
 }
@@ -843,4 +889,187 @@ int sscanf(const char *str, const char *fmt, ...){
     }
     va_end(ap);
     return assigned;
+}
+
+/* ---------- extra pentru porturi (Lua): fseeko/ftello, flockfile, tmpfile, freopen, popen ---------- */
+
+int fseeko(FILE *f, long off, int whence){ return fseek(f, off, whence); }
+long ftello(FILE *f){ return ftell(f); }
+int getc_unlocked(FILE *f){ return fgetc(f); }
+int putc_unlocked(int c, FILE *f){ return fputc(c, f); }
+void flockfile(FILE *f){ (void)f; }
+void funlockfile(FILE *f){ (void)f; }
+
+FILE *freopen(const char *path, const char *mode, FILE *f){
+    int oflags, fflags;
+    if(!path || parse_mode(mode, &oflags, &fflags) < 0){
+        errno = EINVAL;
+        return NULL;
+    }
+    fflush(f);
+    int fd = open(path, oflags, 0666);
+    if(fd < 0){
+        return NULL;
+    }
+    if(f->fd == fd){
+        return f;
+    }
+    // pastreaza descriptorul numeric al lui f (stdin/stdout/stderr raman 0/1/2)
+    if(dup2(fd, f->fd) < 0){
+        close(fd);
+        return NULL;
+    }
+    close(fd);
+    f->flags = (f->flags & (F_OWNBUF | F_STATIC)) | fflags;
+    f->rpos = f->rend = f->wpos = 0;
+    f->pushback = -1;
+    return f;
+}
+
+static unsigned tmp_counter;
+
+char *tmpnam(char *s){
+    static char buf[L_tmpnam];
+    char *d = s ? s : buf;
+    for(int tries = 0; tries < 1000; tries++){
+        snprintf(d, L_tmpnam, "/tmp/tmp%d_%u", (int)getpid(), tmp_counter++);
+        if(access(d, 0) != 0){
+            return d;
+        }
+    }
+    return NULL;
+}
+
+int mkstemp(char *tmpl){
+    size_t n = strlen(tmpl);
+    if(n < 6 || strcmp(tmpl + n - 6, "XXXXXX") != 0){
+        errno = EINVAL;
+        return -1;
+    }
+    for(int tries = 0; tries < 1000; tries++){
+        unsigned v = (unsigned)getpid() * 2654435761u + tmp_counter++ * 40503u;
+        for(int i = 0; i < 6; i++){
+            tmpl[n - 6 + i] = "abcdefghijklmnopqrstuvwxyz0123456789"[v % 36];
+            v = v / 36 + 12345u * (unsigned)(i + 1);
+        }
+        int fd = open(tmpl, O_RDWR | O_CREAT | O_EXCL, 0600);
+        if(fd >= 0){
+            return fd;
+        }
+        if(errno != EEXIST){
+            return -1;
+        }
+    }
+    return -1;
+}
+
+FILE *tmpfile(void){
+    char name[L_tmpnam];
+    if(!tmpnam(name)){
+        return NULL;
+    }
+    int fd = open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+    if(fd < 0){
+        return NULL;
+    }
+    unlink(name);                       // fisierul dispare la inchidere
+    FILE *f = fdopen(fd, "w+");
+    if(!f){
+        close(fd);
+    }
+    return f;
+}
+
+/* popen/pclose/system: fork + execve("/bin/ysh", "-c", cmd) */
+extern char **environ;
+static FILE *popen_files[16];
+static pid_t popen_pids[16];
+
+static pid_t spawn_sh(const char *cmd, int in_fd, int out_fd){
+    pid_t pid = fork();
+    if(pid == 0){
+        if(in_fd >= 0 && in_fd != 0){
+            dup2(in_fd, 0);
+            close(in_fd);
+        }
+        if(out_fd >= 0 && out_fd != 1){
+            dup2(out_fd, 1);
+            close(out_fd);
+        }
+        char *const argv[] = {(char *)"ysh", (char *)"-c", (char *)cmd, NULL};
+        execve("/bin/ysh", argv, environ);
+        _exit(127);
+    }
+    return pid;
+}
+
+FILE *popen(const char *cmd, const char *mode){
+    int rd = mode[0] == 'r';
+    if(!rd && mode[0] != 'w'){
+        errno = EINVAL;
+        return NULL;
+    }
+    int p[2];
+    if(pipe(p) < 0){
+        return NULL;
+    }
+    fflush(NULL);
+    pid_t pid = rd ? spawn_sh(cmd, -1, p[1]) : spawn_sh(cmd, p[0], -1);
+    if(pid < 0){
+        close(p[0]);
+        close(p[1]);
+        return NULL;
+    }
+    int mine = rd ? p[0] : p[1];
+    close(rd ? p[1] : p[0]);
+    FILE *f = fdopen(mine, rd ? "r" : "w");
+    if(!f){
+        close(mine);
+        waitpid(pid, NULL, 0);
+        return NULL;
+    }
+    for(int i = 0; i < 16; i++){
+        if(!popen_files[i]){
+            popen_files[i] = f;
+            popen_pids[i] = pid;
+            break;
+        }
+    }
+    return f;
+}
+
+int pclose(FILE *f){
+    pid_t pid = -1;
+    for(int i = 0; i < 16; i++){
+        if(popen_files[i] == f){
+            pid = popen_pids[i];
+            popen_files[i] = NULL;
+        }
+    }
+    fclose(f);
+    if(pid < 0){
+        errno = ECHILD;
+        return -1;
+    }
+    int status = 0;
+    if(waitpid(pid, &status, 0) < 0){
+        return -1;
+    }
+    return status;
+}
+
+int system(const char *cmd){
+    if(!cmd){
+        return 1;                       // exista un interpretor de comenzi
+    }
+    fflush(NULL);
+    pid_t pid = spawn_sh(cmd, -1, -1);
+    if(pid < 0){
+        return -1;
+    }
+    int status = 0;
+    if(waitpid(pid, &status, 0) < 0){
+        return -1;
+    }
+    return status;
 }

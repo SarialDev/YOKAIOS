@@ -30,4 +30,5 @@ char *strsep(char **sp, const char *delim);
 char *strdup(const char *s);
 char *strndup(const char *s, size_t n);
 char *strerror(int errnum);
+int strcoll(const char *a, const char *b);
 #endif

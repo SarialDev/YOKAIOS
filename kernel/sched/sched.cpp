@@ -1,5 +1,6 @@
 #include "sched/sched.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/fpu.h"
 #include "hal/irqchip.h"
 #include "arch/x86_64/smp.h"
 #include "syscall/syscall.h"
@@ -323,6 +324,8 @@ void schedule(){
     if(prev == c->idle){
         clock_reprogram();                      // AP-ul nu avea tick cat a fost liber
     }
+    fpu_save(prev->fpu);
+    fpu_restore(next->fpu);
     switch_to(&prev->ctx, &next->ctx);
     // Aici se revine cand prev e ales din nou, posibil pe alt CPU
     finish_switch();

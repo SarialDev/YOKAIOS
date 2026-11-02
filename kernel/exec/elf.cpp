@@ -1,4 +1,5 @@
 #include "exec/elf.h"
+#include "arch/x86_64/fpu.h"
 #include "uapi/syscall_nr.h"
 #include "boot/multiboot2.h"
 #include "syscall/syscall.h"
@@ -469,5 +470,6 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
         process_set_cmdline(t->proc, argv);
     }
     kfree(release);
+    fpu_reset();
     enter_user(start.rip, start.rsp);
 }

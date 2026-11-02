@@ -1,6 +1,7 @@
 #include "arch/x86_64/smp.h"
 #include "arch/x86_64/pat.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/fpu.h"
 #include "arch/x86_64/idt.h"
 #include "hal/irqchip.h"
 #include "acpi/acpi.h"
@@ -123,6 +124,7 @@ extern "C" [[noreturn]] void ap_main(uint32_t id){
     PerCpu& c = cpus[id];
     __asm__ volatile("mov %0, %%cr0" : : "r"(bsp_cr0) : "memory");
     __asm__ volatile("mov %0, %%cr4" : : "r"(bsp_cr4) : "memory");
+    fpu_init_cpu();
     percpu_init(id, c.lapic_id);
     gdt_init_cpu(c);
     pat_init_cpu();

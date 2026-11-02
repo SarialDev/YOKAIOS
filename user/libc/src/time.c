@@ -8,8 +8,8 @@ clock_t clock(void){
     return ts.tv_sec * 1000000L + ts.tv_nsec / 1000;
 }
 
-long difftime(time_t a, time_t b){
-    return a - b;
+double difftime(time_t a, time_t b){
+    return (double)(a - b);
 }
 
 static const int mdays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -86,6 +86,28 @@ static const char *const wdays[7] = {"Sunday", "Monday", "Tuesday", "Wednesday",
 static const char *const months[12] = {"January", "February", "March", "April", "May", "June", "July",
                                        "August", "September", "October", "November", "December"};
 
+// saptamana ISO 8601: an si numar
+static void iso_week(const struct tm *tm, int *year, int *week){
+    int wd = (tm->tm_wday + 6) % 7;                 // luni = 0
+    int y = tm->tm_year + 1900;
+    int w = (tm->tm_yday - wd + 10) / 7;
+    if(w < 1){
+        y--;
+        int dec31_yday = leap(y) ? 365 : 364;
+        int dec31_wd = ((tm->tm_wday - tm->tm_yday - 1) % 7 + 14) % 7;   // ziua saptamanii a lui 31 dec anterior
+        dec31_wd = (dec31_wd + 6) % 7;
+        w = (dec31_yday - dec31_wd + 10) / 7;
+    } else if(w == 53){
+        int days_in_year = leap(y) ? 366 : 365;
+        if(tm->tm_yday - wd + 3 >= days_in_year){
+            w = 1;
+            y++;
+        }
+    }
+    *year = y;
+    *week = w;
+}
+
 size_t strftime(char *s, size_t max, const char *fmt, const struct tm *tm){
     size_t n = 0;
     char tmp[64];
@@ -114,6 +136,22 @@ size_t strftime(char *s, size_t max, const char *fmt, const struct tm *tm){
                 case 'F': snprintf(tmp, sizeof(tmp), "%d-%02d-%02d", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday); break;
                 case 'T': snprintf(tmp, sizeof(tmp), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec); break;
                 case 'D': snprintf(tmp, sizeof(tmp), "%02d/%02d/%02d", tm->tm_mon + 1, tm->tm_mday, tm->tm_year % 100); break;
+                case 'C': snprintf(tmp, sizeof(tmp), "%02d", (tm->tm_year + 1900) / 100); break;
+                case 'u': snprintf(tmp, sizeof(tmp), "%d", tm->tm_wday ? tm->tm_wday : 7); break;
+                case 'w': snprintf(tmp, sizeof(tmp), "%d", tm->tm_wday); break;
+                case 'R': snprintf(tmp, sizeof(tmp), "%02d:%02d", tm->tm_hour, tm->tm_min); break;
+                case 'r': snprintf(tmp, sizeof(tmp), "%02d:%02d:%02d %s", tm->tm_hour % 12 ? tm->tm_hour % 12 : 12,
+                                   tm->tm_min, tm->tm_sec, tm->tm_hour >= 12 ? "PM" : "AM"); break;
+                case 'X': snprintf(tmp, sizeof(tmp), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec); break;
+                case 'x': snprintf(tmp, sizeof(tmp), "%02d/%02d/%02d", tm->tm_mon + 1, tm->tm_mday, tm->tm_year % 100); break;
+                case 'c': snprintf(tmp, sizeof(tmp), "%.3s %.3s %2d %02d:%02d:%02d %d", wdays[tm->tm_wday % 7],
+                                   months[tm->tm_mon % 12], tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec,
+                                   tm->tm_year + 1900); break;
+                case 'U': snprintf(tmp, sizeof(tmp), "%02d", (tm->tm_yday + 7 - tm->tm_wday) / 7); break;
+                case 'W': snprintf(tmp, sizeof(tmp), "%02d", (tm->tm_yday + 7 - (tm->tm_wday + 6) % 7) / 7); break;
+                case 'V': { int y, w; iso_week(tm, &y, &w); snprintf(tmp, sizeof(tmp), "%02d", w); break; }
+                case 'G': { int y, w; iso_week(tm, &y, &w); snprintf(tmp, sizeof(tmp), "%d", y); break; }
+                case 'g': { int y, w; iso_week(tm, &y, &w); snprintf(tmp, sizeof(tmp), "%02d", y % 100); break; }
                 case 'Z': snprintf(tmp, sizeof(tmp), "UTC"); break;
                 case 'z': snprintf(tmp, sizeof(tmp), "+0000"); break;
                 case 'n': snprintf(tmp, sizeof(tmp), "\n"); break;

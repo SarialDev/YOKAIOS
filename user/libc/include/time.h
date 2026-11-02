@@ -15,7 +15,7 @@ time_t time(time_t *t);
 int clock_gettime(clockid_t clk, struct timespec *ts);
 int nanosleep(const struct timespec *req, struct timespec *rem);
 clock_t clock(void);
-long difftime(time_t a, time_t b);   /* sem double: userland fara SSE */
+double difftime(time_t a, time_t b);
 struct tm *gmtime(const time_t *t);
 struct tm *gmtime_r(const time_t *t, struct tm *out);
 struct tm *localtime(const time_t *t);

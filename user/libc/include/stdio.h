@@ -2,6 +2,7 @@
 #define _STDIO_H
 #include <stddef.h>
 #include <stdarg.h>
+#include <sys/types.h>
 #define EOF (-1)
 #define BUFSIZ 4096
 #define FILENAME_MAX 256
@@ -55,5 +56,18 @@ int vsnprintf(char *s, size_t n, const char *fmt, va_list ap);
 int sscanf(const char *s, const char *fmt, ...);
 void perror(const char *s);
 int remove(const char *path);
+#define L_tmpnam 32
+#define TMP_MAX 238328
+FILE *tmpfile(void);
+char *tmpnam(char *s);
+FILE *freopen(const char *path, const char *mode, FILE *f);
+FILE *popen(const char *cmd, const char *mode);
+int pclose(FILE *f);
+int fseeko(FILE *f, long off, int whence);
+long ftello(FILE *f);
+int getc_unlocked(FILE *f);
+int putc_unlocked(int c, FILE *f);
+void flockfile(FILE *f);
+void funlockfile(FILE *f);
 int rename(const char *from, const char *to);
 #endif

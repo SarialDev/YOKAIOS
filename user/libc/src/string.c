@@ -307,3 +307,5 @@ char *strerror(int e){
         default: return "Unknown error";
     }
 }
+
+int strcoll(const char *a, const char *b){ return strcmp(a, b); }

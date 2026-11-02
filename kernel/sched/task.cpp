@@ -12,6 +12,7 @@
 #include "arch/x86_64/percpu.h"
 #include "lib/string.h"
 #include "init.h"
+#include "arch/x86_64/fpu.h"
 
 extern "C" char stack_bottom[];
 
@@ -61,6 +62,7 @@ Task* new_task(const char* name, uint8_t prio){
     t->cpu = cpu_id();
     t->affinity = -1;
     t->on_cpu = false;
+    memcpy(t->fpu, fpu_default_state(), sizeof(t->fpu));
     int i = 0;
     for(; i < TASK_NAME_LEN - 1 && name[i]; i++){
         t->name[i] = name[i];
