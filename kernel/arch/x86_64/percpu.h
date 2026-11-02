@@ -5,6 +5,7 @@ struct Task;
 
 const int MAX_CPUS = 16;
 const size_t PERCPU_IST_SIZE = 16384;
+const size_t IOMAP_BYTES = 8192;           // 65536 porturi
 
 struct __attribute__((packed)) Tss {
     uint32_t reserved0;
@@ -38,9 +39,12 @@ struct PerCpu {
     uint64_t next_tick_ns;          // urmatorul tick de 1 ms al acestui CPU (timer one-shot)
     uint64_t ipis;                  // IPI-uri de reschedule primite
     uint8_t* ist1;                  // stiva pentru #DF si NMI
+    bool iomap_loaded;              // bitmap-ul de I/O al unui proces (ioperm) e incarcat in TSS pe acest CPU
     uint64_t gdt[7] __attribute__((aligned(16)));
     Tss tss __attribute__((aligned(16)));
+    uint8_t iomap[IOMAP_BYTES + 1];     // imediat dupa TSS (iomap_base = 104): bit 1 = port interzis in ring 3; ultimul octet 0xFF
 };
+static_assert(__builtin_offsetof(PerCpu, iomap) == __builtin_offsetof(PerCpu, tss) + sizeof(Tss), "bitmap-ul I/O urmeaza TSS");
 static_assert(__builtin_offsetof(PerCpu, kstack_top) == 0 && __builtin_offsetof(PerCpu, user_rsp) == 8 &&
               __builtin_offsetof(PerCpu, self) == 16 && __builtin_offsetof(PerCpu, current) == 24 &&
               __builtin_offsetof(PerCpu, id) == 32,

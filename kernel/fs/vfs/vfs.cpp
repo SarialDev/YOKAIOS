@@ -393,6 +393,18 @@ int vfs_getcwd(const Path& cwd, char* buf, uint64_t size){
     return r;
 }
 
+int vfs_realpath(const Path& base, const char* path, char* buf, uint64_t size){
+    MutexGuard g(lock);
+    Path p;
+    int err = path_lookup(base, path, LOOKUP_FOLLOW, p, nullptr);
+    if(err){
+        return err;
+    }
+    err = path_string(p, buf, size);
+    path_put(p);
+    return err;
+}
+
 int vfs_mount(const Path& base, const char* dev_name, const char* target, const char* fstype, uint32_t flags,
               const char* data){
     MutexGuard g(lock);

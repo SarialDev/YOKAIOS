@@ -1,4 +1,5 @@
 #include "exec/elf.h"
+#include "proc/caps.h"
 #include "arch/x86_64/fpu.h"
 #include "uapi/syscall_nr.h"
 #include "boot/multiboot2.h"
@@ -319,7 +320,20 @@ int build_vmas(VmaList& l, const ElfImage& img){
 struct ExecId {
     uint32_t mode, uid, gid;
     bool nosuid;
+    bool cap_found;                 // fisierul are politica de capabilitati (proc/caps.h)
+    uint64_t cap_mask;
 };
+
+// Identitatea si capabilitatile procesului dupa execve: setuid/setgid, trecerea root <-> utilizator pentru capabilitati,
+// apoi plafonul din politica pachetului (capabilitatile nu cresc niciodata la exec)
+void apply_exec_id(Process* p, const ExecId& id){
+    Cred before = p->cred;
+    cred_exec(p->cred, id.mode, id.uid, id.gid, id.nosuid);
+    caps_on_setid(p->caps, before, p->cred);
+    if(id.cap_found){
+        caps_limit(p->caps, id.cap_mask);
+    }
+}
 
 // Continutul fisierului de executat: drept x (VFS_O_EXEC), nu r; kmalloc, nullptr si -errno in err
 uint8_t* read_file(const Path& base, const char* path, uint64_t& size, ExecId& id, int64_t& err){
@@ -329,7 +343,7 @@ uint8_t* read_file(const Path& base, const char* path, uint64_t& size, ExecId& i
         return nullptr;
     }
     uint8_t* buf = nullptr;
-    id = ExecId{f->inode->mode, f->inode->uid, f->inode->gid, (f->inode->sb->flags & MS_NOSUID) != 0};
+    id = ExecId{f->inode->mode, f->inode->uid, f->inode->gid, (f->inode->sb->flags & MS_NOSUID) != 0, false, 0};
     if(f->inode->size > MAX_EXEC_FILE || f->inode->size == 0){
         err = f->inode->size ? -ENOMEM : -ENOEXEC;
     } else {
@@ -361,6 +375,7 @@ AddressSpace* load_path(const Path& base, const char* path, const char* const* a
     if(!image){
         return nullptr;
     }
+    caps_exec_policy(base, path, id.cap_found, id.cap_mask);
     AddressSpace* as = (AddressSpace*)kmalloc(sizeof(AddressSpace));
     if(!as){
         kfree(image);
@@ -412,7 +427,7 @@ uint64_t exec_spawn(const char* path, const char* const* argv, const char* const
         p = process_create(t, nullptr);
     }
     if(p){
-        cred_exec(p->cred, id.mode, id.uid, id.gid, id.nosuid);
+        apply_exec_id(p, id);
         p->brk_base = p->brk_cur = start->brk;
         p->vmas = start->vmas;
         start->vmas = VmaList{};
@@ -453,7 +468,8 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
         vma_exit(t->proc);                      // MAP_SHARED murdar se scrie inapoi cat timp vechiul spatiu e activ
         t->proc->vmas = start.vmas;
         signal_exec(t->proc);
-        cred_exec(t->proc->cred, id.mode, id.uid, id.gid, id.nosuid);
+        apply_exec_id(t->proc, id);
+        caps_exec_reset_io();
     } else {
         vma_list_free(start.vmas);
     }

@@ -109,6 +109,7 @@ Process* process_create(Task* main, Process* parent){
     main->proc = p;
     __atomic_fetch_add(&live_count, 1, __ATOMIC_RELAXED);
     p->cred = parent ? parent->cred : cred_root;
+    p->caps = parent ? parent->caps : caps_full;
     p->umask = parent ? parent->umask : 022;
     if(parent){
         uint64_t flags = tree_lock.lock_irqsave();

@@ -387,6 +387,10 @@ void gen_status(Buf& b, const TaskInfo& t, const Maps* m){
             put_dec(b, ids[k][j]);
         }
     }
+    put(b, "\nCapPrm:\t");
+    put_hex(b, t.cap_perm, 2);
+    put(b, "\nCapEff:\t");
+    put_hex(b, t.cap_eff, 2);
     put(b, "\nThreads:\t1\n");
     if(m){
         put(b, "VmSize:\t");

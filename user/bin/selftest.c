@@ -232,10 +232,14 @@ static void test_package(void){
     CHECK(run("/bin/ypkg", "ypkg", "list", NULL) == 0 && has("hello") && has("1.0.0"));
     CHECK(run("/opt/hello/bin/hello", "hello", "x", NULL) == 0 && has("salut de la hello 1.0.0") && has("arg 1 = \"x\""));
     CHECK(sh("ypkg run hello din-ysh | grep din-ysh") == 0 && same("  arg 1 = \"din-ysh\"\n"));
+    // permisiunea cap.net din manifest = plafonul de capabilitati al executabilului (politica /var/lib/ypkg/exec.caps)
+    CHECK(run("/bin/cat", "cat", "/var/lib/ypkg/exec.caps", NULL) == 0 && same("/opt/hello/bin/hello net hello\n"));
+    CHECK(run("/opt/hello/bin/hello", "hello", "--caps", NULL) == 0 && same("caps: permitted=2 effective=2\n"));
+    CHECK(run("/bin/caps", "caps", NULL) == 0 && has("effective: sys_admin,net,rawio,rt,mount,kill,setuid"));
     CHECK(run("/bin/ypkg", "ypkg", "install", "/usr/share/ypkg/hello.yokai", NULL) != 0 && has("deja instalat"));
     CHECK(run("/bin/ypkg", "ypkg", "remove", "hello", NULL) == 0 && same("scos hello (2 fisiere)\n"));
     struct stat st;
-    CHECK(stat("/opt/hello/bin/hello", &st) < 0);
+    CHECK(stat("/opt/hello/bin/hello", &st) < 0 && stat("/var/lib/ypkg/exec.caps", &st) < 0);
     CHECK(run("/bin/ypkg", "ypkg", "list", NULL) == 0 && !has("hello"));
 }
 

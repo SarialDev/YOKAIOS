@@ -130,6 +130,111 @@ static int write_file(const char *path, const void *data, size_t len, unsigned m
     return close(fd);
 }
 
+/* ---- Capabilitati la exec ----
+ * Permisiunile "cap.<nume>" din manifest (cap.sys_admin cap.net cap.rawio cap.rt cap.mount cap.kill cap.setuid) sunt
+ * plafonul de capabilitati al executabilelor pachetului: kernelul citeste <radacina>/var/lib/ypkg/exec.caps
+ * ("<cale absoluta> <cap,cap|none> <pachet>" pe linie) la fiecare execve si reduce setul procesului la acest plafon.
+ * Un pachet fara cap.* isi pierde toate capabilitatile (privilegii minime). Vezi docs/PACKAGE_FORMAT.md */
+static const char *const CAP_NAMES[] = {"sys_admin", "net", "rawio", "rt", "mount", "kill", "setuid", NULL};
+
+static int caps_known(const char *n){
+    for(int i = 0; CAP_NAMES[i]; i++){
+        if(strcmp(CAP_NAMES[i], n) == 0){
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* "rt,net" (sau "none") din permisiunile cap.* ale manifestului; -1 + err la nume necunoscut / cai nepotrivite */
+static int caps_from_manifest(const Manifest *m, char *out, size_t sz, char *err, size_t esz){
+    size_t n = 0;
+    out[0] = 0;
+    for(int i = 0; i < m->nperms; i++){
+        if(strncmp(m->perms[i], "cap.", 4) != 0){
+            continue;
+        }
+        const char *c = m->perms[i] + 4;
+        if(!caps_known(c)){
+            snprintf(err, esz, "permisiune necunoscuta: %s", m->perms[i]);
+            return -1;
+        }
+        n += (size_t)snprintf(out + n, sz - n, "%s%s", n ? "," : "", c);
+        if(n >= sz){
+            snprintf(err, esz, "prea multe permisiuni cap.*");
+            return -1;
+        }
+    }
+    if(!n){
+        snprintf(out, sz, "none");
+    }
+    for(int i = 0; i < m->nfiles; i++){
+        if(!(m->files[i].mode & 0111)){
+            continue;
+        }
+        for(const char *q = m->files[i].path; *q; q++){
+            if((unsigned char)*q <= ' ' || *q == '#'){
+                snprintf(err, esz, "executabilul \"%s\" are un caracter nepermis in cale (spatiu sau #)", m->files[i].path);
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Scoate liniile pachetului `name` din exec.caps si adauga, daca add != NULL, cate una pentru fiecare executabil */
+static int execcaps_update(const char *name, const Manifest *m, const char *add){
+    char path[512];
+    snprintf(path, sizeof(path), "%s/" DB_REL "/exec.caps", root);
+    size_t len = 0;
+    char *old = read_all(path, &len, 1024 * 1024);
+    if(!old && errno != ENOENT){
+        return -1;
+    }
+    size_t cap = len + 64, n = 0;
+    for(int i = 0; add && i < m->nfiles; i++){
+        cap += strlen(m->files[i].path) + strlen(add) + strlen(name) + 8;
+    }
+    char *out = malloc(cap);
+    if(!out){
+        free(old);
+        errno = ENOMEM;
+        return -1;
+    }
+    for(char *line = old; line && *line; ){
+        char *nl = strchr(line, '\n');
+        size_t ll = nl ? (size_t)(nl - line) : strlen(line);
+        /* a treia coloana = pachetul */
+        const char *sp = memchr(line, ' ', ll);
+        const char *sp2 = sp ? memchr(sp + 1, ' ', ll - (size_t)(sp + 1 - line)) : NULL;
+        int mine = sp2 && strlen(name) == ll - (size_t)(sp2 + 1 - line) && memcmp(sp2 + 1, name, strlen(name)) == 0;
+        if(!mine){
+            memcpy(out + n, line, ll);
+            n += ll;
+            out[n++] = '\n';
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    free(old);
+    for(int i = 0; add && i < m->nfiles; i++){
+        if(m->files[i].mode & 0111){
+            n += (size_t)snprintf(out + n, cap - n, "/%s %s %s\n", m->files[i].path, add, name);
+        }
+    }
+    int rc = 0;
+    if(n == 0){
+        if(unlink(path) < 0 && errno != ENOENT){
+            rc = -1;
+        }
+    } else if(write_file(path, out, n, 0644) < 0){
+        rc = -1;
+    } else {
+        chmod(path, 0644);          /* kernelul il citeste ca orice utilizator */
+    }
+    free(out);
+    return rc;
+}
+
 /* mkdir -p; directoarele create acum se adauga in `created` (cai complete) */
 static int ensure_dir(const char *path, List *created){
     char buf[1024];
@@ -446,7 +551,7 @@ static int do_install(const char *file){
     const Manifest *m = &p.m;
     int rc = 1;
     List files = {0}, dirs = {0};
-    char path[1024], dbdir[512];
+    char path[1024], dbdir[512], capstr[128];
 
     if(is_installed(m->name)){
         fprintf(stderr, "ypkg: %s e deja instalat (scoate-l mai intai cu: ypkg remove %s)\n", m->name, m->name);
@@ -463,6 +568,11 @@ static int do_install(const char *file){
             fprintf(stderr, "ypkg: conflict: %s exista deja (nu apartine unui pachet instalat sau al altuia)\n", path);
             goto out;
         }
+    }
+
+    if(caps_from_manifest(m, capstr, sizeof(capstr), err, sizeof(err)) < 0){
+        fprintf(stderr, "ypkg: nu pot instala %s: %s\n", m->name, err);
+        goto out;
     }
 
     /* baza de date: radacina ei se creeaza daca lipseste */
@@ -581,6 +691,16 @@ static int do_install(const char *file){
             goto undo;
         }
     }
+    if(execcaps_update(m->name, m, capstr) < 0){
+        fprintf(stderr, "ypkg: exec.caps: %s\n", strerror(errno));
+        dbpath(path, sizeof(path), m->name, "manifest.toml");
+        unlink(path);
+        dbpath(path, sizeof(path), m->name, "files");
+        unlink(path);
+        dbpath(path, sizeof(path), m->name, NULL);
+        rmdir(path);
+        goto undo;
+    }
     printf("instalat %s %s (%d fisiere)\n", m->name, m->version, m->nfiles);
     rc = 0;
     goto out;
@@ -649,6 +769,7 @@ static int do_remove(const char *name){
     /* nu mai conteaza ca instalat de acum; o intrerupere lasa doar lista de fisiere in urma */
     dbpath(p, sizeof(p), name, "manifest.toml");
     unlink(p);
+    execcaps_update(name, NULL, NULL);
     List dirs = {0};
     int removed = 0, rc = 0;
     for(char *line = lst; *line; ){

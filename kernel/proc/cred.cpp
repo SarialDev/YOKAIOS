@@ -1,5 +1,6 @@
 #include "proc/cred.h"
 #include "proc/process.h"
+#include "proc/caps.h"
 #include "syscall/syscall.h"
 #include "uapi/syscall_nr.h"
 #include "uapi/fs.h"
@@ -27,8 +28,8 @@ bool cred_in_group(const Cred& c, uint32_t gid){
     return false;
 }
 
-bool cred_may_signal(const Cred& c, const Cred& t){
-    return cred_is_root(c) || c.uid == t.uid || c.uid == t.suid || c.euid == t.uid || c.euid == t.suid;
+bool cred_may_signal(const Cred& c, bool cap_kill, const Cred& t){
+    return cap_kill || c.uid == t.uid || c.uid == t.suid || c.euid == t.uid || c.euid == t.suid;
 }
 
 void cred_exec(Cred& c, uint32_t mode, uint32_t uid, uint32_t gid, bool nosuid){
@@ -114,22 +115,32 @@ int64_t sys_getegid(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
 
 int64_t sys_setuid(uint64_t uid, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
     Cred& c = self();
-    return set_one(c.uid, c.euid, c.suid, (uint32_t)uid, cred_is_root(c));
+    Cred before = c;
+    int err = set_one(c.uid, c.euid, c.suid, (uint32_t)uid, capable(CAP_SETUID));
+    if(!err){
+        caps_on_setid(process_current()->caps, before, c);
+    }
+    return err;
 }
 
 int64_t sys_setgid(uint64_t gid, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
     Cred& c = self();
-    return set_one(c.gid, c.egid, c.sgid, (uint32_t)gid, cred_is_root(c));
+    return set_one(c.gid, c.egid, c.sgid, (uint32_t)gid, capable(CAP_SETUID));
 }
 
 int64_t sys_setreuid(uint64_t ruid, uint64_t euid, uint64_t, uint64_t, uint64_t, uint64_t){
     Cred& c = self();
-    return set_re(c.uid, c.euid, c.suid, (uint32_t)ruid, (uint32_t)euid, cred_is_root(c));
+    Cred before = c;
+    int err = set_re(c.uid, c.euid, c.suid, (uint32_t)ruid, (uint32_t)euid, capable(CAP_SETUID));
+    if(!err){
+        caps_on_setid(process_current()->caps, before, c);
+    }
+    return err;
 }
 
 int64_t sys_setregid(uint64_t rgid, uint64_t egid, uint64_t, uint64_t, uint64_t, uint64_t){
     Cred& c = self();
-    return set_re(c.gid, c.egid, c.sgid, (uint32_t)rgid, (uint32_t)egid, cred_is_root(c));
+    return set_re(c.gid, c.egid, c.sgid, (uint32_t)rgid, (uint32_t)egid, capable(CAP_SETUID));
 }
 
 int64_t sys_getgroups(uint64_t size, uint64_t list, uint64_t, uint64_t, uint64_t, uint64_t){
@@ -153,7 +164,7 @@ int64_t sys_getgroups(uint64_t size, uint64_t list, uint64_t, uint64_t, uint64_t
 
 int64_t sys_setgroups(uint64_t size, uint64_t list, uint64_t, uint64_t, uint64_t, uint64_t){
     Cred& c = self();
-    if(!cred_is_root(c)){
+    if(!capable(CAP_SETUID)){
         return -EPERM;
     }
     if(size > CRED_NGROUPS_MAX){

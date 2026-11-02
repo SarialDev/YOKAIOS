@@ -23,8 +23,8 @@ const Cred& cred_current();
 bool cred_is_root(const Cred& c);
 // egid sau unul din grupurile suplimentare
 bool cred_in_group(const Cred& c, uint32_t gid);
-// Poate c sa trimita semnale procesului cu identitatea t? (root, sau uid/euid-ul lui c = uid/suid-ul lui t)
-bool cred_may_signal(const Cred& c, const Cred& t);
+// Poate c sa trimita semnale procesului cu identitatea t? (cap_kill = are CAP_KILL, sau uid/euid-ul lui c = uid/suid-ul lui t)
+bool cred_may_signal(const Cred& c, bool cap_kill, const Cred& t);
 // La execve, dupa punctul fara intoarcere: bitii S_ISUID / S_ISGID (cu S_IXGRP) ai fisierului schimba euid/egid,
 // daca montarea nu are MS_NOSUID. suid/sgid devin cele efective
 void cred_exec(Cred& c, uint32_t mode, uint32_t uid, uint32_t gid, bool nosuid);

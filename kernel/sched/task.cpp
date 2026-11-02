@@ -57,6 +57,7 @@ Task* new_task(const char* name, uint8_t prio){
     t->slice_left = 0;
     t->wake_ns = 0;
     t->rt = nullptr;
+    t->iomap = nullptr;
     t->proc = nullptr;
     t->intr_wq = nullptr;
     t->cpu = cpu_id();
@@ -168,6 +169,7 @@ void task_destroy(Task* t){
         as_destroy(*t->as);
         kfree(t->as);
     }
+    kfree(t->iomap);
     free_pages((uint64_t)t->kstack - phys_map_base, KSTACK_ORDER);
     // Ultimul pas: cine asteapta task_count() (testele, pe alt CPU) vede memoria deja eliberata
     {
@@ -206,6 +208,7 @@ void fill_info(const Task* t, TaskInfo& out){
     out.pml4_phys = out.user ? t->as->pml4_phys : 0;
     out.cmdline_len = 0;
     out.uid = out.euid = out.suid = out.gid = out.egid = out.sgid = 0;
+    out.cap_perm = out.cap_eff = CAP_ALL;
     memcpy(out.name, t->name, TASK_NAME_LEN);
     if(t->proc){
         Process* p = t->proc;
@@ -222,6 +225,8 @@ void fill_info(const Task* t, TaskInfo& out){
         out.gid = p->cred.gid;
         out.egid = p->cred.egid;
         out.sgid = p->cred.sgid;
+        out.cap_perm = p->caps.permitted;
+        out.cap_eff = p->caps.effective;
         process_tree_lock().unlock_irqrestore(flags);
     }
 }

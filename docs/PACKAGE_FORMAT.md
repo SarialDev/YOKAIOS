@@ -23,7 +23,7 @@ version = "1.0.0"                           # obligatoriu: [A-Za-z0-9][A-Za-z0-9
 description = "Program de proba"            # opțional
 entry = "/opt/hello/bin/hello"              # opțional: fișierul principal (trebuie să fie în [files]); `ypkg run`
 deps = ["libfoo >= 1.2", "bar"]             # opțional: "nume [op versiune]", op ∈ >= <= > < = ==
-permissions = ["tty", "fs.read:/etc"]       # opțional: etichete libere; acum doar se înregistrează și se afișează
+permissions = ["tty", "cap.net"]            # opțional: etichete libere (se afișează); cele "cap.<nume>" sunt plafonul de capabilități, vezi mai jos
 signature = ""                              # obligatoriu ca cheie; GOL până la T8.5
 
 [files]
@@ -59,6 +59,17 @@ ypkg verifică **tot** înainte să scrie ceva (și verifică din nou hash-urile
 6. niciun fișier din `[files]` nu există deja pe disc (conflict) — ypkg nu suprascrie.
 
 Dacă extragerea eșuează la mijloc (disc plin, fișier blocat), tot ce s-a creat se șterge.
+
+## Capabilități la exec (`cap.*`)
+
+Permisiunile care încep cu `cap.` nu sunt simple etichete: sunt **plafonul de capabilități** (kernel/proc/caps.h) al
+executabilelor pachetului. Nume: `cap.sys_admin`, `cap.net`, `cap.rawio`, `cap.rt`, `cap.mount`, `cap.kill`,
+`cap.setuid`. La instalare, `ypkg` scrie în `/var/lib/ypkg/exec.caps` câte o linie `/<cale> <cap,cap|none> <pachet>` pentru
+fiecare fișier cu cel puțin un bit `x` din `[files]`; la fiecare `execve` kernelul canonicalizează fișierul executat
+(symlink-urile nu ocolesc), îl caută acolo (și în `/etc/exec.caps`) și taie capabilitățile procesului la acel plafon.
+Un pachet fără nicio permisiune `cap.*` își pierde **toate** capabilitățile (`none`); `ypkg remove` șterge liniile.
+Capabilitățile nu cresc niciodată la exec. `ypkg install` refuză un pachet cu `cap.<nume>` necunoscut sau cu un executabil
+a cărui cale conține spațiu sau `#`.
 
 ## Baza de date
 

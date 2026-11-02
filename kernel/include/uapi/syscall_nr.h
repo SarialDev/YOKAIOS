@@ -55,8 +55,13 @@
 #define SYS_GETGROUPS   115
 #define SYS_SETGROUPS   116
 #define SYS_GETPGID     121
+#define SYS_CAPGET      125
+#define SYS_CAPSET      126
 #define SYS_RT_SIGPENDING 127
 #define SYS_RT_SIGSUSPEND 130
+#define SYS_SCHED_SETSCHEDULER 144
+#define SYS_SCHED_GETSCHEDULER 145
+#define SYS_IOPERM      173
 #define SYS_FCNTL       72
 #define SYS_GETCWD      79
 #define SYS_CHDIR       80

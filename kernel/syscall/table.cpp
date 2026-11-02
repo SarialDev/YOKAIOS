@@ -11,6 +11,7 @@
 #include "mm/kmalloc.h"
 #include "proc/signal.h"
 #include "proc/cred.h"
+#include "proc/caps.h"
 
 namespace {
 
@@ -281,6 +282,11 @@ constexpr Table make_table(){
     t.fn[SYS_FCHOWN] = sys_fchown;
     t.fn[SYS_LCHOWN] = sys_lchown;
     t.fn[SYS_ACCESS] = sys_access;
+    t.fn[SYS_CAPGET] = sys_capget;
+    t.fn[SYS_CAPSET] = sys_capset;
+    t.fn[SYS_SCHED_SETSCHEDULER] = sys_sched_setscheduler;
+    t.fn[SYS_SCHED_GETSCHEDULER] = sys_sched_getscheduler;
+    t.fn[SYS_IOPERM] = sys_ioperm;
     return t;
 }
 

@@ -79,7 +79,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-crypto test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-crypto test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -136,12 +136,12 @@ $(BUILD)/libc/libc.a: $(LIBC_OBJS)
 	rm -f $@
 	ar rcs $@ $(LIBC_OBJS)
 
-$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs kernel/include/uapi/syscall_nr.h
+$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h
 	rm -rf $(SYSROOT)
 	mkdir -p $(SYSROOT)/include/uapi $(SYSROOT)/lib
 	cp -r user/libc/include/. $(SYSROOT)/include/
 	mkdir -p $(SYSROOT)/include/crypto && cp $(CRYPTO_HDRS) $(SYSROOT)/include/crypto/
-	cp kernel/include/uapi/syscall_nr.h $(SYSROOT)/include/uapi/
+	cp kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h $(SYSROOT)/include/uapi/
 	cp $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o user/libc/yokai.specs $(SYSROOT)/lib/
 	touch $@
 
@@ -281,6 +281,12 @@ $(BUILD)/panic-perm.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-perm: $(BUILD)/panic-perm.iso
 	EXPECT_FILE=tests/expect-perm.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/perm.log
+
+# capabilitati per proces (T8.x): numai test=caps (/bin/captest: mostenire, capset, mount, RT, ioperm, kill, setuid, politica exec.caps)
+$(BUILD)/panic-caps.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-caps: $(BUILD)/panic-caps.iso
+	EXPECT_FILE=tests/expect-caps.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/caps.log
 
 # criptografie (lib/crypto in kernel si in userland): numai test=crypto (vectori RFC 6234 / 4231 / 7914)
 $(BUILD)/panic-crypto.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg

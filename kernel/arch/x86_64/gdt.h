@@ -13,3 +13,5 @@ const uint16_t GDT_TSS   = 0x28;
 void gdt_init_cpu(PerCpu& c);
 // TSS.rsp0 al CPU-ului curent
 void tss_set_rsp0(uint64_t rsp0);
+// Bitmap-ul de I/O al CPU-ului curent (8192 octeti, bit 0 = port permis in ring 3); nullptr = niciun port
+void tss_set_iomap(const uint8_t* bitmap);

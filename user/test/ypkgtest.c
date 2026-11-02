@@ -221,6 +221,8 @@ static void test_basic(void){
     CHECK(stat(ROOT "/opt/hello/share/hello.txt", &st) == 0 && (st.st_mode & 0111) == 0);
     CHECK(file_is(ROOT "/opt/hello/share/hello.txt", "Acest fisier vine din pachetul hello.yokai.\n"));
     CHECK(exists(ROOT "/var/lib/ypkg/hello/manifest.toml") && exists(ROOT "/var/lib/ypkg/hello/files"));
+    // politica de capabilitati pentru kernel: o linie pe executabil, din permisiunile cap.* (aici cap.net)
+    CHECK(file_is(ROOT "/var/lib/ypkg/exec.caps", "/opt/hello/bin/hello net hello\n"));
 
     // binarul instalat ruleaza (direct si prin `ypkg run`)
     CHECK(runv(ROOT "/opt/hello/bin/hello", (char *[]){"hello", "a", "b c", NULL}) == 0 &&
@@ -241,11 +243,13 @@ static void test_basic(void){
     // hello e cerut de hello-extra
     CHECK(ypkg("remove", "hello", NULL) == 1 && has(err, "il cer hello-extra"));
     CHECK(exists(ROOT "/opt/hello/bin/hello"));
+    CHECK(file_is(ROOT "/var/lib/ypkg/exec.caps", "/opt/hello/bin/hello net hello\n"));   // hello-extra nu are executabile
     CHECK(ypkg("remove", "hello-extra", NULL) == 0 && has(out, "scos hello-extra (1 fisiere)"));
     CHECK(!exists(ROOT "/opt/hello-extra/share/extra.txt") && !exists(ROOT "/opt/hello-extra") && !exists(ROOT "/var/lib/ypkg/hello-extra"));
     CHECK(ypkg("remove", "hello-extra", NULL) == 1 && has(err, "nu e instalat"));
     CHECK(ypkg("remove", "../etc", NULL) == 2);
     CHECK(ypkg("remove", "hello", NULL) == 0 && has(out, "scos hello (2 fisiere)"));
+    CHECK(!exists(ROOT "/var/lib/ypkg/exec.caps"));                     // nu mai ramane nicio linie
     CHECK(!exists(ROOT "/opt/hello") && !exists(ROOT "/opt/hello/bin/hello") && !exists(ROOT "/var/lib/ypkg/hello"));
     CHECK(ypkg("list", NULL, NULL) == 0 && out[0] == 0);
 

@@ -35,6 +35,8 @@ int64_t vfs_readlink(const Path& base, const char* path, char* buf, uint64_t siz
 int vfs_chdir(Path& cwd, const char* path);
 // Calea absoluta a lui cwd; lungimea cu terminator, -ERANGE, -ENOENT daca directorul a fost sters
 int vfs_getcwd(const Path& cwd, char* buf, uint64_t size);
+// Calea absoluta canonica a lui path (symlink-uri urmate), ca la getcwd: lungimea cu terminator, -ERANGE, -errno
+int vfs_realpath(const Path& base, const char* path, char* buf, uint64_t size);
 int vfs_mount(const Path& base, const char* dev_name, const char* target, const char* fstype, uint32_t flags,
               const char* data);
 int vfs_umount(const Path& base, const char* target);

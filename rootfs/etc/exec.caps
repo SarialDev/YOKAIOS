@@ -1,0 +1,4 @@
+# Plafon de capabilitati la execve (kernel/proc/caps.cpp), politica de baza a sistemului.
+# Linie: <cale absoluta canonica> <cap,cap | none | all> ; '#' = comentariu.
+# Capabilitati: sys_admin net rawio rt mount kill setuid. Pachetele .yokai adauga linii in /var/lib/ypkg/exec.caps
+# (din permisiunile "cap.<nume>" ale manifestului); ultima potrivire castiga. Fara linie = fara reducere (se mostenesc).

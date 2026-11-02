@@ -318,6 +318,7 @@ void schedule(){
         as_switch(*next->as);
     }
     tss_set_rsp0(kstack_top(next));
+    tss_set_iomap(next->iomap);        // ioperm (proc/caps.cpp)
     syscall_set_kstack(kstack_top(next));
     c->current = next;
     c->prev = prev;

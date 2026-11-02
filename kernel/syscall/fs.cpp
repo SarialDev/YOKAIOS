@@ -223,7 +223,7 @@ int64_t sys_readlink(uint64_t path, uint64_t buf, uint64_t size, uint64_t, uint6
 
 int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t flags, uint64_t data, uint64_t){
     Process* p = process_current();
-    if(p && !cred_is_root(p->cred)){
+    if(p && !capable(CAP_MOUNT)){
         return -EPERM;
     }
     char ks[PATH_MAX] = "";
@@ -245,7 +245,7 @@ int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t fl
 
 int64_t sys_umount2(uint64_t target, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
     Process* p = process_current();
-    if(p && !cred_is_root(p->cred)){
+    if(p && !capable(CAP_MOUNT)){
         return -EPERM;
     }
     char kt[PATH_MAX];

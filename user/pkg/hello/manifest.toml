@@ -4,5 +4,5 @@ version = "1.0.0"
 description = "Program de proba: spune salut"
 entry = "/opt/hello/bin/hello"
 deps = []
-permissions = ["tty"]
+permissions = ["tty", "cap.net"]
 signature = ""

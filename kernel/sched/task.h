@@ -46,6 +46,7 @@ struct Task {
     int32_t affinity;           // -1 = orice CPU, altfel fixat pe acel CPU
     WaitQueue* intr_wq;         // coada in care asteapta intrerupibil (un semnal il trezeste), protejata de intr_lock
     alignas(16) uint8_t fpu[512];   // stare FXSAVE, salvata la comutare (arch/x86_64/fpu.h)
+    uint8_t* iomap;             // bitmap de I/O al procesului (ioperm, IOMAP_BYTES octeti, bit 0 = permis), altfel nullptr
     volatile bool on_cpu;       // ales de scheduler si contextul inca nesalvat (de la alegere pana dupa switch_to)
 };
 
@@ -79,6 +80,7 @@ struct TaskInfo {
     char cmdline[PROC_CMDLINE_MAX]; // argv separat prin '\0'
     uint32_t uid, euid, suid;       // identitatea procesului (0 pentru thread-urile de kernel)
     uint32_t gid, egid, sgid;
+    uint64_t cap_perm, cap_eff;     // capabilitati (proc/caps.h); toate pentru thread-urile de kernel
 };
 // Task-ul cu tid-ul dat (fara idle); false daca nu exista
 bool task_info(uint64_t tid, TaskInfo& out);

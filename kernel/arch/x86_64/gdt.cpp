@@ -1,5 +1,6 @@
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/percpu.h"
+#include "lib/string.h"
 
 namespace {
 
@@ -27,9 +28,10 @@ void gdt_init_cpu(PerCpu& c){
     tss.rsp[0] = c.kstack_top;
     tss.ist[0] = (uint64_t)(c.ist1 + PERCPU_IST_SIZE);
     tss.iomap_base = sizeof(Tss);
+    memset(c.iomap, 0xFF, sizeof(c.iomap));            // nicio permisiune de I/O pentru ring 3
 
     uint64_t base = (uint64_t)&tss;
-    uint64_t limit = sizeof(Tss) - 1;
+    uint64_t limit = sizeof(Tss) + sizeof(c.iomap) - 1;
     gdt[5] = (limit & 0xFFFF)
            | ((base & 0xFFFFFF) << 16)
            | (0x89ULL << 40)                    // prezent, TSS 64-bit disponibil
@@ -46,4 +48,16 @@ void gdt_init_cpu(PerCpu& c){
 
 void tss_set_rsp0(uint64_t rsp0){
     this_cpu()->tss.rsp[0] = rsp0;
+}
+
+void tss_set_iomap(const uint8_t* bitmap){
+    PerCpu* c = this_cpu();
+    if(bitmap){
+        memcpy(c->iomap, bitmap, IOMAP_BYTES);
+        c->iomap[IOMAP_BYTES] = 0xFF;
+        c->iomap_loaded = true;
+    } else if(c->iomap_loaded){
+        memset(c->iomap, 0xFF, sizeof(c->iomap));
+        c->iomap_loaded = false;
+    }
 }
