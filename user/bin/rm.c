@@ -47,6 +47,10 @@ static int remove_tree(const char *path, int recursive){
 }
 
 int main(int argc, char **argv){
+    if(argc == 2 && strcmp(argv[1], "--help") == 0){
+        puts("uz: rm [-r] [-f] cale...");
+        return 0;
+    }
     int recursive = 0, rc = 0, i = 1;
     for(; i < argc && argv[i][0] == '-' && argv[i][1]; i++){
         for(const char *o = argv[i] + 1; *o; o++){

@@ -25,6 +25,8 @@
 #define SYS_EXECVE      59
 #define SYS_EXIT        60
 #define SYS_WAIT4       61
+#define SYS_KILL        62
+#define SYS_UNAME       63
 #define SYS_GETTIMEOFDAY 96
 #define SYS_GETPPID     110
 #define SYS_FCNTL       72
@@ -47,6 +49,7 @@
 /* Coduri de eroare (intoarse negativ) */
 #define EPERM           1
 #define ENOENT          2
+#define ESRCH           3
 #define EIO             5
 #define ENOEXEC         8
 #define E2BIG           7
@@ -85,6 +88,16 @@
 #define WNOHANG         1
 /* status = (cod & 0xff) << 8 la exit normal, numarul semnalului daca procesul a fost omorat */
 #define W_EXITCODE(code) (((code) & 0xff) << 8)
+
+/* kill: orice semnal 1..31 termina procesul tinta (fara handlere); iesire = 128 + semnal. Semnal 0 = doar verifica ca exista */
+#define SIGHUP          1
+#define SIGINT          2
+#define SIGKILL         9
+#define SIGTERM         15
+#define NSIG            32
+
+/* uname: structura ca pe Linux, sase campuri de 65 de octeti (struct utsname) */
+#define UTS_FIELD       65
 
 /* mmap (doar anonim), fcntl, ceasuri */
 #define PROT_READ       1

@@ -271,6 +271,7 @@ char *strerror(int e){
         case 0: return "Success";
         case 1: return "Operation not permitted";
         case 2: return "No such file or directory";
+        case 3: return "No such process";
         case 4: return "Interrupted system call";
         case 5: return "I/O error";
         case 7: return "Argument list too long";

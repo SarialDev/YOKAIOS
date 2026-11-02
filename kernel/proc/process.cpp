@@ -191,6 +191,56 @@ void process_kill(InterruptFrame* f){
     exit_with(128 + sig, sig);
 }
 
+namespace {
+
+struct SignalReq {
+    int sig;
+    int result;
+};
+
+void signal_visit(Task* t, void* arg){
+    SignalReq* r = (SignalReq*)arg;
+    SpinlockGuard lock(tree_lock);
+    Process* p = t->proc;
+    if(!p){
+        r->result = -EPERM;
+    } else if(p->state != ProcState::ALIVE){
+        r->result = -ESRCH;
+    } else {
+        if(r->sig && !p->kill_sig){
+            p->kill_sig = r->sig;
+        }
+        r->result = 0;
+    }
+}
+
+}
+
+int process_signal(uint64_t pid, int sig){
+    if(sig < 0 || sig >= NSIG){
+        return -EINVAL;
+    }
+    SignalReq req = {sig, -ESRCH};
+    if(!task_visit(pid, signal_visit, &req)){
+        return -ESRCH;
+    }
+    return req.result;
+}
+
+bool process_kill_pending(){
+    Process* p = task_current()->proc;
+    return p && p->kill_sig;
+}
+
+void process_check_kill(){
+    Process* p = task_current()->proc;
+    if(p && p->kill_sig){
+        int sig = p->kill_sig;
+        __asm__ volatile("sti");
+        exit_with(128 + sig, sig);
+    }
+}
+
 void process_task_destroyed(Task* t){
     Process* p = t->proc;
     if(!p){

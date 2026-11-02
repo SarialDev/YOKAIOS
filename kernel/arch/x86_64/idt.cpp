@@ -73,6 +73,9 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         }
         // Preemptie doar la iesirea din IRQ, dupa EOI, ca tick-ul urmator sa poata veni
         sched_irq_exit();
+        if(from_user){
+            process_check_kill();   // un proces care se invarte in user mode moare la urmatorul tick
+        }
     }
 }
 

@@ -230,6 +230,18 @@ bool task_info(uint64_t tid, TaskInfo& out){
     return false;
 }
 
+bool task_visit(uint64_t tid, void (*fn)(Task*, void*), void* arg){
+    SpinlockGuard lock(tasks_lock);
+    for(ListLink* l = all_tasks.next; l != &all_tasks; l = l->next){
+        Task* t = (Task*)((uint8_t*)l - __builtin_offsetof(Task, all));
+        if(t->tid == tid && !is_idle(t)){
+            fn(t, arg);
+            return true;
+        }
+    }
+    return false;
+}
+
 bool task_nth(uint64_t n, TaskInfo& out){
     SpinlockGuard lock(tasks_lock);
     for(ListLink* l = all_tasks.next; l != &all_tasks; l = l->next){

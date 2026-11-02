@@ -5,6 +5,10 @@
 #include <sys/stat.h>
 
 int main(int argc, char **argv){
+    if(argc == 2 && strcmp(argv[1], "--help") == 0){
+        puts("uz: mv sursa destinatie");
+        return 0;
+    }
     if(argc != 3){
         fprintf(stderr, "uz: mv sursa destinatie\n");
         return 2;

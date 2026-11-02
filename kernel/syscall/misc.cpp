@@ -6,6 +6,7 @@
 #include "sched/sched.h"
 #include "time/clock.h"
 #include "drivers/rtc.h"
+#include "lib/string.h"
 
 namespace {
 
@@ -87,8 +88,18 @@ int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t, uint64_t, uint64_t, 
         return -EINVAL;
     }
     uint64_t ns = (uint64_t)ts.sec * 1000000000UL + (uint64_t)ts.nsec;
-    if(ns && !sched_sleep_until(monotonic_ns() + ns)){
-        return -EINVAL;
+    // Somnul se face in felii de 20 ms, ca un kill() sa opreasca procesul fara sa astepte tot intervalul
+    const uint64_t SLICE_NS = 20000000UL;
+    uint64_t end = monotonic_ns() + ns;
+    while(ns && !process_kill_pending()){
+        uint64_t now = monotonic_ns();
+        if(now >= end){
+            break;
+        }
+        uint64_t until = end - now > SLICE_NS ? now + SLICE_NS : end;
+        if(!sched_sleep_until(until)){
+            return -EINVAL;
+        }
     }
     if(rem){
         Timespec zero = {0, 0};
@@ -128,4 +139,32 @@ int64_t sys_time(uint64_t tloc, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
         return -EFAULT;
     }
     return t;
+}
+
+int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t, uint64_t, uint64_t, uint64_t){
+    if((int64_t)pid <= 0){
+        return -EINVAL;     // fara grupuri de procese
+    }
+    return process_signal(pid, (int)(int64_t)sig);
+}
+
+struct UtsName {
+    char sysname[UTS_FIELD], nodename[UTS_FIELD], release[UTS_FIELD], version[UTS_FIELD], machine[UTS_FIELD], domainname[UTS_FIELD];
+};
+
+static void set_field(char* dst, const char* src){
+    while((*dst++ = *src++)){
+    }
+}
+
+int64_t sys_uname(uint64_t buf, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
+    UtsName u;
+    memset(&u, 0, sizeof(u));
+    set_field(u.sysname, "YokaiOS");
+    set_field(u.nodename, "yokai-drone");
+    set_field(u.release, "0.7.3");
+    set_field(u.version, "#1 SMP");
+    set_field(u.machine, "x86_64");
+    set_field(u.domainname, "(none)");
+    return copy_to_user(buf, &u, sizeof(u)) ? 0 : -EFAULT;
 }

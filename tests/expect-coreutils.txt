@@ -1,0 +1,3 @@
+[OK] coretest
+[OK] test_coreutils
+[OK] boot

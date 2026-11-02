@@ -80,6 +80,9 @@ bool task_info(uint64_t tid, TaskInfo& out);
 // Al n-lea task (fara idle), in ordinea crearii
 bool task_nth(uint64_t n, TaskInfo& out);
 
+// Apeleaza fn(task, arg) cu task-ul cu tid-ul dat, sub lock-ul listei de task-uri (fn nu are voie sa blocheze). false daca nu exista
+bool task_visit(uint64_t tid, void (*fn)(Task*, void*), void* arg);
+
 // Task-ul care ruleaza pe CPU-ul curent (PerCpu::current)
 Task* task_current();
 uint64_t task_count();

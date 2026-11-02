@@ -26,6 +26,7 @@ struct Process {
     uint64_t brk_base;              // brk: de la sfarsitul imaginii ELF; paginile pana la brk_cur sunt mapate
     uint64_t brk_cur;
     uint64_t mmap_next;             // urmatoarea adresa libera pentru mmap anonim (doar creste)
+    volatile int kill_sig;          // semnal primit prin kill(): procesul se termina la urmatoarea intoarcere in ring 3
     WaitQueue child_exit;           // parintele asteapta aici in waitpid
     char name[TASK_NAME_LEN];
     uint16_t cmdline_len;           // argv separat prin '\0', trunchiat la PROC_CMDLINE_MAX
@@ -49,6 +50,13 @@ void process_set_cmdline(Process* p, const char* const* argv);
 [[noreturn]] void process_exit(int code);
 // Exceptie din ring 3: omoara doar procesul curent (apelata din interrupt_dispatch)
 [[noreturn]] void process_kill(InterruptFrame* f);
+// kill(): sig 0 = verifica; 1..31 = marcheaza procesul pentru terminare (la urmatoarea intoarcere in user mode,
+// deci un proces blocat in read/wait4 moare abia cand se trezeste). 0, -ESRCH (nu exista/zombie), -EPERM (task de kernel)
+int process_signal(uint64_t pid, int sig);
+// A primit procesul curent un kill?
+bool process_kill_pending();
+// La intoarcerea in ring 3: daca procesul curent a primit kill, se termina (128 + semnal). Nu revine in acel caz
+void process_check_kill();
 // Din task_destroy: thread-ul principal nu mai exista
 void process_task_destroyed(Task* t);
 

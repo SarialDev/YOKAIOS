@@ -4,6 +4,7 @@
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/percpu.h"
 #include "sched/sched.h"
+#include "proc/process.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "lib/string.h"
@@ -61,6 +62,7 @@ extern "C" void syscall_dispatch(InterruptFrame* f){
     __asm__ volatile("sti");
     SyscallFn fn = syscall_lookup(f->rax);
     f->rax = fn ? (uint64_t)fn(f->rdi, f->rsi, f->rdx, f->r10, f->r8, f->r9) : (uint64_t)-ENOSYS;
+    process_check_kill();   // kill() primit cat timp rula syscall-ul
 }
 
 bool user_access_ok(uint64_t addr, uint64_t len, bool write){

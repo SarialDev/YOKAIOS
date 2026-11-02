@@ -142,3 +142,5 @@ hello from libc: argc=3 argv[0]=hello
 libctest: atexit ok
 [OK] libctest
 [OK] test_libc
+[OK] coretest
+[OK] test_coreutils

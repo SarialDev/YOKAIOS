@@ -29,6 +29,10 @@ static int make(const char *path, int parents){
 }
 
 int main(int argc, char **argv){
+    if(argc == 2 && strcmp(argv[1], "--help") == 0){
+        puts("uz: mkdir [-p] director...");
+        return 0;
+    }
     int parents = 0, rc = 0, i = 1;
     if(i < argc && strcmp(argv[i], "-p") == 0){
         parents = 1;

@@ -246,6 +246,8 @@ constexpr Table make_table(){
     t.fn[SYS_CLOCK_GETTIME] = sys_clock_gettime;
     t.fn[SYS_GETTIMEOFDAY] = sys_gettimeofday;
     t.fn[SYS_TIME] = sys_time;
+    t.fn[SYS_KILL] = sys_kill;
+    t.fn[SYS_UNAME] = sys_uname;
     return t;
 }
 

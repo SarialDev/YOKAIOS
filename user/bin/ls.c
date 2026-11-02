@@ -78,6 +78,10 @@ static int list_dir(const char *path){
 }
 
 int main(int argc, char **argv){
+    if(argc == 2 && strcmp(argv[1], "--help") == 0){
+        puts("uz: ls [-a] [-l] [cale...]");
+        return 0;
+    }
     int i = 1;
     for(; i < argc && argv[i][0] == '-' && argv[i][1]; i++){
         for(const char *o = argv[i] + 1; *o; o++){
