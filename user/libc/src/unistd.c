@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <termios.h>
 #include <errno.h>
 #include <string.h>
 #include <stdlib.h>
@@ -11,7 +12,7 @@
 #include <sys/time.h>
 #include "internal.h"
 
-extern pid_t wait4(pid_t pid, int *status, int options, void *rusage);
+extern pid_t wait4(long pid, int *status, int options, void *rusage);   // long: -1 trebuie extins la 64 de biti
 extern long getdents64(int fd, void *buf, size_t n);
 extern int umount2(const char *target, int flags);
 
@@ -69,11 +70,8 @@ int access(const char *path, int mode){
 }
 
 int isatty(int fd){
-    struct stat st;
-    if(fstat(fd, &st) < 0){
-        return 0;
-    }
-    if(!S_ISCHR(st.st_mode)){
+    struct termios t;
+    if(ioctl(fd, TCGETS, &t) < 0){
         errno = ENOTTY;
         return 0;
     }
@@ -177,4 +175,21 @@ int closedir(DIR *d){
     int r = close(d->fd);
     free(d);
     return r;
+}
+
+// --- terminal ---
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <sys/mount.h>
+
+int tcgetattr(int fd, struct termios *t){
+    return ioctl(fd, TCGETS, t);
+}
+
+int tcsetattr(int fd, int when, const struct termios *t){
+    return ioctl(fd, when == TCSANOW ? TCSETS : when == TCSADRAIN ? TCSETSW : TCSETSF, t);
+}
+
+int umount(const char *target){
+    return umount2(target, 0);
 }

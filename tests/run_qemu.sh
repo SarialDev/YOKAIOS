@@ -3,7 +3,9 @@
 # Uz: tests/run_qemu.sh <iso> [log]; EXPECT_FILE alege alta lista de markeri
 # Cu EXPECT_PANIC="text": testul trece doar daca kernelul intra in panic cu acel text
 # FB=0: boot cu "nofb" (consola VGA text); liniile "@fb " / "@nofb " din expect.txt se cer doar cu / fara framebuffer
-# Cand kernelul tipareste "drivers: astept intrare" (test=drivers), scriptul tasteaza "version<ret>", "cat /etc/hostname<ret>", "echo tmpfsok > /tmp/x<ret>" si "cat /tmp/x<ret>" si "cat /proc/meminfo<ret>" prin monitorul QEMU
+# Cand kernelul tipareste "drivers: astept intrare" (test=drivers), scriptul tasteaza "version<ret>" prin monitorul QEMU
+# (kernelul il citeste de pe tty); la "ysh: astept intrare" (test=ysh) ruleaza tests/ysh_test.py run, care scrie un script
+# intreg in ysh (editare, istoric, Tab, pipe-uri, redirectari) si asteapta rezultatul fiecarei comenzi in log
 # USB=0: fara xHCI; QEMU_EXTRA="-machine pc,i8042=off": fara PS/2 (tastatura doar prin usb-kbd)
 # DISK=<imagine>: disc SATA (AHCI, format raw) cu imaginea data; boot de pe CD (-boot order=d). Imaginea o poate modifica kernelul
 # SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
@@ -24,6 +26,7 @@ DISK_DEVICES=""
 [ -n "${DISK:-}" ] && DISK_DEVICES="-boot order=d -device ahci,id=ahci0 -drive file=$DISK,if=none,id=d0,format=raw -device ide-hd,drive=d0,bus=ahci0.0"
 SOCK=${TMPDIR:-/tmp}/yokai-mon-$$.sock
 INPUT_MARK="drivers: astept intrare"
+YSH_MARK="ysh: astept intrare"
 rm -f "$SOCK"
 
 timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
@@ -34,28 +37,30 @@ timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
     ${QEMU_EXTRA:-} < /dev/null > "$LOG.qemu" 2>&1 &
 QPID=$!
 
-# Cand kernelul tipareste markerul "astept intrare" (test=drivers), trimite "version<ret>" prin monitorul QEMU
+# Cand kernelul tipareste un marker de intrare, trimite tastele prin monitorul QEMU
 (
-    while ! grep -q "$INPUT_MARK" "$LOG.raw" 2>/dev/null; do
+    MARK=""
+    while [ -z "$MARK" ]; do
         kill -0 $QPID 2>/dev/null || exit 0
-        sleep 0.2
+        if grep -q "$INPUT_MARK" "$LOG.raw" 2>/dev/null; then
+            MARK=drivers
+        elif grep -q "$YSH_MARK" "$LOG.raw" 2>/dev/null; then
+            MARK=ysh
+        else
+            sleep 0.2
+        fi
     done
     sleep 0.5
+    if [ "$MARK" = ysh ]; then
+        python3 "$(dirname "$0")/ysh_test.py" run "$SOCK" "$LOG.raw"
+        exit 0
+    fi
     python3 - "$SOCK" <<'PY'
 import socket, sys, time
 s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
 time.sleep(0.3)
-# "version", "cat /etc/hostname" (initrd), "echo tmpfsok > /tmp/x", "cat /tmp/x" (tmpfs) si "cat /proc/meminfo" (procfs)
-for k in ["v", "e", "r", "s", "i", "o", "n", "ret", "wait",
-          "c", "a", "t", "spc", "slash", "e", "t", "c", "slash", "h", "o", "s", "t", "n", "a", "m", "e", "ret", "wait",
-          "e", "c", "h", "o", "spc", "t", "m", "p", "f", "s", "o", "k", "spc", "shift-dot", "spc", "slash", "t", "m", "p",
-          "slash", "x", "ret", "wait",
-          "c", "a", "t", "spc", "slash", "t", "m", "p", "slash", "x", "ret", "wait",
-          "c", "a", "t", "spc", "slash", "p", "r", "o", "c", "slash", "m", "e", "m", "i", "n", "f", "o", "ret"]:
-    if k == "wait":
-        time.sleep(1.0)
-        continue
+for k in ["v", "e", "r", "s", "i", "o", "n", "ret"]:
     s.sendall(("sendkey " + k + "\n").encode())
     time.sleep(0.2)
 PY

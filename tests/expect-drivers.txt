@@ -4,10 +4,5 @@
 @fb [OK] fb 1024x768
 @fb [OK] test_drivers fb 1024x768
 [OK] test_drivers input
-YOKAI OS version
-yokai-drone
-tmpfsok
-MemTotal:
-MemFree:
 [OK] test_drivers (
 [OK] boot

@@ -5,6 +5,7 @@
 #include "mm/kmalloc.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
+#include "boot/multiboot2.h"
 #include "lib/new.h"
 
 namespace {
@@ -66,7 +67,10 @@ int kill_signal(uint64_t vector){
         exits[exit_count++ % EXIT_HISTORY] = ExitRecord{p->pid, code};
         tree_lock.unlock_irqrestore(flags);
     }
-    kprintf("proces %lu (%s): exit %d\n", p->pid, p->name, code);
+    // Silentios implicit (terminalul e al utilizatorului); cu cmdline "debug=proc" fiecare iesire e tiparita
+    if(cmdline_has("debug=proc")){
+        kprintf("proces %lu (%s): exit %d\n", p->pid, p->name, code);
+    }
 
     // Copiii raman fara parinte: zombie-ii deja eliberati de task se elibereaza acum, restul la task_destroy
     ListLink orphans = {&orphans, &orphans};

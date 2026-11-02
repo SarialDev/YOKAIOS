@@ -18,3 +18,4 @@ int64_t sys_readlink(uint64_t path, uint64_t buf, uint64_t size, uint64_t, uint6
 int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t flags, uint64_t data, uint64_t);
 int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_getdents64(uint64_t fd, uint64_t buf, uint64_t count, uint64_t, uint64_t, uint64_t);
+int64_t sys_ioctl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t, uint64_t, uint64_t);

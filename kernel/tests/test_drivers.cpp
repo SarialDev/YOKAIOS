@@ -3,12 +3,9 @@
 #include "drivers/fb/fb.h"
 #include "hal/fb.h"
 #include "time/clock.h"
+#include "drivers/tty.h"
 #include "lib/kprintf.h"
 #include "core/panic.h"
-
-extern volatile bool shell_serial_echo;
-extern volatile int shell_command_count;
-extern volatile int shell_done_count;
 
 namespace {
 
@@ -37,21 +34,28 @@ void check_fb(){
     kprintf("[OK] test_drivers fb 1024x768\n");
 }
 
-// Harness-ul vede markerul si trimite tastele; shell-ul tipareste raspunsul si pe serial
+// Harness-ul vede markerul si tasteaza "version<ret>" prin monitorul QEMU; linia ajunge pe tty (modul canonic)
 void check_input(){
     __asm__ volatile("sti");                    // ca in test_sched: intreruperile pot fi oprite pana aici
-    shell_serial_echo = true;
-    int before = shell_command_count;
-    int done_before = shell_done_count;
+    tty_activate();
     kprintf("drivers: astept intrare\n");
-    // "version", "cat /etc/hostname", "echo tmpfsok > /tmp/x", "cat /tmp/x", "cat /proc/meminfo" (ultimele patru se executa intr-un task, nu in IRQ)
+    char line[64];
+    uint64_t got = 0;
     uint64_t start = uptime_ms();
-    while(shell_done_count < done_before + 5 && uptime_ms() - start < INPUT_TIMEOUT_MS){
-        sleep_ms(20);
+    bool done = false;
+    while(!done && got < sizeof(line) - 1 && uptime_ms() - start < INPUT_TIMEOUT_MS){
+        int64_t n = tty_read(line + got, sizeof(line) - 1 - got, true);
+        if(n > 0){
+            got += (uint64_t)n;
+            done = line[got - 1] == '\n';
+        } else {
+            sleep_ms(20);
+        }
     }
-    shell_serial_echo = false;
-    CHECK(shell_command_count >= before + 5);
-    CHECK(shell_done_count >= done_before + 5);
+    line[got] = 0;
+    CHECK(done && got == 8);
+    CHECK(line[0] == 'v' && line[1] == 'e' && line[2] == 'r' && line[3] == 's' && line[4] == 'i' && line[5] == 'o' &&
+          line[6] == 'n' && line[7] == '\n');
     kprintf("[OK] test_drivers input\n");
 }
 

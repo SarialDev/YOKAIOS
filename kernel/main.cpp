@@ -75,33 +75,18 @@
 #include "block/blockdev.h"
 #include "block/bcache.h"
 #include "tests/test_procfs.h"
+#include "tests/test_ysh.h"
+#include "drivers/tty.h"
+#include "exec/elf.h"
+
 
 // Ecranul de text vine din HAL (VGA)
 Console* screen = nullptr;
 
-// Doar pentru teste: output-ul shell-ului se oglindeste pe consolele fara ecran (serial)
-volatile bool shell_serial_echo = false;
-volatile int shell_command_count = 0;
-volatile int shell_done_count = 0;
-// cat / ls ating VFS-ul (mutex): ruleaza intr-un task, iar shell-ul ignora tastele pana termina
-static volatile bool shell_busy = false;
-static Semaphore fs_cmd_sem;
-static char fs_cmd[256];
-static bool in_command = false;
-
+// Logo-ul si mesajul de boot se deseneaza cu put_at; dupa aceea ecranul apartine terminalului (drivers/tty.cpp)
 void out(const char* text, int x, int y){
     if(screen){
         screen->put_at(text, x, y);
-    }
-    if(shell_serial_echo && in_command){
-        for(int i = 0; Console* c = hal_console(i); i++){
-            if(!(c->flags() & CONSOLE_SCREEN)){
-                for(const char* t = text; *t; t++){
-                    c->putc(*t);
-                }
-                c->putc('\n');
-            }
-        }
     }
 }
 
@@ -111,91 +96,6 @@ void curata_ecran(){
     }
 }
 
-void muta_cursor(int x, int y){
-    if(screen){
-        screen->set_cursor(x, y);
-    }
-}
-
-//DECLARARE VARIABILE GLOBALE
-int cursor_x = 26;
-int cursor_y = 4;
-char comanda_buffer[256];
-int comanda_lungime = 0;
-int TERMINALBOOL = 0 ; // depinde de valoare poate reprezenta daca e pe aplicatie sau in terminal
-
-
-
-//GLOBAL VAR
-
-//VARIABILE CULORI
-
-// VARIABILE TIN
-char raw_buffer[256];
-volatile int raw_len = 0 ; 
-volatile bool cin_gata = false; 
-
-void citeste_linia(){
-    raw_len = 0 ;
-    cin_gata = false ; 
-    while(!cin_gata) {
-        __asm__ volatile("hlt");
-    }
-}
-
-
-class KernelCin {
-    public:
-        KernelCin& operator>>(char* dest) {
-            citeste_linia();
-            int i = 0 ; 
-            while(i < raw_len) {
-                dest[i] = raw_buffer[i] ; 
-                i++;
-            }
-            dest[i] = '\0';
-            return *this;
-        }
-
-        KernelCin& operator>>(char& c) {
-        citeste_linia();
-        if(raw_len > 0) c = raw_buffer[0];
-        else c = '\0';
-        return *this;
-    }
-
-        KernelCin& operator>>(int& num) {
-            citeste_linia();
-            num = 0 ; 
-            int i = 0 ; 
-            bool negativ = false;
-            if(raw_buffer[0] == '-') {
-                negativ = true ; 
-                i = 1;
-            }
-            while(i < raw_len && raw_buffer[i] >= '0' && raw_buffer[i] <= '9'){
-                num = num * 10 + (raw_buffer[i] - '0');
-                i++;
-            }
-            if(negativ) num = -num;
-            return *this;
-        }
-
-
-};
-
-KernelCin tin ; 
-
-bool sunt_egale(const char* sir1 , const char* sir2){
-    int i = 0;
-    while(sir1[i] != '\0' && sir2[i] != '\0'){
-        if(sir1[i] != sir2[i]){
-            return false;
-        }
-        i++;
-    }
-    return sir1[i] == sir2[i];
-}
 
 // Logo „YOKAI” din blocuri (0xDB = █ in CP437/VGA, sintetizat si de fbcon), rosu deschis; 5 randuri
 void afiseaza_logo(int x, int y){
@@ -223,464 +123,6 @@ void afiseaza_logo(int x, int y){
         out(linie, x, y + r);
     }
     hal_console_set_color(0x0F);
-}
-
-// "up 12.345 s (jiffies 12345)"
-void afiseaza_uptime(int x, int y){
-    char buf[64];
-    int n = 0;
-    auto put_num = [&](uint64_t v, int min_digits){
-        char tmp[20];
-        int len = 0;
-        do {
-            tmp[len++] = '0' + v % 10;
-            v /= 10;
-        } while(v || len < min_digits);
-        while(len){
-            buf[n++] = tmp[--len];
-        }
-    };
-    auto put_str = [&](const char* s){
-        while(*s){
-            buf[n++] = *s++;
-        }
-    };
-    uint64_t ms = uptime_ms();
-    put_str("up ");
-    put_num(ms / 1000, 1);
-    put_str(".");
-    put_num(ms % 1000, 3);
-    put_str(" s (jiffies ");
-    put_num(jiffies, 1);
-    put_str(")");
-    buf[n] = '\0';
-    out(buf, x, y);
-}
-
-// "date": ora reala UTC din RTC + uptime
-void afiseaza_date(int x, int y){
-    char buf[32];
-    rtc_format(rtc_from_epoch(wall_time()), buf, sizeof(buf));
-    out(buf, x, y);
-}
-
-bool starts_with(const char* s , const char* prefix){
-    while(*prefix && *s == *prefix){
-        s++;
-        prefix++;
-    }
-    return *prefix == '\0';
-}
-
-// lspci / lspci -v: o linie pe rand; cand ecranul se umple, il curata
-void afiseaza_lspci(bool verbose, int& cursor_y){
-    char buf[LATIME_ECRAN];
-    auto linie = [&](const char* text){
-        if(cursor_y >= INALTIME_ECRAN - 1){
-            curata_ecran();
-            cursor_y = 1;
-        }
-        out(text, 0, cursor_y++);
-    };
-    for(int i = 0; i < pci_device_count(); i++){
-        const PciDevice* d = pci_device_at(i);
-        pci_format(d, buf, sizeof(buf));
-        linie(buf);
-        for(int b = 0; verbose && b < PCI_BAR_COUNT; b++){
-            if(pci_format_bar(d, b, buf, sizeof(buf))){
-                linie(buf);
-            }
-        }
-    }
-}
-
-// lsblk: discurile si partitiile din HAL, cate una pe linie
-void afiseaza_lsblk(int& cursor_y){
-    char buf[LATIME_ECRAN];
-    for(int i = 0; block_format(i, buf, sizeof(buf)); i++){
-        if(cursor_y >= INALTIME_ECRAN - 1){
-            curata_ecran();
-            cursor_y = 1;
-        }
-        out(buf, 0, cursor_y++);
-    }
-}
-
-// Comenzile care ating sistemul de fisiere si ruleaza in task-ul shell-fs (pot bloca pe I/O)
-static const char* const FS_COMMANDS[] = {"cat", "ls", "echo", "mkdir", "rmdir", "rm", "mv", "sync", "umount"};
-
-// Lungimea cuvantului-comanda daca linia incepe cu una din FS_COMMANDS (urmata de spatiu sau de sfarsit), altfel 0
-static int fs_command_len(const char* c){
-    for(const char* name : FS_COMMANDS){
-        int n = 0;
-        while(name[n] && c[n] == name[n]){
-            n++;
-        }
-        if(!name[n] && (c[n] == ' ' || c[n] == '\0')){
-            return n;
-        }
-    }
-    return 0;
-}
-
-// true = comanda continua intr-un task (shell_fs_worker), care tipareste si prompt-ul
-bool executa_comanda(const char* comanda , int& cursor_x , int& cursor_y , int comanda_lungime){
-    bool deferred = false;
-    cursor_y++;
-    cursor_x = 0;
-    shell_command_count++;
-    in_command = true;
-    
-    if(comanda_lungime == 0){
-
-    }else if (sunt_egale(comanda , "help") && TERMINALBOOL == 0){
-        out("Available commands: help , clear , version , uptime , date , lspci , lsblk , ls , cat , echo , mkdir , rmdir , rm , mv , sync , umount" , cursor_x, cursor_y);
-        cursor_y++;
-    }
-    else if(sunt_egale(comanda , "clear") ){
-        curata_ecran();
-        cursor_y = 1;
-    } else if (sunt_egale(comanda , "version")  ){
-        out("YOKAI OS version 0.1" , cursor_x , cursor_y);
-        cursor_y++;
-    } else if (sunt_egale(comanda , "uptime")){
-        afiseaza_uptime(cursor_x , cursor_y);
-        cursor_y++;
-    } else if (sunt_egale(comanda , "date")){
-        afiseaza_date(cursor_x , cursor_y);
-        cursor_y++;
-    } else if (sunt_egale(comanda , "lspci") || sunt_egale(comanda , "lspci -v")){
-        afiseaza_lspci(comanda[5] != '\0', cursor_y);
-    } else if (sunt_egale(comanda , "lsblk")){
-        afiseaza_lsblk(cursor_y);
-    } else if(fs_command_len(comanda)){
-        for(int i = 0 ; i < 255 && comanda[i] ; i++){
-            fs_cmd[i] = comanda[i];
-            fs_cmd[i + 1] = '\0';
-        }
-        shell_busy = true;
-        deferred = true;
-        fs_cmd_sem.up();
-    } else if(sunt_egale(comanda , "color ")){
-
-    } else if (TERMINALBOOL == 0) {
-        out("command not found:" , cursor_x , cursor_y);
-        cursor_y++;
-    }
-    in_command = false;
-    return deferred;
-}
-
-// Dupa o comanda: linie noua cu prompt
-void shell_finish(){
-    comanda_lungime = 0;
-    if(screen && cursor_y >= screen->rows()){
-        curata_ecran();
-        cursor_y = 0;
-    }
-    out("yokai@drone_terminal:~$ " , 2 , cursor_y);
-    cursor_x = 26;
-    for(int i = 0 ; i < 256 ; i++){
-        comanda_buffer[i] = '\0';
-    }
-    muta_cursor(cursor_x , cursor_y);
-    shell_done_count++;
-}
-
-// Apelat din IRQ1 (ps2kbd) pentru fiecare tasta apasata; k.ascii are deja Shift/Caps aplicate
-void shell_on_key(const KeyEvent& k){
-    if(shell_busy){
-        return;
-    }
-    if(k.keycode == KEY_ENTER){
-        comanda_buffer[comanda_lungime] = '\0';
-        if(!executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime)){
-            shell_finish();
-        }
-    } else if(k.keycode == KEY_BACKSPACE){
-        if(comanda_lungime > 0) {
-            comanda_lungime--;
-            cursor_x--;
-            out(" ", cursor_x , cursor_y);
-            muta_cursor(cursor_x , cursor_y);
-        }
-    } else if(k.ascii != 0 && comanda_lungime < 255) {
-        comanda_buffer[comanda_lungime] = k.ascii;
-        comanda_lungime++;
-
-        char sir[2] = {k.ascii, '\0'};
-        out(sir , cursor_x , cursor_y);
-        cursor_x++;
-        muta_cursor(cursor_x , cursor_y);
-    }
-}
-
-// "pre" + path + ": " + msg (taiat la latimea ecranului)
-static void snprint_err(const char* pre , const char* path , const char* msg , char* out_line){
-    int n = 0;
-    auto add = [&](const char* t){
-        while(*t && n < LATIME_ECRAN - 1){
-            out_line[n++] = *t++;
-        }
-    };
-    add(pre);
-    add(path);
-    add(": ");
-    add(msg);
-    out_line[n] = '\0';
-}
-
-// Linie de iesire pentru cat / ls; cand ecranul se umple, il curata (ca lspci)
-static void fs_line(const char* text){
-    if(cursor_y >= INALTIME_ECRAN - 1){
-        curata_ecran();
-        cursor_y = 1;
-    }
-    out(text , 0 , cursor_y++);
-}
-
-static const char* fs_error(int64_t e){
-    switch(-e){
-    case ENOENT: return "No such file or directory";
-    case ENOTDIR: return "Not a directory";
-    case EISDIR: return "Is a directory";
-    case ELOOP: return "Too many symbolic links";
-    case ENAMETOOLONG: return "File name too long";
-    case EROFS: return "Read-only file system";
-    case ENOSPC: return "No space left on device";
-    case EPERM: return "Operation not permitted";
-    case EEXIST: return "File exists";
-    case ENOMEM: return "Out of memory";
-    case EFBIG: return "File too large";
-    case EBUSY: return "Device or resource busy";
-    case ENOTEMPTY: return "Directory not empty";
-    case EXDEV: return "Invalid cross-device link";
-    case EINVAL: return "Invalid argument";
-    case ENODEV: return "No such device";
-    default: return "I/O error";
-    }
-}
-
-static void fs_cat(const char* path){
-    static char data[512];
-    File* f;
-    int err = vfs_open(Path{} , path , O_RDONLY , 0 , f);
-    if(err){
-        char line[LATIME_ECRAN + 1];
-        snprint_err("cat: " , path , fs_error(err) , line);
-        fs_line(line);
-        return;
-    }
-    char line[LATIME_ECRAN];
-    int n = 0;
-    uint64_t total = 0;
-    int64_t got = 0;
-    while(total < 4096 && (got = f->ops->read(f , data , sizeof(data) , false)) > 0){
-        for(int64_t i = 0 ; i < got ; i++){
-            char c = data[i];
-            if(c == '\n'){
-                line[n] = '\0';
-                fs_line(line);
-                n = 0;
-                continue;
-            }
-            line[n++] = (c >= ' ' && c < 127) ? c : '.';
-            if(n == LATIME_ECRAN - 1){
-                line[n] = '\0';
-                fs_line(line);
-                n = 0;
-            }
-        }
-        total += (uint64_t)got;
-    }
-    if(got < 0){
-        fs_line(fs_error(got));
-    } else if(n){
-        line[n] = '\0';
-        fs_line(line);
-    }
-    file_put(f);
-}
-
-static void fs_ls(const char* path){
-    static char data[1024];
-    File* f;
-    int err = vfs_open(Path{} , path , O_RDONLY | O_DIRECTORY , 0 , f);
-    if(err){
-        char line[LATIME_ECRAN + 1];
-        snprint_err("ls: " , path , fs_error(err) , line);
-        fs_line(line);
-        return;
-    }
-    char line[LATIME_ECRAN];
-    int n = 0;
-    int64_t got;
-    while((got = f->ops->getdents(f , data , sizeof(data))) > 0){
-        for(int64_t off = 0 ; off < got ;){
-            Dirent64* d = (Dirent64*)(data + off);
-            off += d->d_reclen;
-            const char* nm = d->d_name;
-            int len = 0;
-            while(nm[len]){
-                len++;
-            }
-            if((nm[0] == '.' && (len == 1 || (len == 2 && nm[1] == '.'))) || len > LATIME_ECRAN - 4){
-                continue;
-            }
-            if(n + len + 2 > LATIME_ECRAN - 1){
-                line[n] = '\0';
-                fs_line(line);
-                n = 0;
-            }
-            for(int i = 0 ; i < len ; i++){
-                line[n++] = nm[i];
-            }
-            if(d->d_type == DT_DIR){
-                line[n++] = '/';
-            }
-            line[n++] = ' ';
-        }
-    }
-    if(n){
-        line[n] = '\0';
-        fs_line(line);
-    }
-    file_put(f);
-}
-
-// echo [text] [> | >> path]: fara redirectare scrie textul pe ecran, altfel in fisier (creat daca lipseste)
-static void fs_echo(const char* arg){
-    char text[256];
-    int n = 0;
-    const char* redir = nullptr;
-    bool append = false;
-    for(const char* p = arg ; *p ; p++){
-        if(*p == '>'){
-            append = p[1] == '>';
-            redir = p + (append ? 2 : 1);
-            break;
-        }
-        text[n++] = *p;
-    }
-    while(n > 0 && text[n - 1] == ' '){
-        n--;
-    }
-    text[n] = '\0';
-    if(!redir){
-        fs_line(text);
-        return;
-    }
-    while(*redir == ' '){
-        redir++;
-    }
-    if(!*redir){
-        fs_line("echo: missing file name");
-        return;
-    }
-    File* f;
-    int err = vfs_open(Path{} , redir , O_WRONLY | O_CREAT | (append ? O_APPEND : O_TRUNC) , 0644 , f);
-    if(err){
-        char line[LATIME_ECRAN + 1];
-        snprint_err("echo: " , redir , fs_error(err) , line);
-        fs_line(line);
-        return;
-    }
-    text[n++] = '\n';
-    int64_t w = f->ops->write(f , text , (uint64_t)n , false);
-    if(w < 0){
-        fs_line(fs_error(w));
-    }
-    file_put(f);
-}
-
-// mkdir / rmdir / rm / mv / sync / umount: o singura linie de eroare, tacut la succes
-static void fs_other(const char* cmd , int cmd_len , const char* arg){
-    char word[12];
-    for(int i = 0 ; i < cmd_len && i < 7 ; i++){
-        word[i] = cmd[i];
-        word[i + 1] = '\0';
-    }
-    char pre[12];
-    int pn = 0;
-    for(const char* w = word ; *w ; w++){
-        pre[pn++] = *w;
-    }
-    pre[pn++] = ':';
-    pre[pn++] = ' ';
-    pre[pn] = '\0';
-    char line[LATIME_ECRAN + 1];
-    char src[PATH_MAX];
-    int err = 0;
-    const char* culprit = arg;
-    if(word[0] == 's'){
-        err = bsync(nullptr);
-        culprit = "";
-    } else if(!*arg){
-        fs_line("missing operand");
-        return;
-    } else if(word[0] == 'm' && word[1] == 'v'){
-        // mv <sursa> <destinatie>
-        int n = 0;
-        while(arg[n] && arg[n] != ' ' && n < PATH_MAX - 1){
-            src[n] = arg[n];
-            n++;
-        }
-        src[n] = '\0';
-        const char* dst = arg + n;
-        while(*dst == ' '){
-            dst++;
-        }
-        if(!*dst){
-            fs_line("mv: missing destination");
-            return;
-        }
-        err = vfs_rename(Path{} , src , dst);
-        culprit = src;
-    } else if(word[0] == 'u'){
-        err = vfs_umount(Path{} , arg);
-    } else if(word[1] == 'k'){
-        err = vfs_mkdir(Path{} , arg , 0755);
-    } else if(word[2] == 'd'){
-        err = vfs_rmdir(Path{} , arg);
-    } else {
-        err = vfs_unlink(Path{} , arg);
-    }
-    if(err){
-        snprint_err(pre , culprit , fs_error(err) , line);
-        fs_line(line);
-    }
-}
-
-static void shell_fs_worker(void*){
-    for(;;){
-        fs_cmd_sem.down();
-        in_command = true;
-        cursor_x = 0;
-        int cmd_len = fs_command_len(fs_cmd);
-        const char* arg = fs_cmd + cmd_len;
-        while(*arg == ' '){
-            arg++;
-        }
-        if(fs_cmd[0] == 'c'){
-            fs_cat(arg);
-        } else if(fs_cmd[0] == 'e'){
-            fs_echo(arg);
-        } else if(fs_cmd[0] == 'l'){
-            fs_ls(*arg ? arg : "/");
-        } else {
-            fs_other(fs_cmd , cmd_len , arg);
-        }
-        in_command = false;
-        shell_finish();
-        shell_busy = false;
-    }
-}
-
-// Evenimentele de tastatura de pe event bus; shell-ul primeste doar apasarile
-void shell_on_input(const InputEvent& ev){
-    if(ev.type == InputType::Key && ev.key.pressed){
-        shell_on_key(ev.key);
-    }
 }
 
 volatile bool breakpoint_hit = false;
@@ -793,7 +235,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     rtc_init();
     smp_init();
     pci_init();
-    input_subscribe(shell_on_input);
+    tty_init();
     ps2kbd_init();
     kprintf("[OK] keyboard\n");
     ps2mouse_init();
@@ -842,13 +284,13 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
         }
     }
     if(have_root){
-        fs_mount_pseudo();
+        // Boot normal: /dev, /tmp, /run si /proc le monteaza /sbin/init. Testele (cmdline test=) le vor gata de la inceput,
+        // in afara de "nopseudo" (test=ysh verifica montarile facute de init)
+        if(cmdline_has("test") && !cmdline_has("nopseudo")){
+            fs_mount_pseudo();
+        }
         fat32_automount();
         iso9660_automount();
-    }
-    Task* fs_worker = task_create_kernel("shell-fs", shell_fs_worker, nullptr);
-    if(fs_worker){
-        sched_add(fs_worker);
     }
     bcache_start_flusher();
 
@@ -937,6 +379,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(test_named(test, "procfs")){
         test_procfs_run();
     }
+    if(test_named(test, "ysh")){
+        test_ysh_run();
+    }
     if(test_named(test, "libc")){
         test_libc_run();
     }
@@ -958,66 +403,16 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     curata_ecran();
 
     afiseaza_logo(2, 1);
-    out("YOKAI OS has booted succesfully !" , 2 , 7);
-    cursor_y = 9;
-    out("yokai@drone_terminal:~$ " , 2 , cursor_y);
-    muta_cursor(cursor_x , cursor_y);
-
-
-    // Tastele vin acum pe IRQ1; task 0 devine idle si doarme intre intreruperi
-    sched_idle();
-
-     
-/*
-    while(1){
-        uint8_t scancode = inscan();
-
-        if(scancode < 0x80){
-           char c = scanASCII(scancode);
-            if(c != 0){
-                char sir[2] = {c , '\0'};
-                out(sir , cursor_x , cursor_y);
-                cursor_x++;
-                if(cursor_x >= LATIME_ECRAN) {
-                    cursor_x = 0;
-                    cursor_y++;
-                }
-            } if(scancode == 0x1C){
-                comanda_buffer[comanda_lungime] = '\0';
-                executa_comanda(comanda_buffer , cursor_x , cursor_y , comanda_lungime);
-                comanda_lungime = 0;
-                out("yokai@drone_terminal:~$ " , 2 , cursor_y);
-                cursor_x = 26;
-                
-                for(int i = 0 ; i < 256 ; i++){
-                    comanda_buffer[i] = '\0';
-                }
-            } else if(scancode == 0x0E) { 
-                if(comanda_lungime > 0){
-                    comanda_lungime--;
-                    cursor_x--;
-                    if(cursor_x < 0){
-                        cursor_x = LATIME_ECRAN - 1;
-                        cursor_y--;
-                    }
-                    out(" " , cursor_x , cursor_y);
-                }
-                
-            } else {
-                char c = scanASCII(scancode);
-                if(c != 0 && comanda_lungime < 255) {
-                    comanda_buffer[comanda_lungime] = c; 
-                    comanda_lungime++;
-
-                    char sir[2] = {c , '\0'};
-                    out(sir , cursor_x , cursor_y);
-                    cursor_x++;
-                }
-            }
-        }
+    out("YOKAI OS has booted succesfully !", 2, 7);
+    // Terminalul scrie de aici in jos; lipsa /sbin/init nu e fatala (ecranul ramane cu logo-ul)
+    kwrite("\x1b[10;1H", 7);
+    tty_activate();
+    static const char* const init_argv[] = {"init", nullptr};
+    static const char* const init_envp[] = {"PATH=/bin:/sbin", "HOME=/root", "TERM=yokai", nullptr};
+    if(!exec_spawn("/sbin/init", init_argv, init_envp)){
+        kprintf("init: /sbin/init nu a pornit\n");
     }
-   for(;;) {
-        __asm__ volatile("hlt");
-    }*/ 
 
+    // Task 0 devine idle si doarme intre intreruperi
+    sched_idle();
 }

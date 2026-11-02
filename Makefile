@@ -40,6 +40,12 @@ OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 USER_SRCS := $(wildcard user/test/*.S)
 USER_CSRCS := $(wildcard user/test/*.c)
 USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS)) $(patsubst user/test/%.c,$(BUILD)/user/%.elf,$(USER_CSRCS))
+# Programe C in /bin si /sbin: user/bin/<nume>.c (un fisier), user/bin/<nume>/*.c (mai multe fisiere, ex. ysh), user/sbin/<nume>.c
+BIN_CSRCS   := $(wildcard user/bin/*.c)
+BIN_DIRS    := $(patsubst %/,%,$(wildcard user/bin/*/))
+SBIN_CSRCS  := $(wildcard user/sbin/*.c)
+BIN_ELFS    := $(patsubst user/bin/%.c,$(BUILD)/ubin/%.elf,$(BIN_CSRCS)) $(patsubst user/bin/%,$(BUILD)/ubin/%.elf,$(BIN_DIRS))
+SBIN_ELFS   := $(patsubst user/sbin/%.c,$(BUILD)/usbin/%.elf,$(SBIN_CSRCS))
 USER_ASFLAGS = -m64 -ffreestanding -nostdlib -Ikernel/include
 USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000 \
                -z max-page-size=0x1000 -z separate-code -z noexecstack --build-id=none
@@ -68,7 +74,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-smash test-relock test-rt test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -133,15 +139,32 @@ $(BUILD)/user/%.elf: user/test/%.c $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
 	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
 
-$(INITRD): $(USER_ELFS) $(ROOTFS_SRC) Makefile
+$(BUILD)/ubin/%.elf: user/bin/%.c $(SYSROOT)/.installed
+	@mkdir -p $(dir $@)
+	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
+
+# Un program din mai multe fisiere: user/bin/<nume>/*.c (+ *.h) -> /bin/<nume>
+define BIN_DIR_RULE
+$$(BUILD)/ubin/$(notdir $(1)).elf: $$(wildcard $(1)/*.c) $$(wildcard $(1)/*.h) $$(SYSROOT)/.installed
+	@mkdir -p $$(dir $$@)
+	$$(UCC) -O2 -Wall -Wextra -Werror -o $$@ $$(wildcard $(1)/*.c)
+endef
+$(foreach d,$(BIN_DIRS),$(eval $(call BIN_DIR_RULE,$(d))))
+
+$(BUILD)/usbin/%.elf: user/sbin/%.c $(SYSROOT)/.installed
+	@mkdir -p $(dir $@)
+	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
+
+$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) Makefile
 	rm -rf $(ROOTFS)
 	mkdir -p $(addprefix $(ROOTFS)/,$(ROOT_DIRS))
 	cp -r rootfs/. $(ROOTFS)/
-	for f in $(USER_ELFS); do cp $$f $(ROOTFS)/bin/$$(basename $$f .elf); done
+	for f in $(USER_ELFS) $(BIN_ELFS); do cp $$f $(ROOTFS)/bin/$$(basename $$f .elf); done
+	for f in $(SBIN_ELFS); do cp $$f $(ROOTFS)/sbin/$$(basename $$f .elf); done
 	ln -s ../proc/mounts $(ROOTFS)/etc/mtab
 	find $(ROOTFS) -type d -exec chmod 755 {} +
 	find $(ROOTFS) -type f -exec chmod 644 {} +
-	chmod 755 $(ROOTFS)/bin/*
+	chmod 755 $(ROOTFS)/bin/* $(ROOTFS)/sbin/*
 	chmod 700 $(ROOTFS)/root
 	chmod 1777 $(ROOTFS)/tmp
 	tar --format=ustar --owner=0 --group=0 --numeric-owner --sort=name --mtime='2026-01-01 00:00Z' \
@@ -163,7 +186,7 @@ $(TEST_ISO): $(KERNEL) $(INITRD) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 # make test = testele de nucleu (un boot) + integrarea stocarii (test-fs)
-test: test-core test-fs
+test: test-core test-ysh test-fs
 
 test-core: $(TEST_ISO)
 	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log
@@ -342,6 +365,19 @@ $(BUILD)/yokai-rt.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	cp $(KERNEL) $(INITRD) $(BUILD)/iso-rt/boot/
 	sed 's/test=[^ ]*/test=rt rt_strict/' boot/grub-test.cfg > $(BUILD)/iso-rt/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-rt 2>/dev/null
+
+# ysh interactiv (T7.2): kernelul porneste /sbin/init (care monteaza /dev /tmp /run /proc, cmdline nopseudo) si asteapta;
+# tests/ysh_test.py tasteaza in ysh prin monitorul QEMU un script cu editare de linie, istoric, Tab, pipe-uri si redirectari,
+# iar la final verifica logul. Dureaza cateva minute (tastele se trimit una cate una)
+$(BUILD)/yokai-ysh.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-ysh/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-ysh/boot/
+	sed 's/test=[^ ]*/test=ysh nopseudo/' boot/grub-test.cfg > $(BUILD)/iso-ysh/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-ysh 2>/dev/null
+
+test-ysh: $(BUILD)/yokai-ysh.iso
+	TEST_TIMEOUT=900 EXPECT_FILE=tests/expect-ysh.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ysh.log
+	python3 tests/ysh_test.py check $(BUILD)/ysh.log
 
 test-rt: $(BUILD)/yokai-rt.iso
 	@echo "test-rt cu: $(RT_ACCEL), $(RT_SMP) CPU"

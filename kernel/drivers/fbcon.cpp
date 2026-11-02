@@ -80,6 +80,10 @@ public:
         fb_fill_rect(x * GLYPH_W, (y + 1) * GLYPH_H - 2, GLYPH_W, 2, pal[12]);
     }
 
+    void sync_cursor() override {
+        set_cursor(lx < ncols ? lx : ncols - 1, ly);
+    }
+
     void set_color(uint8_t c) override {
         fg = c & 15;
         bg = c >> 4;

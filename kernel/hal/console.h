@@ -12,6 +12,8 @@ public:
     // Doar pentru CONSOLE_SCREEN
     virtual void put_at(const char*, int, int) {}
     virtual void set_cursor(int, int) {}
+    // Cursorul vizibil la pozitia de scriere a lui putc (terminalul de linie de comanda)
+    virtual void sync_cursor() {}
     virtual int cols() const { return 0; }
     virtual int rows() const { return 0; }
 protected:

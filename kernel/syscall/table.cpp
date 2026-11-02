@@ -195,7 +195,7 @@ int64_t sys_wait4(uint64_t pid, uint64_t status_user, uint64_t options, uint64_t
         return -EFAULT;
     }
     int status = 0;
-    int64_t r = process_waitpid((int64_t)pid, &status, (int)options);
+    int64_t r = process_waitpid((int64_t)(int32_t)pid, &status, (int)options);   // pid_t e int: -1 vine cu bitii de sus zero
     if(r > 0 && status_user && !copy_to_user(status_user, &status, sizeof(status))){
         return -EFAULT;
     }
@@ -224,6 +224,7 @@ constexpr Table make_table(){
     t.fn[SYS_FSTAT] = sys_fstat;
     t.fn[SYS_LSTAT] = sys_lstat;
     t.fn[SYS_LSEEK] = sys_lseek;
+    t.fn[SYS_IOCTL] = sys_ioctl;
     t.fn[SYS_GETCWD] = sys_getcwd;
     t.fn[SYS_CHDIR] = sys_chdir;
     t.fn[SYS_RENAME] = sys_rename;

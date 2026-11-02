@@ -14,3 +14,7 @@ int fs_umount_pseudo();
 
 // /dev/random vine din RDRAND; false = fallback pe TSC (necriptografic)
 bool devfs_has_rdrand();
+
+struct Inode;
+// true = nodul /dev/console sau /dev/tty (terminalul): ioctl-urile tty merg numai pe el
+bool devfs_is_console(const Inode* i);

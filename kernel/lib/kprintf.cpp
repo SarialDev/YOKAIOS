@@ -50,6 +50,18 @@ void kputc(char c){
     console_unlock(flags);
 }
 
+void kwrite(const char* s, unsigned long n){
+    uint64_t flags = console_lock();
+    for(unsigned long i = 0; i < n; i++){
+        putc_raw(s[i]);
+    }
+    Console* screen = hal_console_screen();
+    if(screen){
+        screen->sync_cursor();
+    }
+    console_unlock(flags);
+}
+
 void console_break_lock(){
     int32_t me = (int32_t)cpu_id();
     if(console_owner.load() != me){

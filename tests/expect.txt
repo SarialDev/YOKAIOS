@@ -87,11 +87,6 @@ Ethernet controller
 [OK] test_drivers lspci e1000
 @fb [OK] test_drivers fb 1024x768
 [OK] test_drivers input
-YOKAI OS version
-yokai-drone
-tmpfsok
-MemTotal:
-MemFree:
 [OK] test_drivers (
 [OK] test_tarfs layout
 [OK] test_tarfs files

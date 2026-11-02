@@ -5,6 +5,8 @@
 #include "fs/vfs/vfs.h"
 #include "mm/kmalloc.h"
 #include "lib/string.h"
+#include "drivers/tty.h"
+#include "fs/pseudofs.h"
 
 namespace {
 
@@ -79,6 +81,42 @@ int64_t sys_fstat(uint64_t fd, uint64_t user, uint64_t, uint64_t, uint64_t, uint
         st.st_blksize = 4096;
     }
     return stat_to_user(user, st);
+}
+
+// ioctl: doar pe terminal (console_file sau /dev/console, /dev/tty); restul dau -ENOTTY
+int64_t sys_ioctl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    File* f = p ? fd_get(p->fds, (int64_t)fd) : nullptr;
+    if(!f){
+        return -EBADF;
+    }
+    if(f != console_file() && !devfs_is_console(f->inode)){
+        return -ENOTTY;
+    }
+    switch(cmd){
+    case TCGETS: {
+        KTermios t;
+        tty_get_termios(t);
+        return user_access_ok(arg, sizeof(t), true) && copy_to_user(arg, &t, sizeof(t)) ? 0 : -EFAULT;
+    }
+    case TCSETS:
+    case TCSETSW:
+    case TCSETSF: {
+        KTermios t;
+        if(!user_access_ok(arg, sizeof(t), false) || !copy_from_user(&t, arg, sizeof(t))){
+            return -EFAULT;
+        }
+        tty_set_termios(t);
+        return 0;
+    }
+    case TIOCGWINSZ: {
+        KWinsize w;
+        tty_get_winsize(w);
+        return user_access_ok(arg, sizeof(w), true) && copy_to_user(arg, &w, sizeof(w)) ? 0 : -EFAULT;
+    }
+    default:
+        return -EINVAL;
+    }
 }
 
 int64_t sys_lseek(uint64_t fd, uint64_t off, uint64_t whence, uint64_t, uint64_t, uint64_t){

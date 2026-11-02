@@ -1,0 +1,4 @@
+[OK] serial
+[OK] initrd montat
+[OK] test_ysh
+[OK] boot

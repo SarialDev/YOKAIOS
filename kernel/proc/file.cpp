@@ -2,21 +2,19 @@
 #include "uapi/syscall_nr.h"
 #include "mm/kmalloc.h"
 #include "lib/kprintf.h"
+#include "drivers/tty.h"
 
 namespace {
 
 const uint32_t CONSOLE_REFS = 1u << 30;     // nu ajunge niciodata la 0
 
-int64_t console_read(File*, void*, uint64_t, bool){
-    return 0;
+// fd 0-2 ale proceselor pornite de kernel: terminalul (tastatura / ecran + serial); EOF cat timp tty nu e activat
+int64_t console_read(File*, void* buf, uint64_t len, bool nonblock){
+    return tty_read(buf, len, nonblock);
 }
 
 int64_t console_write(File*, const void* buf, uint64_t len, bool){
-    const char* s = (const char*)buf;
-    for(uint64_t i = 0; i < len; i++){
-        kputc(s[i]);
-    }
-    return (int64_t)len;
+    return tty_write(buf, len);
 }
 
 void console_close(File*){

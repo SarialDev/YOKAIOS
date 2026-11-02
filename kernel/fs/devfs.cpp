@@ -4,6 +4,7 @@
 #include "hal/hal.h"
 #include "hal/console.h"
 #include "hal/block.h"
+#include "drivers/tty.h"
 #include "mm/kmalloc.h"
 #include "lib/string.h"
 #include "uapi/syscall_nr.h"
@@ -17,7 +18,7 @@ enum class Kind : uint8_t { Null, Zero, Random, Urandom, Console, Serial, Fb, Bl
 struct DevDesc {
     const char* name;
     Kind kind;
-    int idx;                        // indexul in registrul HAL (Serial, Fb, Block)
+    int idx;                        // indexul in registrul HAL (Serial, Fb, Block); la Console: 0 = console, 1 = tty
 };
 
 struct DevNode {
@@ -78,13 +79,13 @@ int fb_index(){
 
 // Intrarea numarul idx din /dev (null, zero, random, urandom, console, ttyS0, fb0, apoi blocurile)
 bool entry_at(uint64_t idx, DevDesc& d){
-    static const struct { const char* name; Kind kind; } fixed[] = {
-        {"null", Kind::Null}, {"zero", Kind::Zero}, {"random", Kind::Random}, {"urandom", Kind::Urandom},
-        {"console", Kind::Console},
+    static const struct { const char* name; Kind kind; int idx; } fixed[] = {
+        {"null", Kind::Null, 0}, {"zero", Kind::Zero, 0}, {"random", Kind::Random, 0}, {"urandom", Kind::Urandom, 0},
+        {"console", Kind::Console, 0}, {"tty", Kind::Console, 1},
     };
     const uint64_t nfixed = sizeof(fixed) / sizeof(fixed[0]);
     if(idx < nfixed){
-        d = DevDesc{fixed[idx].name, fixed[idx].kind, 0};
+        d = DevDesc{fixed[idx].name, fixed[idx].kind, fixed[idx].idx};
         return true;
     }
     idx -= nfixed;
@@ -255,10 +256,11 @@ int64_t block_rw(BlockDevice* b, uint64_t pos, void* rbuf, const void* wbuf, uin
 int64_t dev_read(Inode* i, uint64_t pos, void* buf, uint64_t len){
     DevNode* n = node_of(i);
     switch(n->kind){
-    case Kind::Null:
     case Kind::Console:
+        return tty_read(buf, len, false);
+    case Kind::Null:
     case Kind::Serial:
-        return 0;                       // fara tty: consola nu primeste input prin read
+        return 0;                       // ttyS0 nu are input
     case Kind::Zero:
         memset(buf, 0, len);
         return (int64_t)len;
@@ -285,10 +287,7 @@ int64_t dev_write(Inode* i, uint64_t pos, const void* buf, uint64_t len){
     case Kind::Urandom:
         return (int64_t)len;
     case Kind::Console:
-        for(uint64_t k = 0; k < len; k++){
-            hal_console_putc(((const char*)buf)[k]);
-        }
-        return (int64_t)len;
+        return tty_write(buf, len);
     case Kind::Serial: {
         Console* c = hal_console(n->idx);
         for(uint64_t k = 0; c && k < len; k++){
@@ -429,6 +428,10 @@ int dev_mount(FileSystemType*, SuperBlock* sb, const char*, const char*){
 
 FileSystemType devfs_type = {"devfs", dev_mount, nullptr};
 
+}
+
+bool devfs_is_console(const Inode* i){
+    return i && i->ops == &dev_ops && ((const DevNode*)i->priv)->kind == Kind::Console;
 }
 
 void devfs_init(){
