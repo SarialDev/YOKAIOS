@@ -3,6 +3,7 @@
 #include "uapi/syscall_nr.h"
 #include "uapi/fs.h"
 #include "proc/process.h"
+#include "proc/signal.h"
 #include "sched/sched.h"
 #include "time/clock.h"
 #include "drivers/rtc.h"
@@ -88,10 +89,15 @@ int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t, uint64_t, uint64_t, 
         return -EINVAL;
     }
     uint64_t ns = (uint64_t)ts.sec * 1000000000UL + (uint64_t)ts.nsec;
-    // Somnul se face in felii de 20 ms, ca un kill() sa opreasca procesul fara sa astepte tot intervalul
+    // Somnul se face in felii de 20 ms, ca un semnal sa il intrerupa (-EINTR, rem = cat a ramas)
     const uint64_t SLICE_NS = 20000000UL;
     uint64_t end = monotonic_ns() + ns;
-    while(ns && !process_kill_pending()){
+    bool interrupted = false;
+    while(ns){
+        if(signal_pending()){
+            interrupted = true;
+            break;
+        }
         uint64_t now = monotonic_ns();
         if(now >= end){
             break;
@@ -102,10 +108,12 @@ int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t, uint64_t, uint64_t, 
         }
     }
     if(rem){
-        Timespec zero = {0, 0};
-        copy_to_user(rem, &zero, sizeof(zero));
+        uint64_t now = monotonic_ns();
+        uint64_t left = interrupted && now < end ? end - now : 0;
+        Timespec r = {(int64_t)(left / 1000000000UL), (int64_t)(left % 1000000000UL)};
+        copy_to_user(rem, &r, sizeof(r));
     }
-    return 0;
+    return interrupted ? -EINTR : 0;
 }
 
 int64_t sys_clock_gettime(uint64_t clk, uint64_t ts_user, uint64_t, uint64_t, uint64_t, uint64_t){
@@ -142,10 +150,19 @@ int64_t sys_time(uint64_t tloc, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
 }
 
 int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t, uint64_t, uint64_t, uint64_t){
-    if((int64_t)pid <= 0){
-        return -EINVAL;     // fara grupuri de procese
+    int64_t id = (int64_t)(int32_t)pid;         // pid_t e int
+    int s = (int)(int64_t)sig;
+    if(id > 0){
+        return signal_send_pid((uint64_t)id, s);
     }
-    return process_signal(pid, (int)(int64_t)sig);
+    if(id == 0){
+        Process* p = process_current();
+        return p ? signal_send_pgrp(p->pgid, s) : -ESRCH;
+    }
+    if(id == -1){
+        return -EINVAL;                         // "toate procesele" nu exista
+    }
+    return signal_send_pgrp((uint64_t)-id, s);
 }
 
 struct UtsName {
@@ -162,7 +179,7 @@ int64_t sys_uname(uint64_t buf, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
     memset(&u, 0, sizeof(u));
     set_field(u.sysname, "YokaiOS");
     set_field(u.nodename, "yokai-drone");
-    set_field(u.release, "0.7.3");
+    set_field(u.release, "0.8.1");
     set_field(u.version, "#1 SMP");
     set_field(u.machine, "x86_64");
     set_field(u.domainname, "(none)");

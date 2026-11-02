@@ -280,7 +280,7 @@ static void test_kill(void){
     CHECK(run(NULL, "kill", "-9", "abc", NULL, NULL, NULL) == 1);
     CHECK(run(NULL, "kill", "-NUMEFALS", "1", NULL, NULL, NULL) == 2);
     CHECK(run(NULL, "kill", NULL, NULL, NULL, NULL, NULL) == 2);
-    CHECK(kill(0, 9) < 0 && errno == EINVAL);
+    CHECK(kill(-1, 9) < 0 && errno == EINVAL);                                         // "toate procesele" nu exista
     CHECK(kill(99999, 0) < 0 && errno == ESRCH);
     CHECK(kill(getpid(), 0) == 0);
 }

@@ -193,3 +193,13 @@ int tcsetattr(int fd, int when, const struct termios *t){
 int umount(const char *target){
     return umount2(target, 0);
 }
+
+pid_t tcgetpgrp(int fd){
+    int pg;
+    return ioctl(fd, TIOCGPGRP, &pg) < 0 ? -1 : pg;
+}
+
+int tcsetpgrp(int fd, pid_t pgrp){
+    int pg = pgrp;
+    return ioctl(fd, TIOCSPGRP, &pg);
+}

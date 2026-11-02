@@ -31,7 +31,10 @@ int64_t pipe_read(File* f, void* dst, uint64_t len, bool nonblock){
             p->lock.unlock_irqrestore(flags);
             return p->writers == 0 ? 0 : -EAGAIN;
         }
-        p->readable.wait(p->lock);
+        if(!p->readable.wait_intr(p->lock) && p->count == 0){
+            p->lock.unlock_irqrestore(flags);
+            return -EINTR;
+        }
     }
     uint64_t n = min(len, p->count);
     uint8_t* d = (uint8_t*)dst;
@@ -60,7 +63,10 @@ int64_t pipe_write(File* f, const void* src, uint64_t len, bool nonblock){
                 p->lock.unlock_irqrestore(flags);
                 return done ? (int64_t)done : -EAGAIN;
             }
-            p->writable.wait(p->lock);
+            if(!p->writable.wait_intr(p->lock) && p->count == PIPE_SIZE){
+                p->lock.unlock_irqrestore(flags);
+                return done ? (int64_t)done : -EINTR;
+            }
             continue;
         }
         uint64_t n = min(len - done, PIPE_SIZE - p->count);

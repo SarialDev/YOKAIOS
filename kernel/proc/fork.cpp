@@ -5,6 +5,7 @@
 #include "sched/sched.h"
 #include "mm/kmalloc.h"
 #include "lib/string.h"
+#include "mm/vma.h"
 
 namespace {
 
@@ -38,7 +39,7 @@ int64_t process_fork(const InterruptFrame& parent_frame){
         kfree(as);
         return -ENOMEM;
     }
-    Task* t = as_copy_user(*as, *self->as) ? task_create_kernel(self->name, child_entry, start, self->prio) : nullptr;
+    Task* t = as_fork(*as, *self->as) ? task_create_kernel(self->name, child_entry, start, self->prio) : nullptr;
     if(!t){
         as_destroy(*as);
         kfree(as);
@@ -46,12 +47,15 @@ int64_t process_fork(const InterruptFrame& parent_frame){
         return -ENOMEM;
     }
     t->as = as;
-    Process* child = process_create(t, parent);
+    VmaList vmas = {};
+    Process* child = vma_list_clone(vmas, parent->vmas) ? nullptr : process_create(t, parent);
     if(!child){
+        vma_list_free(vmas);
         task_destroy(t);                        // elibereaza si spatiul de adrese
         kfree(start);
         return -ENOMEM;
     }
+    child->vmas = vmas;
     process_set_name(child, parent->name);
     {
         SpinlockGuard lock(process_tree_lock());
@@ -60,7 +64,8 @@ int64_t process_fork(const InterruptFrame& parent_frame){
     }
     child->brk_base = parent->brk_base;
     child->brk_cur = parent->brk_cur;
-    child->mmap_next = parent->mmap_next;
+    child->pgid = parent->pgid;
+    signal_fork(child, parent);
     fd_copy(child->fds, parent->fds);
     vfs_path_copy(child->cwd, parent->cwd);
     int64_t pid = (int64_t)child->pid;

@@ -24,6 +24,7 @@ struct ListLink {
 
 struct RtPeriodic;
 struct Process;
+class WaitQueue;
 
 struct Task {
     uint64_t tid;
@@ -43,6 +44,7 @@ struct Task {
     Process* proc;              // procesul al carui thread principal e (proc/process.h), altfel nullptr
     uint32_t cpu;               // CPU-ul pe care ruleaza / in a carui coada sta / pe care a rulat ultima data
     int32_t affinity;           // -1 = orice CPU, altfel fixat pe acel CPU
+    WaitQueue* intr_wq;         // coada in care asteapta intrerupibil (un semnal il trezeste), protejata de intr_lock
     volatile bool on_cpu;       // ales de scheduler si contextul inca nesalvat (de la alegere pana dupa switch_to)
 };
 
@@ -82,6 +84,9 @@ bool task_nth(uint64_t n, TaskInfo& out);
 
 // Apeleaza fn(task, arg) cu task-ul cu tid-ul dat, sub lock-ul listei de task-uri (fn nu are voie sa blocheze). false daca nu exista
 bool task_visit(uint64_t tid, void (*fn)(Task*, void*), void* arg);
+
+// Apeleaza fn(task, arg) pentru fiecare task (fara idle), sub lock-ul listei; fn nu are voie sa blocheze
+void task_for_each(void (*fn)(Task*, void*), void* arg);
 
 // Task-ul care ruleaza pe CPU-ul curent (PerCpu::current)
 Task* task_current();

@@ -8,7 +8,13 @@ const uint64_t PTE_USER = 1UL << 2;
 const uint64_t PTE_PWT = 1UL << 3;
 const uint64_t PTE_PCD = 1UL << 4;
 const uint64_t PTE_HUGE = 1UL << 7;     // 2 MiB in PD, 1 GiB in PDPT
+const uint64_t PTE_ACCESSED = 1UL << 5;
+const uint64_t PTE_DIRTY = 1UL << 6;
 const uint64_t PTE_GLOBAL = 1UL << 8;
+// Biti software (disponibili pentru OS): pagina CoW (era scriibila, acum RO pana la prima scriere) si pagina
+// partajata MAP_SHARED (fork o pastreaza comuna, fara CoW)
+const uint64_t PTE_COW = 1UL << 9;
+const uint64_t PTE_SHM = 1UL << 10;
 const uint64_t PTE_NX = 1UL << 63;
 const uint64_t PTE_ADDR_MASK = 0x000FFFFFFFFFF000UL;
 

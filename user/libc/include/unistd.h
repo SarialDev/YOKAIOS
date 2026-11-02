@@ -29,6 +29,13 @@ int execvp(const char *file, char *const argv[]);
 void _exit(int code) __attribute__((noreturn));
 pid_t getpid(void);
 pid_t getppid(void);
+/* Grupuri de procese: terminalul trimite Ctrl-C (SIGINT) grupului din prim-plan (tcsetpgrp) */
+int setpgid(pid_t pid, pid_t pgid);
+pid_t getpgid(pid_t pid);
+pid_t getpgrp(void);
+pid_t tcgetpgrp(int fd);
+int tcsetpgrp(int fd, pid_t pgrp);
+int pause(void);
 uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);

@@ -93,7 +93,8 @@ static struct termios saved_tio, raw_tio;
 static void raw_enter(void){
     tcgetattr(0, &saved_tio);
     raw_tio = saved_tio;
-    raw_tio.c_lflag &= ~(tcflag_t)(ICANON | ECHO);
+    /* Fara ISIG: Ctrl-C ajunge aici ca octet (renunta la linie), nu ca SIGINT */
+    raw_tio.c_lflag &= ~(tcflag_t)(ICANON | ECHO | ISIG);
     raw_tio.c_cc[VMIN] = 1;
     raw_tio.c_cc[VTIME] = 0;
     tcsetattr(0, TCSANOW, &raw_tio);

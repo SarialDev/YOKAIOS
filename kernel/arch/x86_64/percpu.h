@@ -31,6 +31,7 @@ struct PerCpu {
     volatile bool need_resched;
     volatile bool kill_pending;     // page fault user: procesul moare la iesirea din exceptie
     volatile bool tlb_pending;      // TLB shootdown cerut de alt CPU
+    uint64_t fault_addr;            // adresa page fault-ului user nerezolvat (si_addr pentru SIGSEGV)
     Task* idle;
     Task* prev;                     // task-ul de pe care tocmai s-a comutat (eliberat dupa switch_to)
     uint64_t cr3;                   // spatiul de adrese incarcat acum (pentru TLB shootdown)

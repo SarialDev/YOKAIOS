@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <signal.h>
 
 const char *shell_name = "ysh";
 
@@ -19,6 +20,20 @@ struct job {
 };
 static struct job jobs[MAX_JOBS];
 static int next_job_id = 1;
+static int job_control;                 /* shell interactiv: grupuri de procese + terminal */
+static pid_t shell_pgid;
+
+void job_control_init(void){
+    signal(SIGINT, SIG_IGN);
+    signal(SIGQUIT, SIG_IGN);
+    if(setpgid(0, 0) < 0){
+        return;
+    }
+    shell_pgid = getpgrp();
+    if(tcsetpgrp(0, shell_pgid) == 0){
+        job_control = 1;
+    }
+}
 
 /* Comanda expandata */
 struct xcmd {
@@ -195,6 +210,9 @@ static int status_code(int st, pid_t pid){
     if(WIFEXITED(st)){
         return WEXITSTATUS(st);
     }
+    if(WTERMSIG(st) == SIGINT){
+        return 128 + SIGINT;            /* Ctrl-C: terminalul a afisat deja ^C */
+    }
     fprintf(stderr, "ysh: process %d killed (signal %d)\n", (int)pid, WTERMSIG(st));
     return 128 + WTERMSIG(st);
 }
@@ -320,6 +338,7 @@ static int run_pipeline(struct pipeline *pl, int background){
     pid_t pids[MAX_CMDS];
     int npids = 0;
     int prev_read = -1;
+    pid_t pgid = 0;                     /* grupul pipeline-ului = pid-ul primului proces */
     fflush(NULL);
     for(int i = 0; i < n && ok; i++){
         int pfd[2] = {-1, -1};
@@ -340,6 +359,14 @@ static int run_pipeline(struct pipeline *pl, int background){
             break;
         }
         if(pid == 0){
+            if(job_control){
+                setpgid(0, pgid);
+                if(!background){
+                    tcsetpgrp(0, pgid ? pgid : getpid());
+                }
+                signal(SIGINT, SIG_DFL);
+                signal(SIGQUIT, SIG_DFL);
+            }
             if(prev_read >= 0){
                 dup2(prev_read, 0);
             } else if(background){
@@ -371,6 +398,15 @@ static int run_pipeline(struct pipeline *pl, int background){
                 close(x[i].fd_out);
             }
             child_exec(&x[i], envp);
+        }
+        if(job_control){
+            if(!pgid){
+                pgid = pid;
+            }
+            setpgid(pid, pgid);         /* si in parinte: nu conteaza cine ajunge primul */
+            if(!background){
+                tcsetpgrp(0, pgid);
+            }
         }
         pids[npids++] = pid;
         if(prev_read >= 0){
@@ -406,6 +442,9 @@ static int run_pipeline(struct pipeline *pl, int background){
         }
         if(!ok){
             status = 1;
+        }
+        if(job_control){
+            tcsetpgrp(0, shell_pgid);   /* terminalul revine la shell */
         }
     }
     for(int i = 0; i < n; i++){

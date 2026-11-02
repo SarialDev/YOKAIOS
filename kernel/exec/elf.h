@@ -2,11 +2,13 @@
 #include "types.h"
 #include "mm/vmm.h"
 
-// Stiva user: 64 KiB sub USER_STACK_TOP
+// Stiva user: ultimii 64 KiB sub USER_STACK_TOP se mapeaza la exec; restul pana la USER_STACK_MAX vine la cerere (page fault).
+// Pagina de la USER_STACK_TOP este trambulina de semnale (proc/signal.h)
 const uint64_t USER_STACK_TOP = 0x00007FFFFFFFE000UL;
 const uint64_t USER_STACK_SIZE = 64 * 1024;
+const uint64_t USER_STACK_MAX = 8UL << 20;
 
-// mmap anonim: adresele se aloca crescator de aici pana la MMAP_END (kernel/syscall/mem.cpp)
+// mmap: adresele fara hint se aleg prima gaura libera de aici pana la MMAP_END (mm/vma.cpp)
 const uint64_t MMAP_BASE = 0x0000400000000000UL;
 const uint64_t MMAP_END = 0x0000700000000000UL;
 
@@ -18,11 +20,20 @@ const uint64_t AT_PHNUM = 5;
 const uint64_t AT_PAGESZ = 6;
 const uint64_t AT_ENTRY = 9;
 
+const int ELF_MAX_SEGS = 16;
+
+struct ElfSeg {
+    uint64_t start, end;        // aliniate la pagina
+    uint32_t prot;              // PROT_*
+};
+
 struct ElfImage {
     uint64_t entry;
     uint64_t phdr;              // adresa user a tabelului de program headere, 0 daca nu e incarcat
     uint16_t phent;
     uint16_t phnum;
+    int nseg;
+    ElfSeg seg[ELF_MAX_SEGS];   // segmentele PT_LOAD, pentru VMA-urile procesului
     uint64_t end;               // primul octet dupa ultimul segment (rotunjit la pagina): de aici incepe brk
 };
 

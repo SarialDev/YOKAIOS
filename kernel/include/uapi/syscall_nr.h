@@ -12,13 +12,19 @@
 #define SYS_LSTAT       6
 #define SYS_LSEEK       8
 #define SYS_MMAP        9
+#define SYS_MPROTECT    10
 #define SYS_MUNMAP      11
 #define SYS_BRK         12
+#define SYS_RT_SIGACTION 13
+#define SYS_RT_SIGPROCMASK 14
+#define SYS_RT_SIGRETURN 15
 #define SYS_IOCTL       16
 #define SYS_PIPE        22
 #define SYS_YIELD       24
+#define SYS_MSYNC       26
 #define SYS_DUP         32
 #define SYS_DUP2        33
+#define SYS_PAUSE       34
 #define SYS_NANOSLEEP   35
 #define SYS_GETPID      39
 #define SYS_FORK        57
@@ -28,7 +34,12 @@
 #define SYS_KILL        62
 #define SYS_UNAME       63
 #define SYS_GETTIMEOFDAY 96
+#define SYS_SETPGID     109
 #define SYS_GETPPID     110
+#define SYS_GETPGRP     111
+#define SYS_GETPGID     121
+#define SYS_RT_SIGPENDING 127
+#define SYS_RT_SIGSUSPEND 130
 #define SYS_FCNTL       72
 #define SYS_GETCWD      79
 #define SYS_CHDIR       80
@@ -89,22 +100,74 @@
 /* status = (cod & 0xff) << 8 la exit normal, numarul semnalului daca procesul a fost omorat */
 #define W_EXITCODE(code) (((code) & 0xff) << 8)
 
-/* kill: orice semnal 1..31 termina procesul tinta (fara handlere); iesire = 128 + semnal. Semnal 0 = doar verifica ca exista */
+/* Semnale (numerele de pe Linux x86-64; 1..31, multimea de semnale = un uint64_t cu bitul n-1) */
 #define SIGHUP          1
 #define SIGINT          2
+#define SIGQUIT         3
+#define SIGILL          4
+#define SIGTRAP         5
+#define SIGABRT         6
+#define SIGBUS          7
+#define SIGFPE          8
 #define SIGKILL         9
+#define SIGUSR1         10
+#define SIGSEGV         11
+#define SIGUSR2         12
+#define SIGPIPE         13
+#define SIGALRM         14
 #define SIGTERM         15
+#define SIGCHLD         17
+#define SIGCONT         18
+#define SIGSTOP         19
+#define SIGTSTP         20
+#define SIGTTIN         21
+#define SIGTTOU         22
+#define SIGURG          23
+#define SIGWINCH        28
+#define SIGSYS          31
 #define NSIG            32
+
+/* sa_flags */
+#define SA_NOCLDSTOP    0x00000001
+#define SA_NOCLDWAIT    0x00000002
+#define SA_SIGINFO      0x00000004
+#define SA_RESTORER     0x04000000
+#define SA_ONSTACK      0x08000000
+#define SA_RESTART      0x10000000
+#define SA_NODEFER      0x40000000
+#define SA_RESETHAND    0x80000000
+#define SIG_DFL         0
+#define SIG_IGN         1
+/* sigprocmask: how */
+#define SIG_BLOCK       0
+#define SIG_UNBLOCK     1
+#define SIG_SETMASK     2
+/* si_code */
+#define SI_USER         0
+#define SEGV_MAPERR     1
+#define SEGV_ACCERR     2
+#define FPE_INTDIV      1
+#define ILL_ILLOPC      1
+#define CLD_EXITED      1
+#define CLD_KILLED      2
 
 /* uname: structura ca pe Linux, sase campuri de 65 de octeti (struct utsname) */
 #define UTS_FIELD       65
 
-/* mmap (doar anonim), fcntl, ceasuri */
+/* mmap, fcntl, ceasuri */
+#define PROT_NONE       0
 #define PROT_READ       1
 #define PROT_WRITE      2
 #define PROT_EXEC       4
+#define MAP_SHARED      0x01
 #define MAP_PRIVATE     0x02
+#define MAP_FIXED       0x10
 #define MAP_ANONYMOUS   0x20
+#define MAP_NORESERVE   0x4000
+#define MAP_POPULATE    0x8000
+#define MS_ASYNC        1
+#define MS_INVALIDATE   2
+#define MS_SYNC         4
 #define F_DUPFD         0
 #define F_GETFD         1
 #define F_SETFD         2

@@ -77,6 +77,9 @@ int main(int argc, char **argv){
     }
     int login = argc > 1 && strcmp(argv[1], "-l") == 0;
     int interactive = isatty(0);
+    if(interactive){
+        job_control_init();
+    }
     if(login && interactive){
         login_banner();
     }

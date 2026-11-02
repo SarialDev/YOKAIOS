@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +36,11 @@ void _Exit(int code){
 
 void abort(void){
     fflush(NULL);
+    /* SIGABRT cu actiunea implicita: procesul moare cu semnalul (wait4 vede 6) */
+    signal(SIGABRT, SIG_DFL);
+    sigset_t m = 1UL << (SIGABRT - 1);
+    sigprocmask(SIG_UNBLOCK, &m, NULL);
+    raise(SIGABRT);
     _exit(134);
 }
 

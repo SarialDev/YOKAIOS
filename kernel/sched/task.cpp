@@ -57,6 +57,7 @@ Task* new_task(const char* name, uint8_t prio){
     t->wake_ns = 0;
     t->rt = nullptr;
     t->proc = nullptr;
+    t->intr_wq = nullptr;
     t->cpu = cpu_id();
     t->affinity = -1;
     t->on_cpu = false;
@@ -240,6 +241,16 @@ bool task_visit(uint64_t tid, void (*fn)(Task*, void*), void* arg){
         }
     }
     return false;
+}
+
+void task_for_each(void (*fn)(Task*, void*), void* arg){
+    SpinlockGuard lock(tasks_lock);
+    for(ListLink* l = all_tasks.next; l != &all_tasks; l = l->next){
+        Task* t = (Task*)((uint8_t*)l - __builtin_offsetof(Task, all));
+        if(!is_idle(t)){
+            fn(t, arg);
+        }
+    }
 }
 
 bool task_nth(uint64_t n, TaskInfo& out){

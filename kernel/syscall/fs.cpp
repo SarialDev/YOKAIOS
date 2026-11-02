@@ -109,6 +109,21 @@ int64_t sys_ioctl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t, uint64_t, u
         tty_set_termios(t);
         return 0;
     }
+    case TIOCGPGRP: {
+        int32_t pg = (int32_t)tty_get_pgrp();
+        return copy_to_user(arg, &pg, sizeof(pg)) ? 0 : -EFAULT;
+    }
+    case TIOCSPGRP: {
+        int32_t pg;
+        if(!copy_from_user(&pg, arg, sizeof(pg))){
+            return -EFAULT;
+        }
+        if(pg <= 0){
+            return -EINVAL;
+        }
+        tty_set_pgrp((uint64_t)pg);
+        return 0;
+    }
     case TIOCGWINSZ: {
         KWinsize w;
         tty_get_winsize(w);

@@ -20,3 +20,8 @@ void tty_set_termios(const KTermios& t);
 void tty_get_winsize(KWinsize& w);
 // Octeti primiti de la tastatura de la boot (pentru teste)
 uint64_t tty_rx_count();
+// Grupul de procese din prim-plan (TIOCSPGRP / TIOCGPGRP): Ctrl-C cu ISIG ii trimite SIGINT. 0 = niciunul
+void tty_set_pgrp(uint64_t pgid);
+uint64_t tty_get_pgrp();
+// Octeti ca de la tastatura (teste)
+void tty_inject(const char* s, uint64_t n);

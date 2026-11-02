@@ -57,6 +57,9 @@ char *expand_word(const char *raw, int *dropped);
 
 /* --- exec.c --- */
 int run_list(struct list *l);
+/* Control de joburi (doar interactiv): shell-ul ignora SIGINT/SIGQUIT, fiecare pipeline are grupul lui de procese,
+ * cel din prim-plan primeste terminalul (tcsetpgrp), deci Ctrl-C opreste doar programul */
+void job_control_init(void);
 void reap_jobs(void);
 int jobs_count(void);
 extern const char *shell_name;

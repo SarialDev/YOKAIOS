@@ -9,6 +9,7 @@
 #include "exec/elf.h"
 #include "sched/sched.h"
 #include "mm/kmalloc.h"
+#include "proc/signal.h"
 
 namespace {
 
@@ -67,6 +68,9 @@ int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t len, uint64_t, uint64_t, u
         }
         int64_t w = f->ops->write(f, chunk, n, false);
         if(w < 0){
+            if(w == -EPIPE){
+                signal_send_self(SIGPIPE);      // capatul de citire e inchis: SIGPIPE (implicit omoara), apoi EPIPE
+            }
             return done ? (int64_t)done : w;
         }
         done += (uint64_t)w;
@@ -248,6 +252,17 @@ constexpr Table make_table(){
     t.fn[SYS_TIME] = sys_time;
     t.fn[SYS_KILL] = sys_kill;
     t.fn[SYS_UNAME] = sys_uname;
+    t.fn[SYS_MPROTECT] = sys_mprotect;
+    t.fn[SYS_MSYNC] = sys_msync;
+    t.fn[SYS_RT_SIGACTION] = sys_rt_sigaction;
+    t.fn[SYS_RT_SIGPROCMASK] = sys_rt_sigprocmask;
+    t.fn[SYS_RT_SIGRETURN] = sys_rt_sigreturn;
+    t.fn[SYS_RT_SIGPENDING] = sys_rt_sigpending;
+    t.fn[SYS_RT_SIGSUSPEND] = sys_rt_sigsuspend;
+    t.fn[SYS_PAUSE] = sys_pause;
+    t.fn[SYS_SETPGID] = sys_setpgid;
+    t.fn[SYS_GETPGRP] = sys_getpgrp;
+    t.fn[SYS_GETPGID] = sys_getpgid;
     return t;
 }
 

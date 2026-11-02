@@ -5,6 +5,8 @@
 #include "sched/sched.h"
 #include "mm/fault.h"
 #include "proc/process.h"
+#include "proc/signal.h"
+#include "arch/x86_64/percpu.h"
 
 namespace {
 
@@ -60,10 +62,14 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
     } else if(f->vector < 32 && !from_user){
         panic_frame(f, "%s", exception_name(f->vector));
     }
-    // O exceptie din ring 3 fara rezolvare omoara doar procesul
-    if(from_user && f->vector < 32 && (!h || fault_kill_pending())){
-        fault_kill_clear();
-        process_kill(f);
+    // O exceptie din ring 3 fara rezolvare: semnal (SIGSEGV / SIGFPE / SIGILL) catre proces, cu handler sau moarte
+    if(from_user && f->vector < 32){
+        uint64_t addr = f->vector == 14 ? this_cpu()->fault_addr : f->rip;
+        if(!h || fault_kill_pending()){
+            fault_kill_clear();
+            signal_fault(f, addr);
+        }
+        signal_deliver(f, -1);
     }
     if((f->vector >= IDT_VEC_IRQ_FIRST && f->vector < IDT_VEC_IRQ_END) ||
        (f->vector >= IDT_VEC_MSI_FIRST && f->vector < IDT_VEC_MSI_END)){
@@ -74,7 +80,7 @@ extern "C" void interrupt_dispatch(InterruptFrame* f){
         // Preemptie doar la iesirea din IRQ, dupa EOI, ca tick-ul urmator sa poata veni
         sched_irq_exit();
         if(from_user){
-            process_check_kill();   // un proces care se invarte in user mode moare la urmatorul tick
+            signal_deliver(f, -1);  // un proces care se invarte in user mode primeste semnalele la urmatorul tick
         }
     }
 }

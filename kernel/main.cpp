@@ -68,6 +68,7 @@
 #include "tests/test_fs.h"
 #include "tests/test_libc.h"
 #include "tests/test_coreutils.h"
+#include "tests/test_vm.h"
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
 #include "fs/iso9660.h"
@@ -388,6 +389,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "coreutils")){
         test_coreutils_run();
+    }
+    if(test_named(test, "vm")){
+        test_vm_run();
     }
     if(test_named(test, "vfs")){
         test_vfs_run();

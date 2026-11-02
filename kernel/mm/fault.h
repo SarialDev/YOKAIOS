@@ -11,10 +11,9 @@ const uint64_t PF_ERR_FETCH = 1UL << 4;     // I: fetch de instructiune
 // Inregistreaza handlerul de #PF
 void fault_init();
 
-// Hook pentru memoria virtuala a proceselor (lazy alloc, CoW, stiva): true daca a rezolvat faultul
-bool vma_fault(AddressSpace& as, uint64_t addr, uint64_t err);
+// Memoria virtuala a proceselor (pagini la cerere, CoW) e in mm/vma.cpp: vma_fault
 
-// Fault nerecuperabil din user: procesul curent trebuie omorat (consumat de interrupt_dispatch)
+// Fault nerecuperabil din user: procesul curent primeste SIGSEGV (consumat de interrupt_dispatch)
 bool fault_kill_pending();
 void fault_kill_clear();
 

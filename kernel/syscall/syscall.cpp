@@ -5,6 +5,8 @@
 #include "arch/x86_64/percpu.h"
 #include "sched/sched.h"
 #include "proc/process.h"
+#include "proc/signal.h"
+#include "mm/vma.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "lib/string.h"
@@ -60,9 +62,10 @@ void syscall_set_kstack(uint64_t top){
 extern "C" void syscall_dispatch(InterruptFrame* f){
     // Stiva de kernel e a task-ului, deci preemptia in timpul unui syscall e permisa
     __asm__ volatile("sti");
-    SyscallFn fn = syscall_lookup(f->rax);
+    uint64_t nr = f->rax;
+    SyscallFn fn = syscall_lookup(nr);
     f->rax = fn ? (uint64_t)fn(f->rdi, f->rsi, f->rdx, f->r10, f->r8, f->r9) : (uint64_t)-ENOSYS;
-    process_check_kill();   // kill() primit cat timp rula syscall-ul
+    signal_deliver(f, (int64_t)nr);     // semnalele primite cat timp rula syscall-ul (handler, SA_RESTART, moarte)
 }
 
 bool user_access_ok(uint64_t addr, uint64_t len, bool write){
@@ -76,7 +79,8 @@ bool user_access_ok(uint64_t addr, uint64_t len, bool write){
     const AddressSpace& as = *task_current()->as;
     uint64_t need = PTE_PRESENT | PTE_USER | (write ? PTE_RW : 0);
     for(uint64_t page = addr & ~(PAGE_4K - 1); page < end; page += PAGE_4K){
-        if((vmm_entry(as, page) & need) != need){
+        // Pagini inca neaduse (mmap / stiva / brk) sau CoW: le rezolva ca un page fault
+        if((vmm_entry(as, page) & need) != need && (!vma_fault_in(page, write) || (vmm_entry(as, page) & need) != need)){
             return false;
         }
     }

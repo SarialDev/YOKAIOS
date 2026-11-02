@@ -42,6 +42,9 @@ STEPS = [
     ("ls /bin/nope && echo no-and || echo yes-or{ret}", "yes-or", 1),       # && si ||
     ("cd /nonexistent{ret}", "ysh: cd: /nonexistent: No such file or directory", 1),
     ("echo nope{ctrl-c}echo cc-ok{ret}", "cc-ok", 1),                        # Ctrl-C renunta la linie
+    ("spin{ret}", "spin: pornit", 1),                                       # program in bucla in prim-plan...
+    ("{ctrl-c}", "^C", 1),                                                   # ...Ctrl-C = SIGINT pentru grupul lui
+    ("echo st-$?{ret}", "st-130", 1),                                        # 128 + SIGINT, shell-ul a supravietuit
     ("echo sync-last{ret}", "sync-last", 1),
     ("exit{ret}", None, 0),
 ]
@@ -53,7 +56,7 @@ CHECKS = [
     ("/tmp", 1), ("/root", 1), ("one-ok", 2), ("two-ok", 1),
     ("abc", 1), ("xq", 1), ("bcde", 1), ("tab-ok /etc/os-release", 1),
     ("Bine ai venit pe YokaiOS.", 1), ("a  b c ok d e", 1), ("st-1", 1), ("st-127", 1), ("yes-or", 1),
-    ("cc-ok", 1), ("sync-last", 1),
+    ("cc-ok", 1), ("spin: pornit", 1), ("st-130", 1), ("sync-last", 1),
 ]
 FORBIDDEN = ["nope", "no-and"]
 # Substringuri care trebuie sa apara (prompt-ul cu cwd-ul curent, lista de la Tab)

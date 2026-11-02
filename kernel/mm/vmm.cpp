@@ -1,6 +1,7 @@
 #include "mm/vmm.h"
 #include "mm/pmm.h"
 #include "mm/buddy.h"
+#include "mm/pageref.h"
 #include "arch/x86_64/mmio.h"
 #include "boot/multiboot2.h"
 #include "core/panic.h"
@@ -197,6 +198,7 @@ __init void vmm_init(){
     phys_map_base = HHDM_BASE;
     direct_map_limit = hhdm_size;
     buddy_rebuild();
+    pageref_init();
 
     kprintf("vmm: HHDM %lu MiB la %lx (pagini %s), NX %s\n", hhdm_size >> 20, HHDM_BASE,
             gb_pages ? "1 GiB" : "2 MiB", has_nx ? "da" : "nu");
@@ -307,48 +309,57 @@ void as_switch(const AddressSpace& as){
     __asm__ volatile("mov %0, %%cr3" : : "r"(as.pml4_phys) : "memory");
 }
 
-bool as_copy_user(AddressSpace& dst, const AddressSpace& src){
-    const uint64_t* pml4 = table(src.pml4_phys);
-    for(int i = 0; i < 256; i++){
+bool as_fork(AddressSpace& dst, AddressSpace& src){
+    uint64_t* pml4 = table(src.pml4_phys);
+    bool ok = true;
+    for(int i = 0; i < 256 && ok; i++){
         if(!(pml4[i] & PTE_PRESENT)){
             continue;
         }
         const uint64_t* pdpt = table(pml4[i] & PTE_ADDR_MASK);
-        for(int j = 0; j < 512; j++){
+        for(int j = 0; j < 512 && ok; j++){
             if(!(pdpt[j] & PTE_PRESENT)){
                 continue;
             }
             if(pdpt[j] & PTE_HUGE){
-                panic("as_copy_user: pagina de 1 GiB in jumatatea user");
+                panic("as_fork: pagina de 1 GiB in jumatatea user");
             }
             const uint64_t* pd = table(pdpt[j] & PTE_ADDR_MASK);
-            for(int k = 0; k < 512; k++){
+            for(int k = 0; k < 512 && ok; k++){
                 if(!(pd[k] & PTE_PRESENT)){
                     continue;
                 }
                 if(pd[k] & PTE_HUGE){
-                    panic("as_copy_user: pagina de 2 MiB in jumatatea user");
+                    panic("as_fork: pagina de 2 MiB in jumatatea user");
                 }
-                const uint64_t* pt = table(pd[k] & PTE_ADDR_MASK);
+                uint64_t* pt = table(pd[k] & PTE_ADDR_MASK);
                 for(int l = 0; l < 512; l++){
-                    if(!(pt[l] & PTE_PRESENT)){
+                    uint64_t e = pt[l];
+                    if(!(e & PTE_PRESENT)){
                         continue;
                     }
                     uint64_t virt = ((uint64_t)i << 39) | ((uint64_t)j << 30) | ((uint64_t)k << 21) | ((uint64_t)l << 12);
-                    uint64_t phys = pmm_alloc_page();
-                    if(!phys){
-                        return false;
+                    uint64_t phys = e & PTE_ADDR_MASK;
+                    // Pagina privata scriibila devine CoW la ambii; MAP_SHARED ramane scriibila si comuna
+                    if((e & PTE_RW) && !(e & PTE_SHM)){
+                        e = (e & ~PTE_RW) | PTE_COW;
+                        pt[l] = e;
                     }
-                    memcpy(phys_to_virt(phys), phys_to_virt(pt[l] & PTE_ADDR_MASK), PAGE_4K);
-                    if(!vmm_map(dst, virt, phys, pt[l] & ~PTE_ADDR_MASK)){
-                        pmm_free_page(phys);
-                        return false;
+                    page_ref(phys);
+                    if(!vmm_map(dst, virt, phys, e & ~PTE_ADDR_MASK)){
+                        page_put(phys);
+                        ok = false;
+                        break;
                     }
                 }
             }
         }
     }
-    return true;
+    // Intrarile RW din TLB-ul acestui CPU nu mai sunt valide
+    if(is_current(src)){
+        as_switch(src);
+    }
+    return ok;
 }
 
 void as_destroy(AddressSpace& as){
@@ -379,7 +390,7 @@ void as_destroy(AddressSpace& as){
                 uint64_t* pt = table(pd[k] & PTE_ADDR_MASK);
                 for(int l = 0; l < 512; l++){
                     if(pt[l] & PTE_PRESENT){
-                        pmm_free_page(pt[l] & PTE_ADDR_MASK);
+                        page_put(pt[l] & PTE_ADDR_MASK);
                     }
                 }
                 pmm_free_page(pd[k] & PTE_ADDR_MASK);

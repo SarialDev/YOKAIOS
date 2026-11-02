@@ -6,6 +6,7 @@
 #include "sync/spinlock.h"
 #include "sync/waitqueue.h"
 #include "uapi/syscall_nr.h"
+#include "proc/signal.h"
 
 namespace {
 
@@ -20,6 +21,8 @@ uint8_t line[LINE_MAX];
 uint32_t line_len;
 bool eof_pending;
 bool is_active;
+uint64_t fg_pgid;                       // grupul din prim-plan: primeste SIGINT / SIGQUIT de la tastatura
+int pending_sig;                        // semnal de trimis dupa ce se elibereaza lock-ul tty
 uint64_t rx_total;
 KTermios term = {0x100 /* ICRNL */, 0x5 /* OPOST|ONLCR */, 0xBF /* CS8|CREAD|... */, TTY_ISIG | TTY_ICANON | TTY_ECHO | TTY_ECHOE,
                  0, {3, 0x1C, 0x7F, 0x15, 4, 0, 1, 0, 0x11, 0x13, 0x1A, 0, 0x12, 0xF, 0x17, 0x16, 0, 0, 0}};
@@ -51,6 +54,13 @@ void commit_line(bool with_newline_already){
 
 // Un octet primit, cu lock-ul tty luat
 void input_byte(uint8_t c){
+    // ISIG: Ctrl-C / Ctrl-\\ nu ajung la program, ci devin SIGINT / SIGQUIT pentru grupul din prim-plan
+    if((term.c_lflag & TTY_ISIG) && (c == term.c_cc[0] || c == term.c_cc[1]) && c){
+        echo(c == term.c_cc[0] ? "^C\n" : "^\\\n", 3);
+        line_len = 0;
+        pending_sig = c == term.c_cc[0] ? SIGINT : SIGQUIT;
+        return;
+    }
     if(!(term.c_lflag & TTY_ICANON)){
         rx_push(c);
         if(c >= 0x20 && c < 0x7F){
@@ -88,7 +98,7 @@ void input_byte(uint8_t c){
             echo("\b \b", 3);
         }
         break;
-    case 0x03:                  // Ctrl-C: renunta la linie (nu exista semnale)
+    case 0x03:                  // Ctrl-C fara ISIG: renunta la linie
         echo("^C\n", 3);
         line_len = 0;
         break;
@@ -158,9 +168,15 @@ void on_input(const InputEvent& ev){
         }
     }                                   // in modul canonic secventele de sageti se ignora
     bool ready = !rx_empty() || eof_pending;
+    int sig = pending_sig;
+    pending_sig = 0;
+    uint64_t pgid = fg_pgid;
     lock.unlock_irqrestore(flags);
     if(ready){
         readq.wake_all();
+    }
+    if(sig && pgid){
+        signal_send_pgrp(pgid, sig);
     }
 }
 
@@ -196,7 +212,10 @@ int64_t tty_read(void* buf, uint64_t len, bool nonblock){
             lock.unlock_irqrestore(flags);
             return -EAGAIN;
         }
-        readq.wait(lock);
+        if(!readq.wait_intr(lock) && rx_empty()){
+            lock.unlock_irqrestore(flags);
+            return -EINTR;
+        }
     }
     bool canon = term.c_lflag & TTY_ICANON;
     uint64_t n = 0;
@@ -241,4 +260,30 @@ void tty_get_winsize(KWinsize& w){
 
 uint64_t tty_rx_count(){
     return rx_total;
+}
+
+void tty_set_pgrp(uint64_t pgid){
+    __atomic_store_n(&fg_pgid, pgid, __ATOMIC_RELEASE);
+}
+
+uint64_t tty_get_pgrp(){
+    return __atomic_load_n(&fg_pgid, __ATOMIC_ACQUIRE);
+}
+
+void tty_inject(const char* s, uint64_t n){
+    uint64_t flags = lock.lock_irqsave();
+    for(uint64_t i = 0; i < n; i++){
+        input_byte((uint8_t)s[i]);
+    }
+    bool ready = !rx_empty() || eof_pending;
+    int sig = pending_sig;
+    pending_sig = 0;
+    uint64_t pgid = fg_pgid;
+    lock.unlock_irqrestore(flags);
+    if(ready){
+        readq.wake_all();
+    }
+    if(sig && pgid){
+        signal_send_pgrp(pgid, sig);
+    }
 }

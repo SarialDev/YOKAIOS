@@ -1,5 +1,6 @@
 #include "proc/process.h"
 #include "uapi/syscall_nr.h"
+#include "proc/signal.h"
 
 namespace {
 
@@ -55,6 +56,17 @@ int64_t process_waitpid(int64_t pid, int* status, int options){
             lock.unlock_irqrestore(flags);
             return 0;
         }
-        self->child_exit.wait(lock);
+        // Un semnal trezeste asteptarea: dupa ce reverificam copiii, -EINTR (SA_RESTART o reia)
+        if(!self->child_exit.wait_intr(lock)){
+            bool ready = false;
+            for(ListLink* l = self->children.next; l != &self->children && !ready; l = l->next){
+                Process* c = sibling_of(l);
+                ready = (pid == -1 || (int64_t)c->pid == pid) && c->state == ProcState::ZOMBIE;
+            }
+            if(!ready){
+                lock.unlock_irqrestore(flags);
+                return -EINTR;
+            }
+        }
     }
 }

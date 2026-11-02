@@ -4,6 +4,7 @@
 #include "lib/kprintf.h"
 #include "init.h"
 #include "arch/x86_64/percpu.h"
+#include "proc/process.h"
 
 extern "C" char _kernel_start[];
 extern "C" char _rodata_start[];
@@ -37,14 +38,25 @@ void page_fault(InterruptFrame* f){
     uint64_t addr = read_cr2();
     uint64_t err = f->error;
     AddressSpace as = current_as();
-    if(vma_fault(as, addr, err)){
+    // Aducerea unei pagini din fisier poate bloca: cu intreruperile pornite daca erau pornite la fault (mereu in user)
+    bool irq_on = f->rflags & (1UL << 9);
+    if(irq_on){
+        __asm__ volatile("sti");
+    }
+    bool ok = vma_fault(as, addr, err);
+    __asm__ volatile("cli");
+    if(ok){
         return;
     }
     const char* cause = err & PF_ERR_PRESENT ? "violare de protectie" : "pagina nemapata";
     if(err & PF_ERR_USER){
-        // interrupt_dispatch omoara procesul inainte de intoarcerea in ring 3 (pe acelasi CPU)
+        // interrupt_dispatch livreaza SIGSEGV (handler sau moarte) inainte de intoarcerea in ring 3 (pe acelasi CPU)
         this_cpu()->kill_pending = true;
-        kprintf("page fault user: %s la %lx (%s)\n", access_kind(err), addr, cause);
+        this_cpu()->fault_addr = addr;
+        Process* p = process_current();
+        if(!p || p->sig.act[SIGSEGV].handler <= SIG_IGN){
+            kprintf("page fault user: %s la %lx (%s)\n", access_kind(err), addr, cause);
+        }
         return;
     }
     panic_frame(f, "page fault in kernel: %s la %lx (%s) [P=%d W=%d U=%d I=%d]",
@@ -69,10 +81,6 @@ bool check_range(uint64_t start, uint64_t end, uint64_t want){
 void fault_init(){
     irq_register(VEC_PF, page_fault);
     kprintf("[OK] pagefault\n");
-}
-
-bool vma_fault(AddressSpace&, uint64_t, uint64_t){
-    return false;
 }
 
 bool fault_kill_pending(){

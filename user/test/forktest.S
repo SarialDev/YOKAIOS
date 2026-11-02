@@ -133,7 +133,14 @@ _start:
     jne fail_wait
     cmpl $(WAKE_CODE << 8), status(%rip)
     jne fail_status
-    /* Fara cititori, scrierea da EPIPE */
+    /* Fara cititori, scrierea da EPIPE (cu SIGPIPE ignorat; implicit ar omori procesul) */
+    movl $SIGPIPE, %edi
+    leaq sigign(%rip), %rsi
+    xorl %edx, %edx
+    movl $8, %r10d
+    SYS SYS_RT_SIGACTION
+    testq %rax, %rax
+    jnz fail_epipe
     movl %r13d, %edi
     SYS SYS_CLOSE
     movl %r14d, %edi
@@ -259,6 +266,8 @@ hello_envp:
 data_word:
     .quad 0x1234
 
+.align 8
+sigign: .quad SIG_IGN, 0, 0, 0      /* struct kernel_sigaction: handler, flags, restorer, mask */
 .section .bss
 .balign 8
 fds:

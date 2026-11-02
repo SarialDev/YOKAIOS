@@ -6,14 +6,10 @@
 #include "core/panic.h"
 #include "lib/kprintf.h"
 #include "boot/multiboot2.h"
+#include "mm/vma.h"
 #include "lib/new.h"
 
 namespace {
-
-// Semnalul echivalent pentru codul de iesire al unui proces omorat (128 + semnal, ca in shell)
-const int SIGILL = 4;
-const int SIGFPE = 8;
-const int SIGSEGV = 11;
 
 struct ExitRecord {
     uint64_t pid;
@@ -45,20 +41,14 @@ void link_remove(ListLink& l){
 }
 
 
-int kill_signal(uint64_t vector){
-    switch(vector){
-        case 0: return SIGFPE;      // #DE
-        case 6: return SIGILL;      // #UD
-        default: return SIGSEGV;
-    }
-}
-
 [[noreturn]] void exit_with(int code, int status){
     Task* t = task_current();
     Process* p = t->proc;
     if(!p){
         panic("process_exit: task-ul %lu (%s) nu e un proces", t->tid, t->name);
     }
+    // Zonele MAP_SHARED murdare se scriu inapoi cat timp fisierele sunt inca deschise si paginile mapate
+    vma_exit(p);
     // Inchiderea capetelor de pipe poate trezi alte procese, deci in afara lock-ului
     fd_close_all(p->fds);
     vfs_path_release(p->cwd);
@@ -89,6 +79,7 @@ int kill_signal(uint64_t vector){
     p->state = ProcState::ZOMBIE;
     if(p->parent){
         p->parent->child_exit.wake_all();
+        signal_post_locked(p->parent, SIGCHLD);
     }
     tree_lock.unlock_irqrestore(flags);
     while(orphans.next != &orphans){
@@ -108,6 +99,7 @@ Process* process_create(Task* main, Process* parent){
     }
     Process* p = new (mem) Process();
     p->pid = main->tid;
+    p->pgid = p->pid;
     p->state = ProcState::ALIVE;
     p->main = main;
     p->children.prev = p->children.next = &p->children;
@@ -134,6 +126,7 @@ void process_abort(Process* p){
     }
     fd_close_all(p->fds);
     vfs_path_release(p->cwd);
+    vma_list_free(p->vmas);
     if(p->main){
         p->main->proc = nullptr;
     }
@@ -141,6 +134,7 @@ void process_abort(Process* p){
 }
 
 void process_free(Process* p){
+    vma_list_free(p->vmas);
     p->~Process();
     kfree(p);
     __atomic_fetch_sub(&live_count, 1, __ATOMIC_RELAXED);
@@ -184,61 +178,9 @@ void process_exit(int code){
     exit_with(code, W_EXITCODE(code));
 }
 
-void process_kill(InterruptFrame* f){
-    Task* t = task_current();
-    kprintf("proces %lu (%s) omorat: %s la rip=%lx\n", t->pid, t->name, exception_name(f->vector), f->rip);
-    int sig = kill_signal(f->vector);
+void process_die(int sig){
+    __asm__ volatile("sti");
     exit_with(128 + sig, sig);
-}
-
-namespace {
-
-struct SignalReq {
-    int sig;
-    int result;
-};
-
-void signal_visit(Task* t, void* arg){
-    SignalReq* r = (SignalReq*)arg;
-    SpinlockGuard lock(tree_lock);
-    Process* p = t->proc;
-    if(!p){
-        r->result = -EPERM;
-    } else if(p->state != ProcState::ALIVE){
-        r->result = -ESRCH;
-    } else {
-        if(r->sig && !p->kill_sig){
-            p->kill_sig = r->sig;
-        }
-        r->result = 0;
-    }
-}
-
-}
-
-int process_signal(uint64_t pid, int sig){
-    if(sig < 0 || sig >= NSIG){
-        return -EINVAL;
-    }
-    SignalReq req = {sig, -ESRCH};
-    if(!task_visit(pid, signal_visit, &req)){
-        return -ESRCH;
-    }
-    return req.result;
-}
-
-bool process_kill_pending(){
-    Process* p = task_current()->proc;
-    return p && p->kill_sig;
-}
-
-void process_check_kill(){
-    Process* p = task_current()->proc;
-    if(p && p->kill_sig){
-        int sig = p->kill_sig;
-        __asm__ volatile("sti");
-        exit_with(128 + sig, sig);
-    }
 }
 
 void process_task_destroyed(Task* t){

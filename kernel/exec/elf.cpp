@@ -8,6 +8,8 @@
 #include "lib/kprintf.h"
 #include "lib/string.h"
 #include "proc/process.h"
+#include "proc/signal.h"
+#include "mm/vma.h"
 #include "irqlock.h"
 #include "fs/vfs/vfs.h"
 #include "uapi/fs.h"
@@ -61,6 +63,7 @@ struct UserStart {
     uint64_t rip;
     uint64_t rsp;
     uint64_t brk;
+    VmaList vmas;               // zonele noului proces (se muta in Process inainte de pornire)
 };
 
 uint64_t page_down(uint64_t v){
@@ -170,6 +173,7 @@ int64_t elf_load(AddressSpace& as, const uint8_t* data, uint64_t size, ElfImage&
     bool entry_ok = false;
     img.phdr = 0;
     img.end = 0;
+    img.nseg = 0;
     for(uint16_t i = 0; i < h->phnum; i++){
         const Elf64Phdr& p = ph[i];
         if(p.type != PT_LOAD || p.memsz == 0){
@@ -179,7 +183,12 @@ int64_t elf_load(AddressSpace& as, const uint8_t* data, uint64_t size, ElfImage&
            !user_range(p.vaddr, p.memsz) || (p.vaddr & (PAGE_4K - 1)) != (p.offset & (PAGE_4K - 1))){
             return -EINVAL;
         }
+        if(img.nseg == ELF_MAX_SEGS){
+            return -EINVAL;
+        }
         uint64_t flags = (p.flags & PF_W ? PTE_RW : 0) | (p.flags & PF_X ? 0 : PTE_NX);
+        img.seg[img.nseg++] = ElfSeg{page_down(p.vaddr), page_up(p.vaddr + p.memsz),
+                                     PROT_READ | (p.flags & PF_W ? PROT_WRITE : 0u) | (p.flags & PF_X ? PROT_EXEC : 0u)};
         for(uint64_t v = page_down(p.vaddr); v < page_up(p.vaddr + p.memsz); v += PAGE_4K){
             if(!map_user_page(as, v, flags)){
                 return -EFAULT;
@@ -268,6 +277,43 @@ uint64_t elf_setup_stack(AddressSpace& as, const ElfImage& img, const char* cons
 
 namespace {
 
+// VMA-urile unui proces proaspat incarcat: segmentele ELF (deja mapate), stiva (restul vine la cerere) si trambulina
+int build_vmas(VmaList& l, const ElfImage& img){
+    ElfSeg seg[ELF_MAX_SEGS];
+    int n = img.nseg;
+    for(int i = 0; i < n; i++){
+        seg[i] = img.seg[i];
+    }
+    for(int i = 1; i < n; i++){                 // sortare prin insertie dupa start
+        ElfSeg x = seg[i];
+        int j = i - 1;
+        for(; j >= 0 && seg[j].start > x.start; j--){
+            seg[j + 1] = seg[j];
+        }
+        seg[j + 1] = x;
+    }
+    for(int i = 0; i < n; i++){
+        if(i > 0 && seg[i].start < seg[i - 1].end){
+            // Doua segmente in aceeasi pagina: pagina ramane la primul, cu drepturile unite
+            seg[i - 1].prot |= seg[i].prot;
+            seg[i].start = seg[i - 1].end;
+        }
+        if(seg[i].start >= seg[i].end){
+            continue;
+        }
+        if(vma_insert(l, seg[i].start, seg[i].end, seg[i].prot, MAP_PRIVATE | MAP_ANONYMOUS, nullptr, 0)){
+            return -ENOMEM;
+        }
+    }
+    if(vma_insert(l, USER_STACK_TOP - USER_STACK_MAX, USER_STACK_TOP, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS | VMA_STACK, nullptr, 0) ||
+       vma_insert(l, SIGTRAMP_ADDR, SIGTRAMP_ADDR + PAGE_4K, PROT_READ | PROT_EXEC,
+                  MAP_PRIVATE | MAP_ANONYMOUS | VMA_SYSTEM, nullptr, 0)){
+        return -ENOMEM;
+    }
+    return 0;
+}
+
 // Continutul fisierului obisnuit path (relativ la base) intr-un buffer kmalloc; nullptr si -errno in err
 uint8_t* read_file(const Path& base, const char* path, uint64_t& size, int64_t& err){
     File* f;
@@ -323,6 +369,12 @@ AddressSpace* load_path(const Path& base, const char* path, const char* const* a
         err = -ENOEXEC;
     }
     uint64_t rsp = err ? 0 : elf_setup_stack(*as, img, argv, envp);
+    start.vmas = VmaList{};
+    if(rsp && (!signal_map_trampoline(*as) || build_vmas(start.vmas, img))){
+        vma_list_free(start.vmas);
+        rsp = 0;
+        err = -ENOMEM;
+    }
     if(!rsp){
         err = err ? err : -E2BIG;
         if(as->pml4_phys){
@@ -341,6 +393,9 @@ AddressSpace* load_path(const Path& base, const char* path, const char* const* a
 
 uint64_t exec_spawn(const char* path, const char* const* argv, const char* const* envp){
     UserStart* start = (UserStart*)kmalloc(sizeof(UserStart));
+    if(start){
+        start->vmas = VmaList{};
+    }
     int64_t err = -ENOMEM;
     AddressSpace* as = start ? load_path(Path{}, path, argv, envp, *start, err) : nullptr;
     Task* t = as ? task_create_kernel(base_name(path), user_thread, start) : nullptr;
@@ -351,10 +406,14 @@ uint64_t exec_spawn(const char* path, const char* const* argv, const char* const
     }
     if(p){
         p->brk_base = p->brk_cur = start->brk;
-        p->mmap_next = MMAP_BASE;
+        p->vmas = start->vmas;
+        start->vmas = VmaList{};
     }
     if(!p){
         kprintf("exec: \"%s\" nu a putut fi incarcat (%ld)\n", path, err ? err : (int64_t)-ENOMEM);
+        if(start){
+            vma_list_free(start->vmas);
+        }
         if(t){
             task_destroy(t);
         } else if(as){
@@ -381,6 +440,13 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
     }
     // De aici nu mai exista cale de intoarcere: imaginea veche dispare
     Task* t = task_current();
+    if(t->proc){
+        vma_exit(t->proc);                      // MAP_SHARED murdar se scrie inapoi cat timp vechiul spatiu e activ
+        t->proc->vmas = start.vmas;
+        signal_exec(t->proc);
+    } else {
+        vma_list_free(start.vmas);
+    }
     AddressSpace* old = t->as;
     {
         IrqLock lock;
@@ -399,7 +465,6 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
     t->name[i] = 0;
     if(t->proc){
         t->proc->brk_base = t->proc->brk_cur = start.brk;
-        t->proc->mmap_next = MMAP_BASE;
         process_set_name(t->proc, name);
         process_set_cmdline(t->proc, argv);
     }
