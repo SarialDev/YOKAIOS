@@ -55,6 +55,11 @@ STEPS = [
     ("print('alive-lua'){ret}", "alive-lua", 1),
     ("os.exit(7){ret}", None, 0),
     ("echo lua-st-$?{ret}", "lua-st-7", 1),
+    ("ypkg install /usr/share/ypkg/hello.yokai{ret}", "instalat hello 1.0.0 (2 fisiere)", 1),   # ypkg pe radacina read-only: /var, /opt = tmpfs
+    ("ypkg run hello pachet{ret}", "  arg 1 = \"pachet\"", 1),                 # pachetul instalat ruleaza
+    ("/opt/hello/bin/hello{ret}", "salut de la hello 1.0.0 (pachet .yokai), argc=1", 1),
+    ("ypkg list | grep hello{ret}", "re:^hello\\s+1\\.0\\.0\\s", 1),
+    ("ypkg remove hello; ls /opt{ret}", "scos hello (2 fisiere)", 1),
     ("echo sync-last{ret}", "sync-last", 1),
     ("exit{ret}", None, 0),
 ]
@@ -67,6 +72,7 @@ CHECKS = [
     ("abc", 1), ("xq", 1), ("bcde", 1), ("tab-ok /etc/os-release", 1),
     ("Bine ai venit pe YokaiOS.", 1), ("a  b c ok d e", 1), ("st-1", 1), ("st-127", 1), ("yes-or", 1),
     ("cc-ok", 1), ("spin: pornit", 1), ("st-130", 1), ("sync-last", 1),
+    ("instalat hello 1.0.0 (2 fisiere)", 1), ("scos hello (2 fisiere)", 1),
 ]
 FORBIDDEN = ["nope", "no-and"]
 # Substringuri care trebuie sa apara (prompt-ul cu cwd-ul curent, lista de la Tab)

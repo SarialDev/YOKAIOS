@@ -1,0 +1,3 @@
+[OK] ypkgtest
+[OK] test_ypkg
+[OK] boot

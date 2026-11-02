@@ -149,3 +149,5 @@ libctest: atexit ok
 [OK] test_lua
 [OK] mmtest
 [OK] test_vm
+[OK] ypkgtest
+[OK] test_ypkg

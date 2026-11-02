@@ -1,5 +1,5 @@
 /* /sbin/init: primul proces user (pornit de kernel cu stdio pe terminal).
- * Monteaza /dev /tmp /run /proc (daca nu sunt deja montate), pune mediul de baza, porneste ysh pe consola
+ * Monteaza /dev /tmp /run /proc (daca nu sunt deja montate; /var si /opt ca tmpfs cat timp radacina e read-only), pune mediul de baza, porneste ysh pe consola
  * si aduna zombie-ii (wait). Daca ysh iese, il reporneste; cu `init -1` (teste) se opreste odata cu el. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +31,24 @@ static int is_mounted(const char *target){
     }
     fclose(f);
     return found;
+}
+
+// Radacina e montata read-only (initrd)? Linia din /proc/mounts: "<sursa> / <tip> ro 0 0"
+static int root_is_readonly(void){
+    FILE *f = fopen("/proc/mounts", "r");
+    if(!f){
+        return 0;
+    }
+    char line[256];
+    int ro = 0;
+    while(fgets(line, sizeof(line), f)){
+        char *sp = strchr(line, ' ');
+        if(sp && sp[1] == '/' && sp[2] == ' '){
+            ro = strstr(sp + 3, " ro ") != NULL;
+        }
+    }
+    fclose(f);
+    return ro;
 }
 
 static void mount_fs(const char *source, const char *target, const char *type, const char *data){
@@ -79,6 +97,12 @@ int main(int argc, char **argv){
     mount_fs("devfs", "/dev", "devfs", NULL);
     mount_fs("tmpfs", "/tmp", "tmpfs", "mode=1777");
     mount_fs("tmpfs", "/run", "tmpfs", "mode=0755");
+    // Radacina initrd e read-only: /var (baza ypkg) si /opt (pachete .yokai) primesc tmpfs, ca sa se poata instala pachete
+    // (se pierd la repornire). Cu radacina pe disc scriibil, raman cele de pe disc
+    if(root_is_readonly()){
+        mount_fs("tmpfs", "/var", "tmpfs", "mode=0755");
+        mount_fs("tmpfs", "/opt", "tmpfs", "mode=0755");
+    }
 
     setenv("PATH", "/bin:/sbin", 0);
     setenv("HOME", "/root", 0);

@@ -75,7 +75,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -159,13 +159,32 @@ $(BUILD)/usbin/%.elf: user/sbin/%.c $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
 	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
 
-$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) Makefile
+# Pachete .yokai (T8.4): user/pkg/<nume>/{manifest.toml, root/, *.c}; fiecare *.c se compileaza in root/opt/<nume>/bin/;
+# tools/mkyokai pune hash-urile in manifest si face arhiva tar. Ajung in initrd la /usr/share/ypkg/<nume>.yokai
+PKG_NAMES   := $(notdir $(patsubst %/,%,$(wildcard user/pkg/*/)))
+PKG_FILES   := $(shell find user/pkg -type f 2>/dev/null)
+PKG_YOKAI   := $(patsubst %,$(BUILD)/pkg/%.yokai,$(PKG_NAMES))
+
+$(BUILD)/pkg/%.yokai: tools/mkyokai $(PKG_FILES) $(SYSROOT)/.installed
+	rm -rf $(BUILD)/pkgstage/$*
+	mkdir -p $(BUILD)/pkgstage/$*
+	cp user/pkg/$*/manifest.toml $(BUILD)/pkgstage/$*/
+	cp -r user/pkg/$*/root $(BUILD)/pkgstage/$*/root
+	for c in user/pkg/$*/*.c; do \
+	    [ -f $$c ] || continue; \
+	    mkdir -p $(BUILD)/pkgstage/$*/root/opt/$*/bin; \
+	    $(UCC) -O2 -Wall -Wextra -Werror -o $(BUILD)/pkgstage/$*/root/opt/$*/bin/$$(basename $$c .c) $$c || exit 1; \
+	done
+	python3 tools/mkyokai build $(BUILD)/pkgstage/$* -o $@
+
+$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PKG_YOKAI) Makefile
 	rm -rf $(ROOTFS)
 	mkdir -p $(addprefix $(ROOTFS)/,$(ROOT_DIRS))
 	cp -r rootfs/. $(ROOTFS)/
 	for f in $(USER_ELFS) $(BIN_ELFS); do cp $$f $(ROOTFS)/bin/$$(basename $$f .elf); done
 	for f in $(SBIN_ELFS); do cp $$f $(ROOTFS)/sbin/$$(basename $$f .elf); done
 	mkdir -p $(ROOTFS)/usr/share/lua && cp $(LUA_SHARE) $(ROOTFS)/usr/share/lua/
+	mkdir -p $(ROOTFS)/usr/share/ypkg && cp $(PKG_YOKAI) $(ROOTFS)/usr/share/ypkg/
 	ln -s ../proc/mounts $(ROOTFS)/etc/mtab
 	find $(ROOTFS) -type d -exec chmod 755 {} +
 	find $(ROOTFS) -type f -exec chmod 644 {} +
@@ -235,6 +254,13 @@ $(BUILD)/panic-vm.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-vm: $(BUILD)/panic-vm.iso
 	EXPECT_FILE=tests/expect-vm.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/vm.log
+
+# pachete .yokai (T8.4): numai test=ypkg (/bin/ypkgtest instaleaza hello.yokai, facut de tools/mkyokai, intr-o radacina in /tmp)
+$(BUILD)/panic-ypkg.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-ypkg: $(BUILD)/panic-ypkg.iso
+	python3 tools/mkyokai verify $(BUILD)/pkg/hello.yokai
+	EXPECT_FILE=tests/expect-ypkg.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ypkg.log
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log

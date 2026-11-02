@@ -1,0 +1,7 @@
+format = 1
+name = "hello-extra"
+version = "2.1.0"
+description = "Date suplimentare pentru hello (testeaza dependentele)"
+deps = ["hello >= 1.0"]
+permissions = []
+signature = ""

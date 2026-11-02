@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""mkyokai: construieste si verifica pachete .yokai pe gazda (vezi docs/PACKAGE_FORMAT.md).
+
+  mkyokai build <director> [-o iesire.yokai]   <director>/manifest.toml (sablon, fara [files]) + <director>/root/ (continutul)
+  mkyokai verify <fisier.yokai>                verifica arhiva si hash-urile
+  mkyokai info <fisier.yokai>                  tipareste manifestul
+
+Rezultatul e determinist (mtime = SOURCE_DATE_EPOCH sau 0, uid/gid 0, ordine alfabetica).
+"""
+import hashlib
+import io
+import os
+import re
+import sys
+import tarfile
+
+ALLOWED_TOP = {"bin", "sbin", "lib", "usr", "etc", "opt", "var", "home"}
+DB_REL = "var/lib/ypkg"
+NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,63}$")
+VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+~-]{0,63}$")
+FILE_RE = re.compile(r'^"((?:[^"\\]|\\.)*)"\s*=\s*\{\s*sha256\s*=\s*"([0-9a-f]{64})"\s*,\s*size\s*=\s*(\d+)\s*,\s*mode\s*=\s*0o([0-7]+)\s*\}\s*$')
+
+
+def die(msg):
+    print("mkyokai: " + msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def toml_str(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def check_path(rel):
+    parts = rel.split("/")
+    if not rel or rel.startswith("/") or any(p in ("", ".", "..") for p in parts):
+        die("cale invalida: %r" % rel)
+    if parts[0] not in ALLOWED_TOP:
+        die("cale nepermisa (%s): primul director trebuie sa fie unul din %s" % (rel, ", ".join(sorted(ALLOWED_TOP))))
+    if rel == DB_REL or rel.startswith(DB_REL + "/"):
+        die("cale nepermisa (baza de date ypkg): " + rel)
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in rel):
+        die("caractere de control in cale: %r" % rel)
+
+
+def scalar(text, key):
+    m = re.search(r'^%s\s*=\s*"((?:[^"\\]|\\.)*)"' % re.escape(key), text, re.M)
+    return m.group(1) if m else None
+
+
+def build(pkgdir, out):
+    mpath = os.path.join(pkgdir, "manifest.toml")
+    rootdir = os.path.join(pkgdir, "root")
+    if not os.path.isfile(mpath) or not os.path.isdir(rootdir):
+        die("%s trebuie sa contina manifest.toml si root/" % pkgdir)
+    with open(mpath, encoding="utf-8") as f:
+        text = f.read().replace("\r\n", "\n")
+    if re.search(r"^\s*\[", text, re.M) and re.search(r"^\s*\[files\]", text, re.M):
+        die("sablonul manifest.toml nu are voie sa contina [files] (se genereaza)")
+    if re.search(r"^\s*\[", text, re.M):
+        die("sablonul manifest.toml: sectiunile nu sunt permise, doar chei la nivel superior")
+    try:
+        import tomllib  # Python >= 3.11
+        data = tomllib.loads(text)
+    except ImportError:
+        data = None
+    except Exception as e:  # tomllib.TOMLDecodeError
+        die("manifest.toml invalid: %s" % e)
+    name = data.get("name") if data else scalar(text, "name")
+    version = data.get("version") if data else scalar(text, "version")
+    if not name or not NAME_RE.match(name):
+        die("name lipseste sau e invalid")
+    if not version or not VERSION_RE.match(version):
+        die("version lipseste sau e invalid")
+    if not re.search(r"^format\s*=\s*1\s*(#.*)?$", text, re.M):
+        die("manifest.toml: lipseste format = 1")
+    if not re.search(r"^signature\s*=", text, re.M):
+        text = text.rstrip("\n") + '\nsignature = ""\n'   # semnatura se adauga in T8.5
+    entry = data.get("entry") if data else scalar(text, "entry")
+
+    entries = []   # (rel, abspath, is_dir)
+    for dirpath, dirnames, filenames in os.walk(rootdir):
+        dirnames.sort()
+        reldir = os.path.relpath(dirpath, rootdir).replace(os.sep, "/")
+        if reldir != ".":
+            check_path(reldir)
+            entries.append((reldir, dirpath, True))
+        for fn in sorted(filenames):
+            ap = os.path.join(dirpath, fn)
+            rel = fn if reldir == "." else reldir + "/" + fn
+            if os.path.islink(ap) or not os.path.isfile(ap):
+                die("doar fisiere si directoare obisnuite sunt permise: " + rel)
+            check_path(rel)
+            entries.append((rel, ap, False))
+    entries.sort(key=lambda e: e[0])
+    if not any(not d for _, _, d in entries):
+        die("root/ nu contine niciun fisier")
+
+    lines, payload = [], []
+    for rel, ap, is_dir in entries:
+        if is_dir:
+            payload.append((rel, ap, None, 0o755))
+            continue
+        with open(ap, "rb") as f:
+            blob = f.read()
+        mode = 0o755 if os.stat(ap).st_mode & 0o111 else 0o644
+        lines.append('%s = { sha256 = "%s", size = %d, mode = 0o%o }' % (
+            toml_str(rel), hashlib.sha256(blob).hexdigest(), len(blob), mode))
+        payload.append((rel, ap, blob, mode))
+    if entry is not None:
+        erel = entry.lstrip("/")
+        if erel not in {r for r, _, b, _ in payload if b is not None}:
+            die("entry (%s) nu e un fisier din root/" % entry)
+    manifest = (text.rstrip("\n") + "\n\n[files]\n" + "\n".join(lines) + "\n").encode("utf-8")
+
+    mtime = int(os.environ.get("SOURCE_DATE_EPOCH", "0"))
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    with tarfile.open(out, "w", format=tarfile.USTAR_FORMAT) as tf:
+        def add(rel, mode, blob):
+            ti = tarfile.TarInfo(rel)
+            ti.mtime, ti.uid, ti.gid, ti.uname, ti.gname, ti.mode = mtime, 0, 0, "", "", mode
+            if blob is None:
+                ti.type = tarfile.DIRTYPE
+                tf.addfile(ti)
+            else:
+                ti.size = len(blob)
+                tf.addfile(ti, io.BytesIO(blob))
+        add("manifest.toml", 0o644, manifest)
+        for rel, ap, blob, mode in payload:
+            add(rel, mode, blob)
+    print("mkyokai: %s %s -> %s (%d fisiere)" % (name, version, out, len(lines)))
+
+
+def read_package(path):
+    try:
+        tf = tarfile.open(path, "r:")
+    except (tarfile.TarError, OSError) as e:
+        die("%s: %s" % (path, e))
+    members = tf.getmembers()
+    if not members or members[0].name != "manifest.toml":
+        die("prima intrare trebuie sa fie manifest.toml")
+    mtext = tf.extractfile(members[0]).read().decode("utf-8")
+    declared = {}
+    in_files = False
+    for ln in mtext.split("\n"):
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith("["):
+            in_files = s == "[files]"
+            continue
+        if in_files:
+            m = FILE_RE.match(s)
+            if not m:
+                die("linie [files] neinteleasa: " + s)
+            declared[m.group(1)] = (m.group(2), int(m.group(3)), int(m.group(4), 8))
+    return tf, members[1:], mtext, declared
+
+
+def verify(path):
+    tf, members, mtext, declared = read_package(path)
+    seen = set()
+    for m in members:
+        if m.isdir():
+            continue
+        if not m.isfile():
+            die("tip de intrare nesuportat: " + m.name)
+        if m.name not in declared:
+            die("fisier care nu e in manifest: " + m.name)
+        if m.name in seen:
+            die("fisier repetat: " + m.name)
+        seen.add(m.name)
+        blob = tf.extractfile(m).read()
+        sha, size, _mode = declared[m.name]
+        if len(blob) != size or hashlib.sha256(blob).hexdigest() != sha:
+            die("hash sau marime gresita: " + m.name)
+    missing = set(declared) - seen
+    if missing:
+        die("lipsesc din arhiva: " + ", ".join(sorted(missing)))
+    print("ok: %s %s (%d fisiere)" % (scalar(mtext, "name"), scalar(mtext, "version"), len(declared)))
+
+
+def main(argv):
+    if len(argv) >= 3 and argv[1] == "build":
+        out = None
+        args = argv[2:]
+        if "-o" in args:
+            i = args.index("-o")
+            out = args[i + 1]
+            del args[i:i + 2]
+        if len(args) != 1:
+            die("uz: mkyokai build <director> [-o iesire.yokai]")
+        pkgdir = args[0].rstrip("/")
+        if out is None:
+            out = os.path.basename(os.path.abspath(pkgdir)) + ".yokai"
+        build(pkgdir, out)
+    elif len(argv) == 3 and argv[1] == "verify":
+        verify(argv[2])
+    elif len(argv) == 3 and argv[1] == "info":
+        _tf, _m, mtext, _d = read_package(argv[2])
+        sys.stdout.write(mtext)
+    else:
+        print(__doc__.strip().split("\n\n")[0] + "\n\n" + "\n".join(__doc__.strip().split("\n")[2:6]), file=sys.stderr)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
