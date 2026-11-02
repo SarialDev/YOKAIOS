@@ -1,4 +1,5 @@
 #include "arch/x86_64/mmio.h"
+#include "core/kaslr.h"
 #include "core/panic.h"
 
 extern "C" uint64_t boot_pdpt[512];
@@ -29,7 +30,7 @@ int find_mapped(uint64_t first, int pages){
 }
 
 uint64_t mmio_pd_phys(){
-    return (uint64_t)mmio_pd - KERNEL_VMA;
+    return kernel_phys(mmio_pd);
 }
 
 void* mmio_map(uint64_t phys, uint64_t size){

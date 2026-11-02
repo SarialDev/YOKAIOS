@@ -155,6 +155,8 @@ libctest: atexit ok
 [OK] test_perm
 [OK] captest
 [OK] test_caps
+[OK] aslrtest
+[OK] test_aslr
 [OK] test_crypto kernel
 [OK] cryptotest
 [OK] test_crypto (SHA-256

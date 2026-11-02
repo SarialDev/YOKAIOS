@@ -451,7 +451,12 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
            range_free(l, addr, addr + len)){
             start = addr;
         } else {
-            start = find_gap(l, len, MMAP_BASE, MMAP_END);
+            // ASLR: de la baza aleasa la exec; daca acolo nu mai e loc, de la inceputul zonei mmap
+            uint64_t base = p->mmap_base >= MMAP_BASE && p->mmap_base < MMAP_END ? p->mmap_base : MMAP_BASE;
+            start = find_gap(l, len, base, MMAP_END);
+            if(!start && base != MMAP_BASE){
+                start = find_gap(l, len, MMAP_BASE, MMAP_END);
+            }
         }
         if(!start){
             return -ENOMEM;

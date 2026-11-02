@@ -408,8 +408,9 @@ void gen_status(Buf& b, const TaskInfo& t, const Maps* m){
     put_c(b, '\n');
 }
 
-void gen_maps(Buf& b, const Maps& m){
-    const uint64_t stack_lo = USER_STACK_TOP - USER_STACK_SIZE;
+void gen_maps(Buf& b, const Maps& m, uint64_t stack_top){
+    const uint64_t stack_hi = stack_top ? stack_top : USER_STACK_TOP;
+    const uint64_t stack_lo = stack_hi - USER_STACK_MAX;
     for(uint64_t i = 0; i < m.count; i++){
         const Region& r = m.r[i];
         uint64_t start = b.len;
@@ -420,7 +421,7 @@ void gen_maps(Buf& b, const Maps& m){
         put_c(b, r.w ? 'w' : '-');
         put_c(b, r.x ? 'x' : '-');
         put(b, "p 00000000 00:00 0");
-        if(r.start >= stack_lo && r.end <= USER_STACK_TOP){
+        if(r.start >= stack_lo && r.end <= stack_hi){
             pad_to(b, start, 73);
             put(b, "[stack]");
         }
@@ -473,7 +474,7 @@ int generate(Kind kind, uint64_t pid, Buf& b){
         } else if(kind == Kind::PidCmdline){
             put_n(b, t->cmdline, t->cmdline_len);
         } else if(m){
-            gen_maps(b, *m);
+            gen_maps(b, *m, t->stack_top);
         }
         kfree(m);
         kfree(t);

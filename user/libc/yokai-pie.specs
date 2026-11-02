@@ -1,0 +1,20 @@
+*cpp:
++ -nostdinc -isystem %R/include
+
+*startfile:
+%R/lib/crt0.o
+
+*endfile:
+%{!r:}
+
+*libgcc:
+%{!r:}
+
+*lib:
+%R/lib/libc.a
+
+*link:
+-m elf_x86_64 -static -pie --no-dynamic-linker -z text -e _start -z max-page-size=0x1000 -z separate-code -z noexecstack --build-id=none
+
+*self_spec:
++ -static-pie -ffreestanding -fno-stack-protector -fcf-protection=none -fPIE -fno-asynchronous-unwind-tables -fno-math-errno -march=x86-64

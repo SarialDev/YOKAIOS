@@ -1,4 +1,5 @@
 #include "acpi/acpi.h"
+#include "arch/x86_64/paging.h"
 #include "arch/x86_64/mmio.h"
 #include "boot/multiboot2.h"
 #include "lib/kprintf.h"
@@ -37,14 +38,14 @@ const uint8_t MADT_IOAPIC = 1;
 const uint8_t MADT_OVERRIDE = 2;
 const uint8_t MADT_LAPIC_ADDR = 5;
 
-const uint64_t DIRECT_MAP_LIMIT = 1UL << 30;   // boot.S mapeaza 0-1 GiB la KERNEL_VMA
+const uint64_t DIRECT_MAP_LIMIT = 1UL << 30;   // boot.S mapeaza 0-1 GiB la HHDM_BASE
 
 const AcpiHeader* root = nullptr;
 bool use_xsdt = false;
 
 const void* phys_to_virt(uint64_t phys, uint64_t size){
     if(phys + size <= DIRECT_MAP_LIMIT){
-        return (const void*)(KERNEL_VMA + phys);
+        return (const void*)(HHDM_BASE + phys);
     }
     return mmio_map(phys, size);
 }
@@ -75,7 +76,7 @@ bool rsdp_valid(const Rsdp* r){
 
 const Rsdp* scan_rsdp(uint64_t start, uint64_t len){
     for(uint64_t a = start; a < start + len; a += 16){
-        const Rsdp* r = (const Rsdp*)(KERNEL_VMA + a);
+        const Rsdp* r = (const Rsdp*)(HHDM_BASE + a);
         if(rsdp_valid(r)){
             return r;
         }
@@ -88,7 +89,7 @@ const Rsdp* find_rsdp(){
         return (const Rsdp*)boot_info.rsdp;
     }
     // Fallback: primul KiB din EBDA, apoi zona BIOS 0xE0000-0xFFFFF
-    uint64_t ebda = (uint64_t)*(const uint16_t*)(KERNEL_VMA + 0x40E) << 4;
+    uint64_t ebda = (uint64_t)*(const uint16_t*)(HHDM_BASE + 0x40E) << 4;
     const Rsdp* r = ebda ? scan_rsdp(ebda, 1024) : nullptr;
     return r ? r : scan_rsdp(0xE0000, 0x20000);
 }

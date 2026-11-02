@@ -61,11 +61,16 @@ CRYPTO_SRCS := $(wildcard lib/crypto/*.c)
 CRYPTO_HDRS := $(wildcard lib/crypto/*.h)
 LIBC_OBJS   += $(patsubst lib/crypto/%.c,$(BUILD)/libc/crypto_%.o,$(CRYPTO_SRCS))
 LIBC_HDRS   := $(shell find user/libc/include -type f) $(CRYPTO_HDRS)
-# Userland cu SSE2/x87 (kernelul salveaza starea FPU la comutare, fork si semnale), fara stack protector/PIE/CET
+# Userland cu SSE2/x87 (kernelul salveaza starea FPU la comutare, fork si semnale), fara stack protector/CET.
+# libc e -fPIE: aceeasi libc.a merge si in programe ET_EXEC (yokai.specs) si in static-pie (yokai-pie.specs, ASLR)
 LIBC_FLAGS   = -Ilib -m64 -O2 -g0 -Wall -Wextra -Werror -std=gnu11 -ffreestanding -nostdinc -isystem user/libc/include \
-               -fno-pic -fno-pie -fno-stack-protector -fcf-protection=none -fno-asynchronous-unwind-tables \
+               -fPIE -fno-stack-protector -fcf-protection=none -fno-asynchronous-unwind-tables \
                -fno-tree-loop-distribute-patterns -fno-math-errno -march=x86-64
 UCC          = $(CC) --sysroot=$(SYSROOT) -specs=$(SYSROOT)/lib/yokai.specs
+# /bin si /sbin sunt static-pie (ET_DYN): kernelul le incarca la o adresa aleatoare (ASLR). USER_PIE=0 = ET_EXEC la 0x400000
+USER_PIE    ?= 1
+UCC_PIE      = $(CC) --sysroot=$(SYSROOT) -specs=$(SYSROOT)/lib/yokai-pie.specs
+UCC_BIN      = $(if $(filter 1,$(USER_PIE)),$(UCC_PIE),$(UCC))
 
 # initrd.tar (ustar) = rootfs/ + layout-ul din blueprint + programele user in /bin; GRUB il incarca ca modul "initrd"
 # si kernelul il monteaza pe "/" cu tarfs (read-only)
@@ -79,7 +84,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-crypto test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -98,8 +103,32 @@ $(BUILD)/%.cpp.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(KERNEL): $(OBJS) boot/linker.ld
-	$(LD) $(LDFLAGS) -o $@ $(OBJS)
+# boot/kaslr.c ruleaza la adresele fizice, inainte ca imaginea sa fie relocata: doar adresare relativa la RIP
+$(BUILD)/boot/kaslr.c.o: CFLAGS += -fpie -mcmodel=small -fno-stack-protector -fno-jump-tables \
+                                   -fno-tree-loop-distribute-patterns -fvisibility=hidden
+
+# KASLR: link in doi pasi cu --emit-relocs. Pasul 1 (tabel gol) da relocarile, tools/kaslr_relocs.py le pune intr-un
+# tabel, pasul 2 il adauga in .kaslr_relocs (dupa _kernel_end, deci nimic nu se muta); verify compara cele doua
+KASLR_PRE = $(BUILD)/kernel.pre.elf
+
+$(BUILD)/kaslr_empty.o:
+	@mkdir -p $(dir $@)
+	printf '.section .kaslr_relocs,"a"\n' | $(CC) -c -x assembler - -o $@
+
+$(KASLR_PRE): $(OBJS) boot/linker.ld $(BUILD)/kaslr_empty.o
+	$(LD) $(LDFLAGS) -q -o $@ $(OBJS) $(BUILD)/kaslr_empty.o
+
+$(BUILD)/kaslr_relocs.bin: $(KASLR_PRE) tools/kaslr_relocs.py
+	python3 tools/kaslr_relocs.py extract $< $@
+
+$(BUILD)/kaslr_relocs.o: $(BUILD)/kaslr_relocs.bin
+	printf '.section .kaslr_relocs,"a"\n.incbin "%s"\n' $< | $(CC) -c -x assembler - -o $@
+
+# GRUB refuza ELF-uri cu sectiuni de relocari: kernel.elf le pastreaza (verify), kernel.bin e fara ele
+$(KERNEL): $(OBJS) boot/linker.ld $(BUILD)/kaslr_relocs.o
+	$(LD) $(LDFLAGS) -q -o $(BUILD)/kernel.elf $(OBJS) $(BUILD)/kaslr_relocs.o
+	python3 tools/kaslr_relocs.py verify $(BUILD)/kernel.elf
+	objcopy -R '.rela.*' $(BUILD)/kernel.elf $@
 
 $(BUILD)/user/%.o: user/test/%.S
 	@mkdir -p $(dir $@)
@@ -136,13 +165,13 @@ $(BUILD)/libc/libc.a: $(LIBC_OBJS)
 	rm -f $@
 	ar rcs $@ $(LIBC_OBJS)
 
-$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h
+$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs user/libc/yokai-pie.specs kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h
 	rm -rf $(SYSROOT)
 	mkdir -p $(SYSROOT)/include/uapi $(SYSROOT)/lib
 	cp -r user/libc/include/. $(SYSROOT)/include/
 	mkdir -p $(SYSROOT)/include/crypto && cp $(CRYPTO_HDRS) $(SYSROOT)/include/crypto/
 	cp kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h $(SYSROOT)/include/uapi/
-	cp $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o user/libc/yokai.specs $(SYSROOT)/lib/
+	cp $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o user/libc/yokai.specs user/libc/yokai-pie.specs $(SYSROOT)/lib/
 	touch $@
 
 sysroot: $(SYSROOT)/.installed
@@ -154,19 +183,19 @@ $(BUILD)/user/%.elf: user/test/%.c $(SYSROOT)/.installed
 
 $(BUILD)/ubin/%.elf: user/bin/%.c $(wildcard user/bin/*.h) $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
-	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
+	$(UCC_BIN) -O2 -Wall -Wextra -Werror -o $@ $<
 
 # Un program din mai multe fisiere: user/bin/<nume>/*.c (+ *.h) -> /bin/<nume>
 define BIN_DIR_RULE
 $$(BUILD)/ubin/$(notdir $(1)).elf: $$(wildcard $(1)/*.c) $$(wildcard $(1)/*.h) $$(SYSROOT)/.installed
 	@mkdir -p $$(dir $$@)
-	$$(UCC) -O2 -Wall -Wextra -Werror -o $$@ $$(wildcard $(1)/*.c)
+	$$(UCC_BIN) -O2 -Wall -Wextra -Werror -o $$@ $$(wildcard $(1)/*.c)
 endef
 $(foreach d,$(BIN_DIRS),$(eval $(call BIN_DIR_RULE,$(d))))
 
 $(BUILD)/usbin/%.elf: user/sbin/%.c $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
-	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
+	$(UCC_BIN) -O2 -Wall -Wextra -Werror -o $@ $<
 
 # Pachete .yokai (T8.4): user/pkg/<nume>/{manifest.toml, root/, *.c}; fiecare *.c se compileaza in root/opt/<nume>/bin/;
 # tools/mkyokai pune hash-urile in manifest si face arhiva tar. Ajung in initrd la /usr/share/ypkg/<nume>.yokai
@@ -287,6 +316,18 @@ $(BUILD)/panic-caps.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-caps: $(BUILD)/panic-caps.iso
 	EXPECT_FILE=tests/expect-caps.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/caps.log
+
+# ASLR + KASLR: test=aslr (verificarile din kernel + /bin/aslrtest static-pie); tests/check_aslr.sh porneste de doua
+# ori acelasi ISO si cere adrese diferite pentru kernel_main si pentru stiva / heap / mmap / codul unui program user
+$(BUILD)/panic-aslr.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-aslr: $(BUILD)/panic-aslr.iso
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/check_aslr.sh $< $(BUILD)/aslr
+
+# aslrtest e static-pie si cand USER_PIE=0
+$(BUILD)/user/aslrtest.elf: user/test/aslrtest.c $(SYSROOT)/.installed
+	@mkdir -p $(dir $@)
+	$(UCC_PIE) -O2 -Wall -Wextra -Werror -o $@ $<
 
 # criptografie (lib/crypto in kernel si in userland): numai test=crypto (vectori RFC 6234 / 4231 / 7914)
 $(BUILD)/panic-crypto.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
@@ -464,8 +505,15 @@ test-rt: $(BUILD)/yokai-rt.iso
 	@echo "test-rt cu: $(RT_ACCEL), $(RT_SMP) CPU"
 	EXPECT_FILE=tests/expect-rt.txt SMP=$(RT_SMP) QEMU_EXTRA="$(RT_ACCEL) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/rt.log
 
-debug: $(ISO)
-	$(QEMU) $(QEMU_FLAGS) -s -S
+# GDB pe :1234 (symbol-file build/kernel.elf): ISO-ul de debug porneste cu "nokaslr", ca adresele sa fie cele din ELF
+$(BUILD)/yokai-debug.iso: $(KERNEL) $(INITRD) boot/grub.cfg
+	@mkdir -p $(BUILD)/iso-debug/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-debug/boot/
+	sed 's|multiboot2 /boot/kernel.bin|& nokaslr|' boot/grub.cfg > $(BUILD)/iso-debug/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-debug 2>/dev/null
+
+debug: $(BUILD)/yokai-debug.iso
+	$(QEMU) $(subst $(ISO),$<,$(QEMU_FLAGS)) -s -S
 
 clean:
 	rm -rf $(BUILD)

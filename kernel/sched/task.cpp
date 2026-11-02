@@ -209,6 +209,7 @@ void fill_info(const Task* t, TaskInfo& out){
     out.cmdline_len = 0;
     out.uid = out.euid = out.suid = out.gid = out.egid = out.sgid = 0;
     out.cap_perm = out.cap_eff = CAP_ALL;
+    out.stack_top = 0;
     memcpy(out.name, t->name, TASK_NAME_LEN);
     if(t->proc){
         Process* p = t->proc;
@@ -227,6 +228,7 @@ void fill_info(const Task* t, TaskInfo& out){
         out.sgid = p->cred.sgid;
         out.cap_perm = p->caps.permitted;
         out.cap_eff = p->caps.effective;
+        out.stack_top = p->stack_top;
         process_tree_lock().unlock_irqrestore(flags);
     }
 }

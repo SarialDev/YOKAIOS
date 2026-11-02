@@ -1,0 +1,3 @@
+[aslr] kernel_main=
+[OK] aslrtest
+[OK] test_aslr

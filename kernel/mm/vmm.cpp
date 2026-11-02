@@ -1,4 +1,5 @@
 #include "mm/vmm.h"
+#include "core/kaslr.h"
 #include "mm/pmm.h"
 #include "mm/buddy.h"
 #include "mm/pageref.h"
@@ -17,13 +18,12 @@ extern "C" char _rodata_start[];
 extern "C" char _data_start[];
 extern "C" char _kernel_end[];
 
-uint64_t phys_map_base = KERNEL_VMA;
+uint64_t phys_map_base = HHDM_BASE;
 uint64_t direct_map_limit = PAGE_1G;
 AddressSpace kernel_as;
 
 namespace {
 
-const uint64_t KERNEL_WINDOW = PAGE_1G;     // KERNEL_VMA + [0, 1 GiB), ca in boot.S
 const uint32_t MSR_EFER = 0xC0000080;
 const uint64_t EFER_NXE = 1UL << 11;
 const uint64_t CR0_WP = 1UL << 16;
@@ -96,9 +96,9 @@ uint64_t walk(const AddressSpace& as, uint64_t virt, uint64_t& size){
 }
 
 uint64_t section_flags(uint64_t phys){
-    uint64_t text = (uint64_t)_kernel_start - KERNEL_VMA;
-    uint64_t rodata = (uint64_t)_rodata_start - KERNEL_VMA;
-    uint64_t data = (uint64_t)_data_start - KERNEL_VMA;
+    uint64_t text = kernel_phys(_kernel_start);
+    uint64_t rodata = kernel_phys(_rodata_start);
+    uint64_t data = kernel_phys(_data_start);
     if(phys >= text && phys < rodata){
         return PTE_PRESENT | PTE_GLOBAL;                    // RX
     }
@@ -108,23 +108,14 @@ uint64_t section_flags(uint64_t phys){
     return KERNEL_RW | nx_bit;                              // .data/.bss si restul ferestrei: RW NX
 }
 
-// Fereastra KERNEL_VMA + [0, 1 GiB): pagini 2 MiB, cu pagini 4 KiB doar unde e imaginea kernelului
+// Imaginea kernelului la KERNEL_VMA + kaslr_offset + phys, phys in [0, _kernel_end) rotunjit la 2 MiB, pagini 4 KiB
+// cu drepturile sectiunii. Restul memoriei fizice se vede doar prin HHDM
 bool map_kernel_window(){
-    uint64_t kstart = (uint64_t)_kernel_start - KERNEL_VMA;
-    uint64_t kend = (uint64_t)_kernel_end - KERNEL_VMA;
-    for(uint64_t phys = 0; phys < KERNEL_WINDOW; phys += PAGE_2M){
-        uint64_t virt = KERNEL_VMA + phys;
-        bool has_kernel = phys < kend && kstart < phys + PAGE_2M;
-        if(!has_kernel){
-            if(!vmm_map(kernel_as, virt, phys, KERNEL_RW | nx_bit | PTE_HUGE)){
-                return false;
-            }
-            continue;
-        }
-        for(uint64_t p = phys; p < phys + PAGE_2M; p += PAGE_4K){
-            if(!vmm_map(kernel_as, KERNEL_VMA + p, p, section_flags(p))){
-                return false;
-            }
+    uint64_t kend = (kernel_phys(_kernel_end) + PAGE_2M - 1) & ~(PAGE_2M - 1);
+    uint64_t base = KERNEL_VMA + kaslr_offset;
+    for(uint64_t p = 0; p < kend; p += PAGE_4K){
+        if(!vmm_map(kernel_as, base + p, p, section_flags(p))){
+            return false;
         }
     }
     return true;

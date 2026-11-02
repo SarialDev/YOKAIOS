@@ -81,6 +81,7 @@ struct TaskInfo {
     uint32_t uid, euid, suid;       // identitatea procesului (0 pentru thread-urile de kernel)
     uint32_t gid, egid, sgid;
     uint64_t cap_perm, cap_eff;     // capabilitati (proc/caps.h); toate pentru thread-urile de kernel
+    uint64_t stack_top;             // varful stivei user (ASLR), 0 = USER_STACK_TOP
 };
 // Task-ul cu tid-ul dat (fara idle); false daca nu exista
 bool task_info(uint64_t tid, TaskInfo& out);

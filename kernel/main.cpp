@@ -71,6 +71,7 @@
 #include "tests/test_coreutils.h"
 #include "tests/test_perm.h"
 #include "tests/test_caps.h"
+#include "tests/test_aslr.h"
 #include "tests/test_crypto.h"
 #include "tests/test_lua.h"
 #include "tests/test_vm.h"
@@ -409,6 +410,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "caps")){
         test_caps_run();
+    }
+    if(test_named(test, "aslr")){
+        test_aslr_run();
     }
     if(test_named(test, "perm")){
         test_perm_run();

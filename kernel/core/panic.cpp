@@ -4,6 +4,7 @@
 #include "boot/multiboot2.h"
 #include "io.h"
 #include "arch/x86_64/smp.h"
+#include "core/kaslr.h"
 
 namespace {
 
@@ -70,6 +71,8 @@ void enter_panic(){
 void print_control_regs(){
     kprintf("CR0=%016lx CR2=%016lx\nCR3=%016lx CR4=%016lx\n",
             read_cr0(), read_cr2(), read_cr3(), read_cr4());
+    // Adresele din stack trace sunt cele de la rulare: adresa din kernel.bin (nm/addr2line) = adresa - offset
+    kprintf("KASLR offset=%lx (%s), kernel la %lx\n", kaslr_offset, kaslr_source(), KERNEL_VMA + kaslr_offset);
 }
 
 // Lantul RBP: [rbp] = rbp-ul apelantului, [rbp+8] = adresa de retur

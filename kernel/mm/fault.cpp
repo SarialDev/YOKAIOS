@@ -1,4 +1,5 @@
 #include "mm/fault.h"
+#include "core/kaslr.h"
 #include "mm/pmm.h"
 #include "core/panic.h"
 #include "lib/kprintf.h"
@@ -96,7 +97,7 @@ void fault_protect_kernel(){
     uint64_t init_end = (uint64_t)_init_end;
     for(uint64_t v = init_start; v < init_end; v += PAGE_SIZE){
         vmm_unmap(kernel_as, v);
-        pmm_free_page(v - KERNEL_VMA);
+        pmm_free_page(kernel_phys((const void*)v));
     }
     for(uint64_t v = init_start; v < init_end; v += PAGE_SIZE){
         if(vmm_translate(kernel_as, v)){

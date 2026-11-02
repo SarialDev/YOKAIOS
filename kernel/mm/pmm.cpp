@@ -1,4 +1,6 @@
 #include "mm/pmm.h"
+#include "core/kaslr.h"
+#include "arch/x86_64/paging.h"
 #include "mm/buddy.h"
 #include "boot/multiboot2.h"
 #include "core/panic.h"
@@ -57,7 +59,7 @@ bool overlaps(uint64_t a_start, uint64_t a_end, uint64_t b_start, uint64_t b_end
 }
 
 bool collides_with_boot_data(uint64_t start, uint64_t end){
-    if(overlaps(start, end, (uint64_t)_kernel_start - KERNEL_VMA, (uint64_t)_kernel_end - KERNEL_VMA)){
+    if(overlaps(start, end, kernel_phys(_kernel_start), kernel_phys(_kernel_end))){
         return true;
     }
     if(overlaps(start, end, boot_info.mbi_phys, boot_info.mbi_phys + boot_info.mbi_size)){
@@ -108,7 +110,7 @@ __init void pmm_init(){
     if(!bitmap_phys){
         panic("pmm: nu gasesc loc pentru bitmap (%lu bytes)", bitmap_size);
     }
-    bitmap = (uint64_t*)(KERNEL_VMA + bitmap_phys);
+    bitmap = (uint64_t*)phys_to_virt(bitmap_phys);
 
     // Totul ocupat, apoi eliberam doar paginile intregi din regiunile disponibile
     for(uint64_t i = 0; i < bitmap_words; i++){
@@ -128,7 +130,7 @@ __init void pmm_init(){
     }
 
     reserve(0, LOW_MEMORY_END);
-    reserve((uint64_t)_kernel_start - KERNEL_VMA, (uint64_t)_kernel_end - KERNEL_VMA);
+    reserve(kernel_phys(_kernel_start), kernel_phys(_kernel_end));
     reserve(boot_info.mbi_phys, boot_info.mbi_phys + boot_info.mbi_size);
     for(uint32_t i = 0; i < boot_info.module_count; i++){
         reserve(boot_info.modules[i].start, boot_info.modules[i].end);

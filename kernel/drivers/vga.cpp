@@ -1,10 +1,11 @@
 #include "drivers/vga.h"
+#include "arch/x86_64/paging.h"
 #include "hal/console.h"
 #include "io.h"
 
 namespace {
 
-uint16_t* const VGA_BUFFER = (uint16_t*)(KERNEL_VMA + 0xB8000);
+uint16_t* const VGA_BUFFER = (uint16_t*)(HHDM_BASE + 0xB8000);
 
 class VgaConsole final : public Console {
 public:

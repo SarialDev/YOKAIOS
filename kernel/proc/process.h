@@ -29,6 +29,8 @@ struct Process {
     Path cwd;                       // dentry == nullptr = radacina VFS; referinta tinuta pana la exit
     uint64_t brk_base;              // brk: de la sfarsitul imaginii ELF; paginile pana la brk_cur sunt mapate
     uint64_t brk_cur;
+    uint64_t stack_top;             // ASLR: varful stivei (sub USER_STACK_TOP); 0 = USER_STACK_TOP
+    uint64_t mmap_base;             // ASLR: de aici cauta mmap fara hint; 0 = MMAP_BASE
     VmaList vmas;                   // zonele de memorie user (mm/vma.h), sortate dupa adresa
     uint64_t pgid;                  // grupul de procese (Ctrl+C merge la grupul din prim-plan al terminalului)
     SignalState sig;                // semnale: actiuni, masca, pending (proc/signal.h)

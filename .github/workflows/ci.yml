@@ -30,6 +30,9 @@ jobs:
       - name: Panic tests
         run: make test-smash test-relock
 
+      - name: ASLR + KASLR (doua boot-uri)
+        run: make test-aslr
+
       - name: PCI (q35, ECAM)
         run: make test-pci-q35
 

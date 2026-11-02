@@ -37,5 +37,13 @@ SECTIONS {
 
     _kernel_end = .;
 
+    /* Tabelul de relocari KASLR (tools/kaslr_relocs.py), dupa _kernel_end: doar kaslr_setup il citeste, la boot,
+     * iar marimea lui nu muta nimic din imagine (link in doi pasi, vezi Makefile) */
+    .kaslr_relocs ALIGN(4K) : AT(ADDR(.kaslr_relocs) - KERNEL_VMA) {
+        __kaslr_relocs = .;
+        KEEP(*(.kaslr_relocs))
+        __kaslr_relocs_end = .;
+    }
+
     /DISCARD/ : { *(.eh_frame) *(.comment) *(.note*) }
 }

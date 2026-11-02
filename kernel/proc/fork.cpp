@@ -66,6 +66,8 @@ int64_t process_fork(const InterruptFrame& parent_frame){
     }
     child->brk_base = parent->brk_base;
     child->brk_cur = parent->brk_cur;
+    child->stack_top = parent->stack_top;
+    child->mmap_base = parent->mmap_base;
     child->pgid = parent->pgid;
     signal_fork(child, parent);
     fd_copy(child->fds, parent->fds);

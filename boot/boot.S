@@ -30,18 +30,24 @@ mb2_start:
     .long 8
 mb2_end:
 
-/* Boot page tables: 0-1 GiB identity and at KERNEL_VMA, 2 MiB pages */
+/* Boot page tables: 0-1 GiB identity (pml4[0], dispare dupa saltul in higher-half) si la HHDM_BASE (pml4[256],
+ * phys_to_virt pana la vmm_init); imaginea kernelului la KERNEL_VMA + kaslr_offset prin boot_pd_k (completat de
+ * kaslr_setup), pagini de 2 MiB */
 .section .data
 .align 4096
-.globl boot_pml4, boot_pdpt
+.globl boot_pml4, boot_pdpt, boot_pd_k
 boot_pml4:
+    .quad PHYS(boot_pdpt_lo) + 3
+    .fill 255, 8, 0
+    .quad PHYS(boot_pdpt_lo) + 3        /* HHDM_BASE = 0xFFFF800000000000 */
+    .fill 254, 8, 0
     .quad PHYS(boot_pdpt) + 3
-    .fill 510, 8, 0
-    .quad PHYS(boot_pdpt) + 3
+boot_pdpt_lo:
+    .quad PHYS(boot_pd) + 3
+    .fill 511, 8, 0
 boot_pdpt:
-    .quad PHYS(boot_pd) + 3
-    .fill 509, 8, 0
-    .quad PHYS(boot_pd) + 3
+    .fill 510, 8, 0
+    .quad PHYS(boot_pd_k) + 3
     .quad 0                             /* MMIO window, filled by mmio_map */
 boot_pd:
     .set i, 0
@@ -49,6 +55,8 @@ boot_pd:
     .quad (i << 21) + 0x83
     .set i, i + 1
     .endr
+boot_pd_k:
+    .fill 512, 8, 0
 
 .align 16
 gdt64:
@@ -119,6 +127,13 @@ no_lm:
 
 .code64
 long_mode_low:
+    /* KASLR: alege offset-ul, corecteaza relocarile (si imediatul de mai jos) si mapeaza imaginea; r12/r13 raman */
+    movl %edi, %r12d
+    movl %esi, %r13d
+    movl %esi, %edi
+    call kaslr_setup
+    movl %r12d, %edi
+    movl %r13d, %esi
     movabsq $long_mode_high, %rax
     jmp *%rax
 

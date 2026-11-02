@@ -1,4 +1,5 @@
 #include "boot/multiboot2.h"
+#include "arch/x86_64/paging.h"
 #include "lib/kprintf.h"
 #include "init.h"
 
@@ -76,7 +77,7 @@ __init bool multiboot2_parse(uint32_t magic, uint64_t mbi_phys){
         return false;
     }
 
-    const uint8_t* mbi = (const uint8_t*)(KERNEL_VMA + mbi_phys);
+    const uint8_t* mbi = (const uint8_t*)phys_to_virt(mbi_phys);
     uint32_t total = *(const uint32_t*)mbi;
     boot_info.mbi_phys = mbi_phys;
     boot_info.mbi_size = total;
