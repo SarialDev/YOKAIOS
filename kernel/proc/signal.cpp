@@ -150,6 +150,8 @@ struct SendReq {
     int result;
     uint64_t pgid;
     int count;
+    const Cred* from;               // cine trimite (copie: procesul curent poate fi chiar tinta)
+    int denied;                     // procese din grup sarite pentru ca from nu are dreptul
 };
 
 void visit_pid(Task* t, void* arg){
@@ -160,6 +162,8 @@ void visit_pid(Task* t, void* arg){
         r->result = -EPERM;
     } else if(p->state != ProcState::ALIVE){
         r->result = -ESRCH;
+    } else if(!cred_may_signal(*r->from, p->cred)){
+        r->result = -EPERM;
     } else {
         signal_post_locked(p, r->sig);
         r->result = 0;
@@ -171,6 +175,10 @@ void visit_pgrp(Task* t, void* arg){
     SpinlockGuard lock(process_tree_lock());
     Process* p = t->proc;
     if(p && p->pgid == r->pgid && p->state == ProcState::ALIVE){
+        if(!cred_may_signal(*r->from, p->cred)){
+            r->denied++;
+            return;
+        }
         signal_post_locked(p, r->sig);
         r->count++;
     }
@@ -225,20 +233,25 @@ int signal_send_pid(uint64_t pid, int sig){
     if(sig < 0 || sig >= NSIG){
         return -EINVAL;
     }
-    SendReq req = {sig, -ESRCH, 0, 0};
+    Cred from = cred_current();
+    SendReq req = {sig, -ESRCH, 0, 0, &from, 0};
     if(!task_visit(pid, visit_pid, &req)){
         return -ESRCH;
     }
     return req.result;
 }
 
-int signal_send_pgrp(uint64_t pgid, int sig){
+int signal_send_pgrp(uint64_t pgid, int sig, bool check_perm){
     if(sig < 0 || sig >= NSIG){
         return -EINVAL;
     }
-    SendReq req = {sig, 0, pgid, 0};
+    Cred from = cred_current();
+    if(!check_perm){
+        from = cred_root;               // terminalul (Ctrl-C) trimite oricui
+    }
+    SendReq req = {sig, 0, pgid, 0, &from, 0};
     task_for_each(visit_pgrp, &req);
-    return req.count ? 0 : -ESRCH;
+    return req.count ? 0 : req.denied ? -EPERM : -ESRCH;
 }
 
 void signal_send_self(int sig){

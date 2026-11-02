@@ -1,4 +1,4 @@
-/* ls [-a] [-l] [cale...]: o intrare pe linie, in ordine alfabetica */
+/* ls [-a] [-l] [cale...]: o intrare pe linie, in ordine alfabetica; -l: drepturi, proprietar, grup, marime */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,11 +6,44 @@
 #include <dirent.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <pwd.h>
+#include <grp.h>
 
 static int opt_all, opt_long;
 
 static int cmp(const void *a, const void *b){
     return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+/* Numele lui uid/gid din /etc/passwd, /etc/group (ultimul cautat ramane in cache), altfel numarul */
+static const char *user_name(uid_t uid){
+    static char buf[32];
+    static uid_t last = (uid_t)-1;
+    if(uid != last){
+        struct passwd *pw = getpwuid(uid);
+        if(pw){
+            snprintf(buf, sizeof(buf), "%s", pw->pw_name);
+        } else {
+            snprintf(buf, sizeof(buf), "%u", uid);
+        }
+        last = uid;
+    }
+    return buf;
+}
+
+static const char *group_name(gid_t gid){
+    static char buf[32];
+    static gid_t last = (gid_t)-1;
+    if(gid != last){
+        struct group *gr = getgrgid(gid);
+        if(gr){
+            snprintf(buf, sizeof(buf), "%s", gr->gr_name);
+        } else {
+            snprintf(buf, sizeof(buf), "%u", gid);
+        }
+        last = gid;
+    }
+    return buf;
 }
 
 static void print_entry(const char *dir, const char *name){
@@ -36,8 +69,19 @@ static void print_entry(const char *dir, const char *name){
     for(int i = 0; i < 9; i++){
         m[1 + i] = (md & (0400 >> i)) ? rwx[i] : '-';
     }
+    // setuid/setgid/sticky in locul lui x (litera mare = fara x)
+    if(md & S_ISUID){
+        m[3] = (md & 0100) ? 's' : 'S';
+    }
+    if(md & S_ISGID){
+        m[6] = (md & 0010) ? 's' : 'S';
+    }
+    if(md & S_ISVTX){
+        m[9] = (md & 0001) ? 't' : 'T';
+    }
     m[10] = 0;
-    printf("%s %8ld %s\n", m, (long)st.st_size, name);
+    printf("%s %-8s ", m, user_name(st.st_uid));
+    printf("%-8s %8ld %s\n", group_name(st.st_gid), (long)st.st_size, name);
 }
 
 static int list_dir(const char *path){

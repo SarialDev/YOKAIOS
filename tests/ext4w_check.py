@@ -5,8 +5,10 @@
 #   L <cale> -> <tinta>           symlink
 #   M <cale> <n> <suma> <xor>     director mare: numarul de nume si suma / xor-ul CRC32-urilor lor
 #   A <cale>                      nu exista
+#   P <mod-octal> <uid> <gid> <cale>  drepturile si proprietarul (debugfs stat)
 # Uz: tests/ext4w_check.py <partitie.img> <log> <TAG>
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -58,7 +60,7 @@ for line in open(log, errors="replace"):
 if not want:
     sys.exit("FAIL: nicio linie %s in %s" % (tag, log))
 
-dirs, files, links, bigs, absent = {}, {}, {}, {}, []
+dirs, files, links, bigs, absent, perms = {}, {}, {}, {}, [], {}
 for w in want:
     kind, rest = w.split(" ", 1)
     if kind == "D":
@@ -75,6 +77,9 @@ for w in want:
         bigs[p] = (int(n), int(s, 16), int(x, 16))
     elif kind == "A":
         absent.append(rest)
+    elif kind == "P":
+        m, u, g, p = rest.split(" ", 3)
+        perms[p] = (int(m, 8), int(u), int(g))
     else:
         sys.exit("FAIL: linie necunoscuta: %s %s" % (tag, w))
 
@@ -130,6 +135,14 @@ with tempfile.TemporaryDirectory() as td:
         t = open(fp, "rb").read().decode(errors="replace") if os.path.exists(fp) else None
         if t != links[p]:
             bad.append("%s -> %r pe disc, kernelul: %s" % (p, t, links[p]))
+pl = sorted(perms)
+for p, out in zip(pl, debugfs(["stat \"%s\"" % p for p in pl]) if pl else []):
+    text = " ".join(out)
+    m = re.search(r"Mode:\s+(\d+)", text)
+    ug = re.search(r"User:\s+(\d+)\s+Group:\s+(\d+)", text)
+    got = (int(m.group(1), 8), int(ug.group(1)), int(ug.group(2))) if m and ug else None
+    if got != perms[p]:
+        bad.append("%s: mod/uid/gid %r pe disc, kernelul: %r" % (p, got, perms[p]))
 for p in absent:
     r = subprocess.run(["debugfs", "-R", "stat \"%s\"" % p, img], capture_output=True, text=True)
     if "not found" not in r.stderr + r.stdout:

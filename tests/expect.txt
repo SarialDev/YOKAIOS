@@ -151,3 +151,10 @@ libctest: atexit ok
 [OK] test_vm
 [OK] ypkgtest
 [OK] test_ypkg
+[OK] permtest
+[OK] test_perm
+[OK] test_crypto kernel
+[OK] cryptotest
+[OK] test_crypto (SHA-256
+[OK] userspace
+[OK] test_userspace

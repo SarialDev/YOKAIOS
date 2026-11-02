@@ -43,6 +43,9 @@ struct InodeOps {
     // doar difera ca majuscule (fs fara diferenta de majuscule). VFS a verificat tipurile si ciclurile
     int (*rename)(Inode* odir, const char* oname, uint32_t olen, Inode* ndir, const char* nname, uint32_t nlen,
                   Inode* src, Inode* victim);
+    // VFS a schimbat mode/uid/gid/ctime in inode (chmod, chown, proprietarul unui nume nou): fs-ul le scrie.
+    // Lipsa = fs fara proprietari (chmod/chown dau -EPERM, fisierele noi raman cum le face fs-ul)
+    int (*setattr)(Inode* ino);
 };
 
 struct Inode {

@@ -1,6 +1,7 @@
 #include "fs/vfs/vfs.h"
 #include "uapi/syscall_nr.h"
 #include "lib/kprintf.h"
+#include "fs/vfs/permission.h"
 
 namespace {
 
@@ -63,18 +64,21 @@ int open_create(const Path& base, const char* path, int flags, uint32_t mode, Pa
         return 0;
     }
     Inode* ni = nullptr;
+    const Cred& c = cred_current();
     if(last.trailing_slash){
         err = -EISDIR;
+    } else if((err = may_create(c, di)) != 0){
     } else if(!di->ops || !di->ops->create){
         err = -EPERM;
     } else {
-        err = di->ops->create(di, last.name, last.len, S_IFREG | (mode & 07777), ni);
+        err = di->ops->create(di, last.name, last.len, S_IFREG | (mode & 07777 & ~cred_umask()), ni);
     }
     if(err){
         dentry_put(child);
         path_put(dir);
         return err;
     }
+    inode_init_owner(c, di, ni);
     d_instantiate(child, ni);
     out = Path{dir.mnt, child};
     path_put(dir);
@@ -97,15 +101,18 @@ int make_node(const Path& base, const char* path, uint32_t mode, const char* tar
     }
     Inode* di = dir.dentry->inode;
     Inode* ni = nullptr;
+    const Cred& c = cred_current();
     if(child->inode){
         err = -EEXIST;
+    } else if((err = may_create(c, di)) != 0){
     } else if(target){
         err = di->ops && di->ops->symlink ? di->ops->symlink(di, last.name, last.len, target, ni) : -EPERM;
     } else {
-        err = di->ops && di->ops->mkdir ? di->ops->mkdir(di, last.name, last.len, S_IFDIR | (mode & 07777), ni)
-                                        : -EPERM;
+        uint32_t m = S_IFDIR | (mode & 01777 & ~cred_umask());
+        err = di->ops && di->ops->mkdir ? di->ops->mkdir(di, last.name, last.len, m, ni) : -EPERM;
     }
     if(!err){
+        inode_init_owner(c, di, ni);
         d_instantiate(child, ni);
     }
     dentry_put(child);
@@ -141,6 +148,7 @@ int remove_node(const Path& base, const char* path, bool dirs){
         err = -ENOTDIR;
     } else if(child->mounted){
         err = -EBUSY;
+    } else if((err = may_delete(cred_current(), di, vi)) != 0){
     } else {
         auto op = dirs ? di->ops ? di->ops->rmdir : nullptr : di->ops ? di->ops->unlink : nullptr;
         err = op ? op(di, last.name, last.len, vi) : -EPERM;
@@ -183,8 +191,13 @@ int vfs_open(const Path& base, const char* path, int flags, uint32_t mode, File*
         return err;
     }
     Inode* i = p.dentry->inode;
+    int mask = (flags & VFS_O_EXEC) ? MAY_EXEC : (acc != O_WRONLY ? MAY_READ : 0) |
+                                                 (acc != O_RDONLY || (flags & O_TRUNC) ? MAY_WRITE : 0);
     if(S_ISLNK(i->mode)){
         err = -ELOOP;                               // O_NOFOLLOW pe un symlink
+    } else if((flags & VFS_O_EXEC) && !S_ISREG(i->mode)){
+        err = S_ISDIR(i->mode) ? -EISDIR : -EACCES;
+    } else if(!created && (err = inode_permission(cred_current(), i, mask)) != 0){
     } else if((p.mnt->sb->flags & MS_RDONLY) && (acc != O_RDONLY || (flags & O_TRUNC))){
         err = -EROFS;
     } else if(S_ISDIR(i->mode) && (acc != O_RDONLY || (flags & O_TRUNC))){
@@ -198,7 +211,7 @@ int vfs_open(const Path& base, const char* path, int flags, uint32_t mode, File*
         }
     }
     if(!err){
-        out = vfs_file_new(p, (uint32_t)flags & ~(uint32_t)(O_CREAT | O_EXCL | O_TRUNC));
+        out = vfs_file_new(p, (uint32_t)flags & ~(uint32_t)(O_CREAT | O_EXCL | O_TRUNC | VFS_O_EXEC));
         if(!out){
             err = -ENOMEM;
         }
@@ -267,8 +280,6 @@ int vfs_rename(const Path& base, const char* oldpath, const char* newpath){
         err = -EXDEV;
     } else if(oc->mounted || nc->mounted){
         err = -EBUSY;
-    } else if(od.mnt->sb->flags & MS_RDONLY){
-        err = -EROFS;
     } else {
         Inode* src = oc->inode;
         Inode* victim = nc->inode && nc->inode != src ? nc->inode : nullptr;
@@ -286,6 +297,19 @@ int vfs_rename(const Path& base, const char* oldpath, const char* newpath){
             }
             Inode* odi = od.dentry->inode;
             Inode* ndi = nd.dentry->inode;
+            const Cred& c = cred_current();
+            if(!err){
+                err = may_delete(c, odi, src);
+            }
+            if(!err){
+                err = victim ? may_delete(c, ndi, victim) : may_create(c, ndi);
+            }
+            if(!err && src_dir && odi != ndi){
+                err = inode_permission(c, src, MAY_WRITE);  // ".." din directorul mutat se rescrie
+            }
+            if(!err && (od.mnt->sb->flags & MS_RDONLY)){
+                err = -EROFS;                           // dupa drepturi, ca la open
+            }
             if(!err){
                 err = odi->ops && odi->ops->rename ? odi->ops->rename(odi, ol.name, ol.len, ndi, nl.name, nl.len, src,
                                                                       victim)
@@ -346,6 +370,11 @@ int vfs_chdir(Path& cwd, const char* path){
         path_put(p);
         return -ENOTDIR;
     }
+    err = inode_permission(cred_current(), p.dentry->inode, MAY_EXEC);
+    if(err){
+        path_put(p);
+        return err;
+    }
     path_put(cwd);
     cwd = p;
     return 0;
@@ -388,4 +417,65 @@ void vfs_path_release(Path& p){
         MutexGuard g(lock);
         path_put(p);
     }
+}
+
+int vfs_chmod(const Path& base, const char* path, uint32_t mode){
+    MutexGuard g(lock);
+    Path p;
+    int err = path_lookup(base, path, LOOKUP_FOLLOW, p, nullptr);
+    if(!err){
+        err = inode_chmod(p.dentry->inode, mode);
+        path_put(p);
+    }
+    return err;
+}
+
+int vfs_chown(const Path& base, const char* path, uint32_t uid, uint32_t gid, bool follow){
+    MutexGuard g(lock);
+    Path p;
+    int err = path_lookup(base, path, follow ? LOOKUP_FOLLOW : 0, p, nullptr);
+    if(!err){
+        err = inode_chown(p.dentry->inode, uid, gid);
+        path_put(p);
+    }
+    return err;
+}
+
+int vfs_fchmod(File* f, uint32_t mode){
+    if(!f->inode){
+        return -EINVAL;
+    }
+    MutexGuard g(lock);
+    return inode_chmod(f->inode, mode);
+}
+
+int vfs_fchown(File* f, uint32_t uid, uint32_t gid){
+    if(!f->inode){
+        return -EINVAL;
+    }
+    MutexGuard g(lock);
+    return inode_chown(f->inode, uid, gid);
+}
+
+int vfs_access(const Path& base, const char* path, int mode){
+    if(mode & ~(R_OK | W_OK | X_OK)){
+        return -EINVAL;
+    }
+    MutexGuard g(lock);
+    Path p;
+    int err = path_lookup(base, path, LOOKUP_FOLLOW, p, nullptr);
+    if(err){
+        return err;
+    }
+    // Ca pe Linux: access raspunde pentru uid/gid-ul real (un program setuid intreaba "poate utilizatorul?")
+    Cred c = cred_current();
+    c.euid = c.uid;
+    c.egid = c.gid;
+    Inode* i = p.dentry->inode;
+    err = mode ? inode_permission(c, i, mode) : 0;
+    if(!err && (mode & W_OK) && (i->sb->flags & MS_RDONLY) && !S_ISCHR(i->mode) && !S_ISBLK(i->mode)){
+        err = -EROFS;
+    }
+    path_put(p);
+    return err;
 }

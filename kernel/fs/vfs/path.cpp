@@ -1,5 +1,6 @@
 #include "fs/vfs/path.h"
 #include "fs/vfs/mount.h"
+#include "fs/vfs/permission.h"
 #include "uapi/syscall_nr.h"
 #include "lib/string.h"
 
@@ -79,6 +80,10 @@ int walk(Path cur, const char* p, unsigned flags, unsigned& links, Path& out, La
             Inode* ci = cur.dentry->inode;
             if(!ci || !S_ISDIR(ci->mode)){
                 err = -ENOTDIR;
+                goto fail;
+            }
+            err = inode_permission(cred_current(), ci, MAY_EXEC);      // cautare in director
+            if(err){
                 goto fail;
             }
             if(is_last && (flags & LOOKUP_PARENT)){

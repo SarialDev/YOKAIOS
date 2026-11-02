@@ -618,7 +618,7 @@ int iso_truncate(Inode*, uint64_t){ return -EROFS; }
 int iso_rename(Inode*, const char*, uint32_t, Inode*, const char*, uint32_t, Inode*, Inode*){ return -EROFS; }
 
 const InodeOps iso_ops = {iso_lookup, iso_create, iso_create, iso_symlink, iso_unlink, iso_unlink, iso_file_read,
-                          iso_write, iso_truncate, iso_readdir, iso_readlink, iso_rename};
+                          iso_write, iso_truncate, iso_readdir, iso_readlink, iso_rename, nullptr};
 
 // ---- sistemul de fisiere ----
 

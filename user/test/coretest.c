@@ -98,7 +98,8 @@ static void write_file(const char *path, const char *text){
 
 static void test_help(void){
     static const char *const tools[] = {"ls", "cat", "echo", "mkdir", "rm", "cp", "mv", "touch", "ps", "kill", "uptime", "free",
-        "date", "mount", "umount", "uname", "head", "tail", "wc", "grep", "clear", "rmdir", "env", "sleep"};
+        "date", "mount", "umount", "uname", "head", "tail", "wc", "grep", "clear", "rmdir", "env", "sleep",
+        "id", "whoami", "chmod", "chown", "su"};
     for(unsigned i = 0; i < sizeof(tools) / sizeof(tools[0]); i++){
         int rc = run(NULL, tools[i], "--help", NULL, NULL, NULL);
         CHECK(rc == 0);

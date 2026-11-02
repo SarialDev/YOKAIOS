@@ -223,6 +223,9 @@ int64_t sys_readlink(uint64_t path, uint64_t buf, uint64_t size, uint64_t, uint6
 
 int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t flags, uint64_t data, uint64_t){
     Process* p = process_current();
+    if(p && !cred_is_root(p->cred)){
+        return -EPERM;
+    }
     char ks[PATH_MAX] = "";
     char kt[PATH_MAX];
     char kf[FSTYPE_MAX];
@@ -242,6 +245,9 @@ int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t fl
 
 int64_t sys_umount2(uint64_t target, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
     Process* p = process_current();
+    if(p && !cred_is_root(p->cred)){
+        return -EPERM;
+    }
     char kt[PATH_MAX];
     int err = p ? path_from_user(kt, target) : -EINVAL;
     return err ? err : vfs_umount(p->cwd, kt);
@@ -270,4 +276,49 @@ int64_t sys_getdents64(uint64_t fd, uint64_t buf, uint64_t count, uint64_t, uint
     }
     kfree(kb);
     return n;
+}
+
+int64_t sys_chmod(uint64_t path, uint64_t mode, uint64_t, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    char kp[PATH_MAX];
+    int err = p ? path_from_user(kp, path) : -EINVAL;
+    return err ? err : vfs_chmod(p->cwd, kp, (uint32_t)mode);
+}
+
+int64_t sys_fchmod(uint64_t fd, uint64_t mode, uint64_t, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    File* f = p ? fd_get(p->fds, (int64_t)fd) : nullptr;
+    return f ? vfs_fchmod(f, (uint32_t)mode) : -EBADF;
+}
+
+namespace {
+
+int64_t chown_path(uint64_t path, uint64_t uid, uint64_t gid, bool follow){
+    Process* p = process_current();
+    char kp[PATH_MAX];
+    int err = p ? path_from_user(kp, path) : -EINVAL;
+    return err ? err : vfs_chown(p->cwd, kp, (uint32_t)uid, (uint32_t)gid, follow);
+}
+
+}
+
+int64_t sys_chown(uint64_t path, uint64_t uid, uint64_t gid, uint64_t, uint64_t, uint64_t){
+    return chown_path(path, uid, gid, true);
+}
+
+int64_t sys_lchown(uint64_t path, uint64_t uid, uint64_t gid, uint64_t, uint64_t, uint64_t){
+    return chown_path(path, uid, gid, false);
+}
+
+int64_t sys_fchown(uint64_t fd, uint64_t uid, uint64_t gid, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    File* f = p ? fd_get(p->fds, (int64_t)fd) : nullptr;
+    return f ? vfs_fchown(f, (uint32_t)uid, (uint32_t)gid) : -EBADF;
+}
+
+int64_t sys_access(uint64_t path, uint64_t mode, uint64_t, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    char kp[PATH_MAX];
+    int err = p ? path_from_user(kp, path) : -EINVAL;
+    return err ? err : vfs_access(p->cwd, kp, (int)mode);
 }

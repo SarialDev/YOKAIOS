@@ -688,9 +688,16 @@ void mode_verify(){
     must(vfs_mkdir(none, "/mnt/w/boot2dir", 0755), "mkdir", "boot2dir");
     must(vfs_rename(none, "/mnt/w/f01", "/mnt/w/boot2dir/f01"), "rename", "f01");
     trunc("/mnt/w/f02", 7);
+    // chown/chmod (InodeOps::setattr) ajung in inode-ul de pe disc; chown sterge setuid, deci chmod dupa
+    must(vfs_chown(none, "/mnt/w/f02", 1000, 100, true), "chown", "f02");
+    must(vfs_chmod(none, "/mnt/w/f02", 04750), "chmod", "f02");
     commit();
     check_content("/mnt/w/boot2", 70, 200000);
     print_lines("EXT4W", W_ROOTS, W_BIG);
+    Stat pst;
+    EQ(vfs_stat(none, "/mnt/w/f02", false, pst), 0);
+    EQ(pst.st_mode, (uint32_t)(S_IFREG | 04750));
+    kprintf("EXT4W P %o %u %u /w/f02\n", pst.st_mode & 07777, pst.st_uid, pst.st_gid);
     umount();
     kprintf("[OK] ext4w umount curat\n");
 }

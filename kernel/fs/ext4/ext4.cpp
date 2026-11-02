@@ -545,8 +545,20 @@ int e4_rename(Inode* odir, const char* oname, uint32_t olen, Inode* ndir, const 
     return 0;
 }
 
+// chmod/chown: mode/uid/gid/ctime sunt deja in Inode, inode_store le pune in inode-ul de pe disc (prin jurnal)
+int e4_setattr(Inode* ino){
+    Node* n = node_of(ino);
+    Volume* v = n->vol;
+    MutexGuard g(v->lock);
+    if(!v->rw){
+        return -EROFS;
+    }
+    TRY(tx_begin(v, 4));
+    return inode_store(n);
+}
+
 const InodeOps ext4_ops = {e4_lookup, e4_create, e4_mkdir, e4_symlink, e4_unlink, e4_rmdir, e4_read, e4_write,
-                           e4_truncate, e4_readdir, e4_readlink, e4_rename};
+                           e4_truncate, e4_readdir, e4_readlink, e4_rename, e4_setattr};
 
 // ---- sistemul de fisiere ----
 

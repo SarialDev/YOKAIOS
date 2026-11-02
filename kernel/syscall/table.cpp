@@ -10,6 +10,7 @@
 #include "sched/sched.h"
 #include "mm/kmalloc.h"
 #include "proc/signal.h"
+#include "proc/cred.h"
 
 namespace {
 
@@ -263,6 +264,23 @@ constexpr Table make_table(){
     t.fn[SYS_SETPGID] = sys_setpgid;
     t.fn[SYS_GETPGRP] = sys_getpgrp;
     t.fn[SYS_GETPGID] = sys_getpgid;
+    t.fn[SYS_GETUID] = sys_getuid;
+    t.fn[SYS_GETEUID] = sys_geteuid;
+    t.fn[SYS_GETGID] = sys_getgid;
+    t.fn[SYS_GETEGID] = sys_getegid;
+    t.fn[SYS_SETUID] = sys_setuid;
+    t.fn[SYS_SETGID] = sys_setgid;
+    t.fn[SYS_SETREUID] = sys_setreuid;
+    t.fn[SYS_SETREGID] = sys_setregid;
+    t.fn[SYS_GETGROUPS] = sys_getgroups;
+    t.fn[SYS_SETGROUPS] = sys_setgroups;
+    t.fn[SYS_UMASK] = sys_umask;
+    t.fn[SYS_CHMOD] = sys_chmod;
+    t.fn[SYS_FCHMOD] = sys_fchmod;
+    t.fn[SYS_CHOWN] = sys_chown;
+    t.fn[SYS_FCHOWN] = sys_fchown;
+    t.fn[SYS_LCHOWN] = sys_lchown;
+    t.fn[SYS_ACCESS] = sys_access;
     return t;
 }
 

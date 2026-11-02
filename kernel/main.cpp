@@ -69,9 +69,12 @@
 #include "tests/test_fs.h"
 #include "tests/test_libc.h"
 #include "tests/test_coreutils.h"
+#include "tests/test_perm.h"
+#include "tests/test_crypto.h"
 #include "tests/test_lua.h"
 #include "tests/test_vm.h"
 #include "tests/test_ypkg.h"
+#include "tests/test_userspace.h"
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
 #include "fs/iso9660.h"
@@ -403,8 +406,17 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(test_named(test, "ypkg")){
         test_ypkg_run();
     }
+    if(test_named(test, "perm")){
+        test_perm_run();
+    }
+    if(test_named(test, "crypto")){
+        test_crypto_run();
+    }
     if(test_named(test, "vfs")){
         test_vfs_run();
+    }
+    if(test_named(test, "userspace")){
+        test_userspace_run();
     }
     if(test_named(test, "relock")){
         test_spin_relock();
@@ -425,9 +437,11 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     // Terminalul scrie de aici in jos; lipsa /sbin/init nu e fatala (ecranul ramane cu logo-ul)
     kwrite("\x1b[10;1H", 7);
     tty_activate();
+    // cmdline "login": init porneste /bin/login in loc de ysh
     static const char* const init_argv[] = {"init", nullptr};
+    static const char* const init_argv_login[] = {"init", "-l", nullptr};
     static const char* const init_envp[] = {"PATH=/bin:/sbin", "HOME=/root", "TERM=yokai", nullptr};
-    if(!exec_spawn("/sbin/init", init_argv, init_envp)){
+    if(!exec_spawn("/sbin/init", cmdline_has("login") ? init_argv_login : init_argv, init_envp)){
         kprintf("init: /sbin/init nu a pornit\n");
     }
 

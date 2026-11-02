@@ -156,6 +156,9 @@ static void format(const char* fmt, va_list ap){
             case 'x':
                 put_number(is_long ? va_arg(ap, uint64_t) : va_arg(ap, unsigned), 16, false, width, pad);
                 break;
+            case 'o':
+                put_number(is_long ? va_arg(ap, uint64_t) : va_arg(ap, unsigned), 8, false, width, pad);
+                break;
             case 'p':
                 putc_raw('0');
                 putc_raw('x');

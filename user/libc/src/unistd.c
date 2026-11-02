@@ -16,9 +16,6 @@ extern pid_t wait4(long pid, int *status, int options, void *rusage);   // long:
 extern long getdents64(int fd, void *buf, size_t n);
 extern int umount2(const char *target, int flags);
 
-uid_t getuid(void){ return 0; }
-uid_t geteuid(void){ return 0; }
-gid_t getgid(void){ return 0; }
 
 pid_t waitpid(pid_t pid, int *status, int options){
     return wait4(pid, status, options, NULL);
@@ -61,12 +58,6 @@ int execvp(const char *file, char *const argv[]){
     }
     errno = saved;
     return -1;
-}
-
-int access(const char *path, int mode){
-    struct stat st;
-    (void)mode;
-    return stat(path, &st);
 }
 
 int isatty(int fd){

@@ -17,7 +17,7 @@ QEMU_EXTRA ?=
 # -march fix: altfel compilatorul poate tinti un CPU mai nou (BMI2 etc.) decat cel emulat de QEMU (#UD)
 COMMON = -march=x86-64 -mtune=generic -ffreestanding -nostdlib -fstack-protector-strong -mstack-protector-guard=global -fno-pic \
          -mno-sse -mno-mmx -mno-80387 -O2 -Wall -Wextra -Werror \
-         -Ikernel/include -Ikernel -MMD -MP -fno-asynchronous-unwind-tables \
+         -Ikernel/include -Ikernel -Ilib -MMD -MP -fno-asynchronous-unwind-tables \
          -fno-omit-frame-pointer
 
 ifeq ($(ARCH),x86_64)
@@ -33,7 +33,7 @@ CXXFLAGS = $(ARCHFLAGS) $(COMMON) -fno-exceptions -fno-rtti
 ASFLAGS  = $(ARCHFLAGS) $(COMMON)
 LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size=0x1000 --build-id=none
 
-SRCS := $(shell find boot kernel -name '*.S' -o -name '*.c' -o -name '*.cpp')
+SRCS := $(shell find boot kernel lib -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
 # Programe user statice, puse in /bin din initrd: user/test/*.S (asm pur) si user/test/*.c (C cu libc-ul propriu)
@@ -56,9 +56,13 @@ USER_LDFLAGS = -m elf_x86_64 -static -nostdlib -e _start -Ttext-segment=0x400000
 SYSROOT      = $(BUILD)/sysroot
 LIBC_SRCS   := $(wildcard user/libc/src/*.c)
 LIBC_OBJS   := $(patsubst user/libc/src/%.c,$(BUILD)/libc/%.o,$(LIBC_SRCS)) $(BUILD)/libc/syscalls.o $(BUILD)/libc/setjmp.o
-LIBC_HDRS   := $(shell find user/libc/include -type f)
+# lib/crypto/*.c (SHA-256, HMAC, PBKDF2, pwhash) se compileaza si in kernel (SRCS) si in libc.a; antetele merg in sysroot/include/crypto
+CRYPTO_SRCS := $(wildcard lib/crypto/*.c)
+CRYPTO_HDRS := $(wildcard lib/crypto/*.h)
+LIBC_OBJS   += $(patsubst lib/crypto/%.c,$(BUILD)/libc/crypto_%.o,$(CRYPTO_SRCS))
+LIBC_HDRS   := $(shell find user/libc/include -type f) $(CRYPTO_HDRS)
 # Userland cu SSE2/x87 (kernelul salveaza starea FPU la comutare, fork si semnale), fara stack protector/PIE/CET
-LIBC_FLAGS   = -m64 -O2 -g0 -Wall -Wextra -Werror -std=gnu11 -ffreestanding -nostdinc -isystem user/libc/include \
+LIBC_FLAGS   = -Ilib -m64 -O2 -g0 -Wall -Wextra -Werror -std=gnu11 -ffreestanding -nostdinc -isystem user/libc/include \
                -fno-pic -fno-pie -fno-stack-protector -fcf-protection=none -fno-asynchronous-unwind-tables \
                -fno-tree-loop-distribute-patterns -fno-math-errno -march=x86-64
 UCC          = $(CC) --sysroot=$(SYSROOT) -specs=$(SYSROOT)/lib/yokai.specs
@@ -75,7 +79,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-crypto test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -120,6 +124,10 @@ $(BUILD)/libc/%.o: user/libc/src/%.c $(LIBC_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 
+$(BUILD)/libc/crypto_%.o: lib/crypto/%.c $(CRYPTO_HDRS)
+	@mkdir -p $(dir $@)
+	$(CC) $(LIBC_FLAGS) -c $< -o $@
+
 $(BUILD)/libc/crt0.o: user/crt/crt0.S
 	@mkdir -p $(dir $@)
 	$(CC) -m64 -c $< -o $@
@@ -132,6 +140,7 @@ $(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) us
 	rm -rf $(SYSROOT)
 	mkdir -p $(SYSROOT)/include/uapi $(SYSROOT)/lib
 	cp -r user/libc/include/. $(SYSROOT)/include/
+	mkdir -p $(SYSROOT)/include/crypto && cp $(CRYPTO_HDRS) $(SYSROOT)/include/crypto/
 	cp kernel/include/uapi/syscall_nr.h $(SYSROOT)/include/uapi/
 	cp $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o user/libc/yokai.specs $(SYSROOT)/lib/
 	touch $@
@@ -143,7 +152,7 @@ $(BUILD)/user/%.elf: user/test/%.c $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
 	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
 
-$(BUILD)/ubin/%.elf: user/bin/%.c $(SYSROOT)/.installed
+$(BUILD)/ubin/%.elf: user/bin/%.c $(wildcard user/bin/*.h) $(SYSROOT)/.installed
 	@mkdir -p $(dir $@)
 	$(UCC) -O2 -Wall -Wextra -Werror -o $@ $<
 
@@ -189,10 +198,15 @@ $(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PK
 	find $(ROOTFS) -type d -exec chmod 755 {} +
 	find $(ROOTFS) -type f -exec chmod 644 {} +
 	chmod 755 $(ROOTFS)/bin/* $(ROOTFS)/sbin/*
+	chmod 4755 $(ROOTFS)/bin/passwd
 	chmod 700 $(ROOTFS)/root
 	chmod 1777 $(ROOTFS)/tmp
+	chmod 600 $(ROOTFS)/etc/shadow
+	mkdir -p $(ROOTFS)/home/yokai && chmod 700 $(ROOTFS)/home/yokai
 	tar --format=ustar --owner=0 --group=0 --numeric-owner --sort=name --mtime='2026-01-01 00:00Z' \
-	    -cf $@ -C $(ROOTFS) .
+	    --exclude=./home/yokai -cf $@ -C $(ROOTFS) .
+	tar --format=ustar --owner=1000 --group=1000 --numeric-owner --mtime='2026-01-01 00:00Z' \
+	    -rf $@ -C $(ROOTFS) ./home/yokai
 
 $(ISO): $(KERNEL) $(INITRD) boot/grub.cfg
 	@mkdir -p $(BUILD)/iso/boot/grub
@@ -261,6 +275,18 @@ $(BUILD)/panic-ypkg.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 test-ypkg: $(BUILD)/panic-ypkg.iso
 	python3 tools/mkyokai verify $(BUILD)/pkg/hello.yokai
 	EXPECT_FILE=tests/expect-ypkg.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/ypkg.log
+
+# utilizatori si drepturi (T8.x): numai test=perm (/bin/permtest: root + utilizatorul 1000, rwx, sticky, setuid, umask, su)
+$(BUILD)/panic-perm.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-perm: $(BUILD)/panic-perm.iso
+	EXPECT_FILE=tests/expect-perm.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/perm.log
+
+# criptografie (lib/crypto in kernel si in userland): numai test=crypto (vectori RFC 6234 / 4231 / 7914)
+$(BUILD)/panic-crypto.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+test-crypto: $(BUILD)/panic-crypto.iso
+	EXPECT_FILE=tests/expect-crypto.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/crypto.log
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log

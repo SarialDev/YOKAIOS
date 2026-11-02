@@ -1,0 +1,3 @@
+[OK] permtest
+[OK] test_perm
+[OK] boot

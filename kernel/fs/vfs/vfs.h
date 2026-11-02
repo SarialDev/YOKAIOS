@@ -11,8 +11,12 @@
 // scrierea datelor nu il iau (le protejeaza sistemul de fisiere). Pozitia unui File comun (fork) se actualizeaza
 // atomic, dar citiri concurente pe acelasi File pot citi aceleasi date.
 // base = directorul de start al cailor relative (cwd); base.dentry == nullptr inseamna radacina.
-// Nu exista permisiuni (T8.1) si nici page cache (T6.5): datele merg direct la sistemul de fisiere.
+// Drepturile (fs/vfs/permission.h) se verifica cu identitatea procesului curent (cred_current; thread-urile de kernel
+// sunt root): cautare (x) pe fiecare director din cale, r/w la open, w+x (si sticky) pe director la creare/stergere.
+// La open/creare drepturile se verifica inaintea lui -EROFS. Nu exista page cache: datele merg direct la fs.
 Mutex& vfs_mutex();
+// Flag intern pentru vfs_open (peste O_*): deschidere pentru execve = drept x in loc de r, doar fisier obisnuit
+const int VFS_O_EXEC = 1 << 30;
 void vfs_init();
 
 // Intoarce un File nou cu o referinta (de pus in FdTable cu fd_install). flags = O_*; mode doar la O_CREAT
@@ -34,6 +38,13 @@ int vfs_getcwd(const Path& cwd, char* buf, uint64_t size);
 int vfs_mount(const Path& base, const char* dev_name, const char* target, const char* fstype, uint32_t flags,
               const char* data);
 int vfs_umount(const Path& base, const char* target);
+
+// chmod / chown / lchown (follow = false) / access (mode = F_OK sau R_OK|W_OK|X_OK, cu uid/gid-ul real)
+int vfs_chmod(const Path& base, const char* path, uint32_t mode);
+int vfs_chown(const Path& base, const char* path, uint32_t uid, uint32_t gid, bool follow);
+int vfs_fchmod(File* f, uint32_t mode);
+int vfs_fchown(File* f, uint32_t uid, uint32_t gid);
+int vfs_access(const Path& base, const char* path, int mode);
 
 // Referintele din Process::cwd
 void vfs_path_copy(Path& dst, const Path& src);

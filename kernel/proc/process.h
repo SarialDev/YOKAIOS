@@ -7,6 +7,7 @@
 #include "fs/vfs/path.h"
 #include "mm/vma.h"
 #include "proc/signal.h"
+#include "proc/cred.h"
 
 enum class ProcState : uint8_t { ALIVE, ZOMBIE };
 
@@ -30,6 +31,8 @@ struct Process {
     VmaList vmas;                   // zonele de memorie user (mm/vma.h), sortate dupa adresa
     uint64_t pgid;                  // grupul de procese (Ctrl+C merge la grupul din prim-plan al terminalului)
     SignalState sig;                // semnale: actiuni, masca, pending (proc/signal.h)
+    Cred cred;                      // uid/gid reale, efective, salvate + grupuri (proc/cred.h); mostenit la fork
+    uint32_t umask;                 // bitii scosi din mode la creare (implicit 022)
     WaitQueue child_exit;           // parintele asteapta aici in waitpid
     char name[TASK_NAME_LEN];
     uint16_t cmdline_len;           // argv separat prin '\0', trunchiat la PROC_CMDLINE_MAX

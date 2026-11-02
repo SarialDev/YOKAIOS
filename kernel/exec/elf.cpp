@@ -315,17 +315,22 @@ int build_vmas(VmaList& l, const ElfImage& img){
     return 0;
 }
 
-// Continutul fisierului obisnuit path (relativ la base) intr-un buffer kmalloc; nullptr si -errno in err
-uint8_t* read_file(const Path& base, const char* path, uint64_t& size, int64_t& err){
+// Identitatea fisierului executat, pentru setuid/setgid (proc/cred.h)
+struct ExecId {
+    uint32_t mode, uid, gid;
+    bool nosuid;
+};
+
+// Continutul fisierului de executat: drept x (VFS_O_EXEC), nu r; kmalloc, nullptr si -errno in err
+uint8_t* read_file(const Path& base, const char* path, uint64_t& size, ExecId& id, int64_t& err){
     File* f;
-    err = vfs_open(base, path, O_RDONLY, 0, f);
+    err = vfs_open(base, path, O_RDONLY | VFS_O_EXEC, 0, f);
     if(err){
         return nullptr;
     }
     uint8_t* buf = nullptr;
-    if(!S_ISREG(f->inode->mode)){
-        err = S_ISDIR(f->inode->mode) ? -EISDIR : -EACCES;
-    } else if(f->inode->size > MAX_EXEC_FILE || f->inode->size == 0){
+    id = ExecId{f->inode->mode, f->inode->uid, f->inode->gid, (f->inode->sb->flags & MS_NOSUID) != 0};
+    if(f->inode->size > MAX_EXEC_FILE || f->inode->size == 0){
         err = f->inode->size ? -ENOMEM : -ENOEXEC;
     } else {
         size = f->inode->size;
@@ -350,9 +355,9 @@ uint8_t* read_file(const Path& base, const char* path, uint64_t& size, int64_t& 
 
 // Spatiu de adrese nou cu programul de la path incarcat si stiva pregatita; nullptr si -errno in err la eroare
 AddressSpace* load_path(const Path& base, const char* path, const char* const* argv, const char* const* envp,
-                        UserStart& start, int64_t& err){
+                        UserStart& start, ExecId& id, int64_t& err){
     uint64_t size = 0;
-    uint8_t* image = read_file(base, path, size, err);
+    uint8_t* image = read_file(base, path, size, id, err);
     if(!image){
         return nullptr;
     }
@@ -398,7 +403,8 @@ uint64_t exec_spawn(const char* path, const char* const* argv, const char* const
         start->vmas = VmaList{};
     }
     int64_t err = -ENOMEM;
-    AddressSpace* as = start ? load_path(Path{}, path, argv, envp, *start, err) : nullptr;
+    ExecId id = {};
+    AddressSpace* as = start ? load_path(Path{}, path, argv, envp, *start, id, err) : nullptr;
     Task* t = as ? task_create_kernel(base_name(path), user_thread, start) : nullptr;
     Process* p = nullptr;
     if(t){
@@ -406,6 +412,7 @@ uint64_t exec_spawn(const char* path, const char* const* argv, const char* const
         p = process_create(t, nullptr);
     }
     if(p){
+        cred_exec(p->cred, id.mode, id.uid, id.gid, id.nosuid);
         p->brk_base = p->brk_cur = start->brk;
         p->vmas = start->vmas;
         start->vmas = VmaList{};
@@ -435,7 +442,8 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
     UserStart start;
     int64_t err;
     Process* proc = process_current();
-    AddressSpace* as = load_path(proc ? proc->cwd : Path{}, path, argv, envp, start, err);
+    ExecId id;
+    AddressSpace* as = load_path(proc ? proc->cwd : Path{}, path, argv, envp, start, id, err);
     if(!as){
         return err;
     }
@@ -445,6 +453,7 @@ int64_t exec_replace(const char* path, const char* const* argv, const char* cons
         vma_exit(t->proc);                      // MAP_SHARED murdar se scrie inapoi cat timp vechiul spatiu e activ
         t->proc->vmas = start.vmas;
         signal_exec(t->proc);
+        cred_exec(t->proc->cred, id.mode, id.uid, id.gid, id.nosuid);
     } else {
         vma_list_free(start.vmas);
     }

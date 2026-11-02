@@ -205,6 +205,7 @@ void fill_info(const Task* t, TaskInfo& out){
     out.cpu = t->cpu;
     out.pml4_phys = out.user ? t->as->pml4_phys : 0;
     out.cmdline_len = 0;
+    out.uid = out.euid = out.suid = out.gid = out.egid = out.sgid = 0;
     memcpy(out.name, t->name, TASK_NAME_LEN);
     if(t->proc){
         Process* p = t->proc;
@@ -215,6 +216,12 @@ void fill_info(const Task* t, TaskInfo& out){
         memcpy(out.name, p->name, TASK_NAME_LEN);
         out.cmdline_len = p->cmdline_len;
         memcpy(out.cmdline, p->cmdline, p->cmdline_len);
+        out.uid = p->cred.uid;
+        out.euid = p->cred.euid;
+        out.suid = p->cred.suid;
+        out.gid = p->cred.gid;
+        out.egid = p->cred.egid;
+        out.sgid = p->cred.sgid;
         process_tree_lock().unlock_irqrestore(flags);
     }
 }

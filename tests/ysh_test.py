@@ -78,7 +78,7 @@ FORBIDDEN = ["nope", "no-and"]
 # Substringuri care trebuie sa apara (prompt-ul cu cwd-ul curent, lista de la Tab)
 CONTAINS = [
     "yokai@drone_terminal:~$ ", "yokai@drone_terminal:/tmp$ ",
-    "hostname    motd        mtab        os-release",
+    "group         hostname      motd          mtab          os-release    passwd        selftest.lua  shadow",
     "YOKAI OS version 0.1 - ysh",
     "[OK] test_ysh",
 ]

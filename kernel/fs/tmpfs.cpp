@@ -480,8 +480,13 @@ int tmp_rename(Inode* odir, const char* oname, uint32_t olen, Inode* ndir, const
     return 0;
 }
 
+// Totul e in Inode: nimic de scris
+int tmp_setattr(Inode*){
+    return 0;
+}
+
 const InodeOps tmp_ops = {tmp_lookup, tmp_create, tmp_create, tmp_symlink, tmp_unlink, tmp_rmdir,
-                          tmp_read, tmp_write, tmp_truncate, tmp_readdir, tmp_readlink, tmp_rename};
+                          tmp_read, tmp_write, tmp_truncate, tmp_readdir, tmp_readlink, tmp_rename, tmp_setattr};
 
 // Un inode scos din arbore (nlink 0) dispare la ultima referinta; restul raman ale fs-ului pana la kill
 void tmp_release(Inode* i){

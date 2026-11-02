@@ -1,6 +1,9 @@
 /* /sbin/init: primul proces user (pornit de kernel cu stdio pe terminal).
- * Monteaza /dev /tmp /run /proc (daca nu sunt deja montate; /var si /opt ca tmpfs cat timp radacina e read-only), pune mediul de baza, porneste ysh pe consola
- * si aduna zombie-ii (wait). Daca ysh iese, il reporneste; cu `init -1` (teste) se opreste odata cu el. */
+ * Monteaza /dev /tmp /run /proc (daca nu sunt deja montate; /var, /opt si /home ca tmpfs cat timp radacina e read-only,
+ * cu cate un HOME pentru fiecare utilizator din /etc/passwd cu uid >= 1000), umask 022, pune mediul de baza, porneste ysh pe consola
+ * si aduna zombie-ii (wait). Daca ysh iese, il reporneste; cu `init -1` (teste) se opreste odata cu el.
+ * Cu `init -l` porneste /bin/login (cere utilizator si parola) in loc de ysh (cmdline "login").
+ * Cu `init -t` (modul test, test=userspace) porneste /bin/selftest in loc de ysh si iese cu codul lui. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +16,8 @@
 #include <sys/mount.h>
 
 #define SHELL "/bin/ysh"
+#define SELFTEST "/bin/selftest"
+#define LOGIN "/bin/login"
 
 // Linia "<sursa> <tinta> <tip> ..." din /proc/mounts cu tinta data?
 static int is_mounted(const char *target){
@@ -60,6 +65,41 @@ static void mount_fs(const char *source, const char *target, const char *type, c
     }
 }
 
+// HOME-urile utilizatorilor obisnuiti (uid >= 1000, sub /home) pe tmpfs-ul nou: 0700, ai lor
+static void make_homes(void){
+    FILE *f = fopen("/etc/passwd", "r");
+    if(!f){
+        return;
+    }
+    char line[256];
+    while(fgets(line, sizeof(line), f)){
+        // nume:x:uid:gid:gecos:home:shell
+        char *fl[7];
+        int n = 0;
+        line[strcspn(line, "\r\n")] = 0;
+        fl[n++] = line;
+        for(char *p = line; *p && n < 7; p++){
+            if(*p == ':'){
+                *p = 0;
+                fl[n++] = p + 1;
+            }
+        }
+        if(n < 6){
+            continue;
+        }
+        unsigned uid = (unsigned)strtoul(fl[2], NULL, 10);
+        unsigned gid = (unsigned)strtoul(fl[3], NULL, 10);
+        const char *dir = fl[5];
+        if(uid < 1000 || strncmp(dir, "/home/", 6) != 0){
+            continue;
+        }
+        if(mkdir(dir, 0700) == 0 || errno == EEXIST){
+            chown(dir, uid, gid);
+        }
+    }
+    fclose(f);
+}
+
 static void read_hostname(void){
     char name[64];
     FILE *f = fopen("/etc/hostname", "r");
@@ -74,8 +114,22 @@ static void read_hostname(void){
     }
 }
 
-static pid_t start_shell(void){
+static pid_t start_shell(int selftest, int login){
     pid_t pid = fork();
+    if(pid == 0 && selftest){
+        chdir("/");
+        char *argv[] = {"selftest", NULL};
+        execv(SELFTEST, argv);
+        printf("init: %s: %s\n", SELFTEST, strerror(errno));
+        _exit(127);
+    }
+    if(pid == 0 && login){
+        chdir("/");
+        char *argv[] = {"login", NULL};
+        execv(LOGIN, argv);
+        printf("init: %s: %s\n", LOGIN, strerror(errno));
+        _exit(127);
+    }
     if(pid == 0){
         const char *home = getenv("HOME");
         if(!home || chdir(home) < 0){
@@ -90,7 +144,9 @@ static pid_t start_shell(void){
 }
 
 int main(int argc, char **argv){
-    int once = argc > 1 && strcmp(argv[1], "-1") == 0;
+    int selftest = argc > 1 && strcmp(argv[1], "-t") == 0;
+    int login = argc > 1 && strcmp(argv[1], "-l") == 0;
+    int once = selftest || (argc > 1 && strcmp(argv[1], "-1") == 0);
 
     // /proc primul: is_mounted() il citeste
     mount_fs("proc", "/proc", "proc", NULL);
@@ -102,7 +158,12 @@ int main(int argc, char **argv){
     if(root_is_readonly()){
         mount_fs("tmpfs", "/var", "tmpfs", "mode=0755");
         mount_fs("tmpfs", "/opt", "tmpfs", "mode=0755");
+        if(!is_mounted("/home")){
+            mount_fs("tmpfs", "/home", "tmpfs", "mode=0755");
+            make_homes();
+        }
     }
+    umask(022);
 
     setenv("PATH", "/bin:/sbin", 0);
     setenv("HOME", "/root", 0);
@@ -112,7 +173,7 @@ int main(int argc, char **argv){
 
     int status = 0;
     for(;;){
-        pid_t sh = start_shell();
+        pid_t sh = start_shell(selftest, login);
         if(sh < 0){
             printf("init: fork: %s\n", strerror(errno));
             sleep(1);

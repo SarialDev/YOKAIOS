@@ -176,7 +176,7 @@ void on_input(const InputEvent& ev){
         readq.wake_all();
     }
     if(sig && pgid){
-        signal_send_pgrp(pgid, sig);
+        signal_send_pgrp(pgid, sig, false);
     }
 }
 
@@ -284,6 +284,6 @@ void tty_inject(const char* s, uint64_t n){
         readq.wake_all();
     }
     if(sig && pgid){
-        signal_send_pgrp(pgid, sig);
+        signal_send_pgrp(pgid, sig, false);
     }
 }

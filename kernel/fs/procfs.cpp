@@ -264,6 +264,9 @@ void gen_mounts(Buf& b){
         put_c(b, ' ');
         put(b, list[i].fstype);
         put(b, (list[i].flags & MS_RDONLY) ? " ro" : " rw");
+        if(list[i].flags & MS_NOSUID){
+            put(b, ",nosuid");
+        }
         put(b, " 0 0\n");
     }
     kfree(list);
@@ -370,6 +373,20 @@ void gen_status(Buf& b, const TaskInfo& t, const Maps* m){
     put_dec(b, t.pid);
     put(b, "\nPPid:\t");
     put_dec(b, t.ppid);
+    // Ca pe Linux: real, efectiv, salvat, fs (= efectiv)
+    put(b, "\nUid:\t");
+    const uint32_t ids[2][4] = {{t.uid, t.euid, t.suid, t.euid}, {t.gid, t.egid, t.sgid, t.egid}};
+    for(int k = 0; k < 2; k++){
+        if(k){
+            put(b, "\nGid:\t");
+        }
+        for(int j = 0; j < 4; j++){
+            if(j){
+                put_c(b, '\t');
+            }
+            put_dec(b, ids[k][j]);
+        }
+    }
     put(b, "\nThreads:\t1\n");
     if(m){
         put(b, "VmSize:\t");
@@ -658,13 +675,13 @@ int64_t proc_readlink(Inode*, char* buf, uint64_t len){
 }
 
 const InodeOps root_ops = {root_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                           root_readdir, nullptr, nullptr};
+                           root_readdir, nullptr, nullptr, nullptr};
 const InodeOps pid_ops = {pid_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                          pid_readdir, nullptr, nullptr};
+                          pid_readdir, nullptr, nullptr, nullptr};
 const InodeOps file_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, proc_read, nullptr, nullptr,
-                           nullptr, nullptr, nullptr};
+                           nullptr, nullptr, nullptr, nullptr};
 const InodeOps link_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                           nullptr, proc_readlink, nullptr};
+                           nullptr, proc_readlink, nullptr, nullptr};
 
 // Fara cache: inode-urile dispar cu dentry-urile care le tin (radacina e eliberata de kill)
 void proc_release(Inode* i){

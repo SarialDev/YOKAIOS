@@ -724,7 +724,7 @@ int fat_readdir(Inode* dir, uint64_t index, DirEntry& out){
 }
 
 const InodeOps fat_ops = {fat_lookup, fat_create, fat_mkdir, nullptr, fat_unlink, fat_rmdir, fat_read, fat_write,
-                          fat_truncate, fat_readdir, nullptr, fat_rename};
+                          fat_truncate, fat_readdir, nullptr, fat_rename, nullptr};
 
 // ---- sistemul de fisiere ----
 

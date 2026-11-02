@@ -77,6 +77,8 @@ struct TaskInfo {
     uint16_t cmdline_len;
     char name[TASK_NAME_LEN];
     char cmdline[PROC_CMDLINE_MAX]; // argv separat prin '\0'
+    uint32_t uid, euid, suid;       // identitatea procesului (0 pentru thread-urile de kernel)
+    uint32_t gid, egid, sgid;
 };
 // Task-ul cu tid-ul dat (fara idle); false daca nu exista
 bool task_info(uint64_t tid, TaskInfo& out);

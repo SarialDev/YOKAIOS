@@ -41,7 +41,7 @@ bool signal_map_trampoline(AddressSpace& as);
 void signal_post_locked(Process* p, int sig);
 // kill(): pid > 0 proces, grup = pgid. 0 sau -errno
 int signal_send_pid(uint64_t pid, int sig);
-int signal_send_pgrp(uint64_t pgid, int sig);
+int signal_send_pgrp(uint64_t pgid, int sig, bool check_perm = true);
 // Procesul curent isi trimite singur sig (SIGPIPE)
 void signal_send_self(int sig);
 

@@ -33,6 +33,15 @@
 #define S_ISLNK(m)      (((m) & S_IFMT) == S_IFLNK)
 #define S_ISCHR(m)      (((m) & S_IFMT) == S_IFCHR)
 #define S_ISBLK(m)      (((m) & S_IFMT) == S_IFBLK)
+#define S_ISUID         04000
+#define S_ISGID         02000
+#define S_ISVTX         01000
+
+/* access(2) */
+#define F_OK            0
+#define X_OK            1
+#define W_OK            2
+#define R_OK            4
 
 #define DT_UNKNOWN      0
 #define DT_FIFO         1
@@ -43,6 +52,7 @@
 #define DT_LNK          10
 
 #define MS_RDONLY       1
+#define MS_NOSUID       2               /* exec ignora bitii setuid/setgid */
 
 #define PATH_MAX        256
 #define NAME_MAX        255
