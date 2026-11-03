@@ -13,6 +13,7 @@ struct sockaddr_storage { sa_family_t ss_family; char __pad[126]; };
 #define PF_INET AF_INET
 #define SOCK_STREAM 1
 #define SOCK_DGRAM 2
+#define SOCK_RAW 3              /* doar IPPROTO_ICMP si cu CAP_NET (ping) */
 #define SOCK_NONBLOCK 04000     /* se combina cu tipul: socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0) */
 #define SOL_SOCKET 1
 #define SO_REUSEADDR 2

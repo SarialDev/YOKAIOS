@@ -20,5 +20,8 @@ void netcfg_attach(struct netif* nif, bool dhcp, uint32_t dns);
 void netcfg_info(NetCfgInfo& out);
 // true dupa ce interfata are adresa (statica sau DHCP)
 bool netcfg_bound();
+// Setare statica a interfetei (ioctl SIOCSIF* / SIOCADDRT, T9.5): doar campurile cu set_* se schimba; opreste DHCP (adresa
+// devine statica). Ruleaza in thread-ul tcpip si blocheaza pana termina, deci doar din task-uri. 0 sau -errno
+int netcfg_set(bool set_addr, uint32_t addr, bool set_mask, uint32_t mask, bool set_gw, uint32_t gw);
 // Scrie serverele DNS in /run/resolv.conf (/etc/resolv.conf e un symlink spre el). Cheama task-ul "netcfg"; 0 sau -errno
 int netcfg_write_resolv();

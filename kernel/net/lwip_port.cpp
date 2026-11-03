@@ -195,6 +195,10 @@ bool net_ready(){
     return ready;
 }
 
+NetDevice* net_device(){
+    return cfg.dev;
+}
+
 struct netif* net_netif(){
     return the_netif;
 }

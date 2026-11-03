@@ -5,6 +5,8 @@
 #include "lwip/netif.h"
 #include "lwip/dhcp.h"
 #include "lwip/dns.h"
+#include "lwip/tcpip.h"
+#include "net/lwip_port.h"
 #include "lwip/ip4_addr.h"
 #include "net/netcfg_fs.h"
 #include "sched/sched.h"
@@ -173,6 +175,54 @@ bool netcfg_bound(){
     NetCfgInfo n;
     netcfg_info(n);
     return n.bound;
+}
+
+namespace {
+
+struct SetReq {
+    bool sa, sm, sg;
+    uint32_t addr, mask, gw;
+    int err;
+};
+
+void set_cb(void* arg){
+    SetReq* r = (SetReq*)arg;
+    struct netif* nif = net_netif();
+    if(!nif){
+        r->err = -100;                      // ENETDOWN
+        return;
+    }
+    uint64_t fl = lock.lock_irqsave();
+    bool was_dhcp = info.dhcp;
+    info.dhcp = false;
+    lock.unlock_irqrestore(fl);
+    if(was_dhcp){
+        dhcp_stop(nif);
+    }
+    ip4_addr_t a, m, g;
+    ip4_addr_copy(a, *netif_ip4_addr(nif));
+    ip4_addr_copy(m, *netif_ip4_netmask(nif));
+    ip4_addr_copy(g, *netif_ip4_gw(nif));
+    if(r->sa){
+        ip4_addr_set_u32(&a, r->addr);
+    }
+    if(r->sm){
+        ip4_addr_set_u32(&m, r->mask);
+    }
+    if(r->sg){
+        ip4_addr_set_u32(&g, r->gw);
+    }
+    netif_set_addr(nif, &a, &m, &g);
+    snapshot_from(nif);
+    r->err = 0;
+}
+
+}
+
+int netcfg_set(bool set_addr, uint32_t addr, bool set_mask, uint32_t mask, bool set_gw, uint32_t gw){
+    SetReq r = {set_addr, set_mask, set_gw, addr, mask, gw, 0};
+    err_t e = tcpip_callback_wait(set_cb, &r);
+    return e == ERR_OK ? r.err : -12;       // ENOMEM
 }
 
 int netcfg_write_resolv(){

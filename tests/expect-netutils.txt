@@ -1,0 +1,10 @@
+[OK] hal
+net: eth0 10.0.2.15 mask 255.255.255.0 gw 10.0.2.2
+nettest: [OK] faza A (ping, ifconfig, netstat, utilizare wget/nc)
+nettest: astept host
+nettest: [OK] faza B (nc -l, netstat LISTEN)
+nettest: [OK] faza C (wget: GET, redirectari, 404, 150000 octeti)
+nettest: [OK] faza D (nc client TCP/UDP, 100000 octeti)
+[OK] nettest
+[OK] test_netutils
+[OK] boot

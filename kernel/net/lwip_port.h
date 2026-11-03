@@ -9,5 +9,8 @@ struct netif;
 bool net_init();
 // true dupa ce thread-ul tcpip a creat interfata
 bool net_ready();
+// Placa pe care ruleaza lwIP (nullptr inainte de net_init)
+class NetDevice;
+NetDevice* net_device();
 // Interfata creata de net_init (nullptr inainte de net_ready)
 struct netif* net_netif();

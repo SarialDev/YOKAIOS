@@ -88,5 +88,6 @@ Se rulează în WSL/Linux din rădăcina repo-ului. `SMP=n` setează numărul de
 | `make run-ext4` | Boot normal cu rădăcina ext4 pe `sda2`. |
 | `make test-input-ps2`, `test-input-usb` | Tastatura prin PS/2, respectiv USB. |
 | `make test-mouse`, `test-usb` | Mouse / xHCI. |
+| `make test-netutils` | ping, ifconfig, netstat, wget, nc (T9.5): `/bin/nettest` + `tests/netutils_host.py` (server HTTP/echo pe gazdă, hostfwd spre `nc -l 7`). |
 | `make test-nofb` | Consolă VGA text. |
 | `make clean` | Șterge `build/`. |

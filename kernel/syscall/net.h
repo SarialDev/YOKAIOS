@@ -14,5 +14,8 @@ int64_t sys_getsockname(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uin
 int64_t sys_getpeername(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t);
 int64_t sys_setsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, uint64_t len, uint64_t);
 int64_t sys_getsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, uint64_t lenp, uint64_t);
+// ioctl pe un socket (T9.5): SIOCGIF* / SIOCSIF* / SIOCADDRT / SIOCDELRT. Chemat din sys_ioctl cand fd-ul e socket
+struct File;
+int64_t net_ioctl(File* f, uint64_t cmd, uint64_t arg);
 int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout_ms, uint64_t, uint64_t, uint64_t);
 int64_t sys_select(uint64_t nfds, uint64_t rd, uint64_t wr, uint64_t ex, uint64_t timeout, uint64_t);

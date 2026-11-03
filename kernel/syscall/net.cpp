@@ -14,6 +14,10 @@
 #include "lib/string.h"
 #include "drivers/tty.h"
 #include "fs/pseudofs.h"
+#include "proc/caps.h"
+#include "hal/net.h"
+#include "net/lwip_port.h"
+#include "net/netcfg.h"
 
 namespace {
 
@@ -82,6 +86,9 @@ int64_t sys_socket(uint64_t domain, uint64_t type, uint64_t proto, uint64_t, uin
     }
     if(domain != AF_INET){
         return -EAFNOSUPPORT;
+    }
+    if(((int)type & ~SOCK_NONBLOCK) == SOCK_RAW && !capable(CAP_NET)){
+        return -EPERM;                      // socket brut (ping): ca pe Linux, doar cu privilegii
     }
     File* f;
     int err = sock_create((int)type, (int)proto, f);
@@ -291,6 +298,143 @@ int64_t sys_getsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, 
         return err;
     }
     return copy_to_user(val, tmp, len) && copy_to_user(lenp, &len, sizeof(len)) ? 0 : -EFAULT;
+}
+
+// --- ioctl pe socket-uri: interfete si rute ---
+
+namespace {
+
+// Interfata cu numele din ifreq: indicele HAL, sau -1
+int find_if(const k_ifreq& r){
+    char name[IFNAMSIZ + 1];
+    memcpy(name, r.ifr_name, IFNAMSIZ);
+    name[IFNAMSIZ] = 0;
+    for(int i = 0; i < hal_count(HalKind::Net); i++){
+        const char* n = hal_name(HalKind::Net, i);
+        if(n){
+            int k = 0;
+            while(n[k] && n[k] == name[k]){
+                k++;
+            }
+            if(n[k] == name[k]){
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+void put_addr(k_ifreq& r, uint32_t ip){
+    memset(&r.u, 0, sizeof(r.u));
+    r.u.addr.sa_family = AF_INET;
+    memcpy(&r.u.addr.sa_data[2], &ip, 4);       // sockaddr_in: port (2 octeti), apoi adresa
+}
+
+bool get_addr(const k_ifreq& r, uint32_t& ip){
+    if(r.u.addr.sa_family != AF_INET){
+        return false;
+    }
+    memcpy(&ip, &r.u.addr.sa_data[2], 4);
+    return true;
+}
+
+}
+
+int64_t net_ioctl(File*, uint64_t cmd, uint64_t arg){
+    if(cmd == SIOCADDRT || cmd == SIOCDELRT){
+        if(!capable(CAP_NET)){
+            return -EPERM;
+        }
+        k_rtentry rt;
+        if(!copy_from_user(&rt, arg, sizeof(rt))){
+            return -EFAULT;
+        }
+        // Doar ruta implicita (destinatie 0.0.0.0, masca 0.0.0.0) prin gateway: restul rutelor vin din adresa interfetei
+        uint32_t dst = 0, mask = 0, gw = 0;
+        memcpy(&dst, &rt.rt_dst.sa_data[2], 4);
+        memcpy(&mask, &rt.rt_genmask.sa_data[2], 4);
+        memcpy(&gw, &rt.rt_gateway.sa_data[2], 4);
+        if(dst != 0 || mask != 0){
+            return -EOPNOTSUPP;
+        }
+        if(cmd == SIOCADDRT){
+            if(!(rt.rt_flags & RTF_GATEWAY) || rt.rt_gateway.sa_family != AF_INET || gw == 0){
+                return -EINVAL;
+            }
+            return netcfg_set(false, 0, false, 0, true, gw);
+        }
+        return netcfg_set(false, 0, false, 0, true, 0);
+    }
+    k_ifreq r;
+    if(!copy_from_user(&r, arg, sizeof(r))){
+        return -EFAULT;
+    }
+    int idx = find_if(r);
+    if(idx < 0){
+        return -ENODEV;
+    }
+    NetDevice* dev = hal_net(idx);
+    bool primary = dev && dev == net_device() && net_ready();
+    NetCfgInfo n;
+    netcfg_info(n);
+    bool have = primary && n.bound;
+    switch(cmd){
+    case SIOCGIFFLAGS: {
+        r.u.flags = (short)(IFF_BROADCAST | IFF_MULTICAST | (have ? IFF_UP : 0) | (dev && dev->link_up() ? IFF_RUNNING : 0));
+        break;
+    }
+    case SIOCGIFADDR:
+        if(!have){
+            return -EADDRNOTAVAIL;
+        }
+        put_addr(r, n.addr);
+        break;
+    case SIOCGIFNETMASK:
+        if(!have){
+            return -EADDRNOTAVAIL;
+        }
+        put_addr(r, n.mask);
+        break;
+    case SIOCGIFBRDADDR:
+        if(!have){
+            return -EADDRNOTAVAIL;
+        }
+        put_addr(r, n.addr | ~n.mask);
+        break;
+    case SIOCGIFMTU:
+        r.u.mtu = dev ? (int)dev->mtu() : 0;
+        break;
+    case SIOCGIFHWADDR: {
+        uint8_t mac[6] = {};
+        if(dev){
+            dev->mac(mac);
+        }
+        memset(&r.u, 0, sizeof(r.u));
+        r.u.addr.sa_family = ARPHRD_ETHER;
+        memcpy(r.u.addr.sa_data, mac, 6);
+        break;
+    }
+    case SIOCSIFADDR:
+    case SIOCSIFNETMASK: {
+        if(!capable(CAP_NET)){
+            return -EPERM;
+        }
+        if(!primary){
+            return -ENODEV;
+        }
+        uint32_t v;
+        if(!get_addr(r, v)){
+            return -EAFNOSUPPORT;
+        }
+        return cmd == SIOCSIFADDR ? netcfg_set(true, v, false, 0, false, 0) : netcfg_set(false, 0, true, v, false, 0);
+    }
+    case SIOCSIFFLAGS:
+        // Interfata nu se poate opri; IFF_UP e acceptat (deja sus), restul ignorat
+        return capable(CAP_NET) ? 0 : -EPERM;
+    default:
+        return -ENOTTY;
+    }
+    return copy_to_user(arg, &r, sizeof(r)) ? 0 : -EFAULT;
 }
 
 // --- poll / select ---

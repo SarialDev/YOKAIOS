@@ -12,6 +12,7 @@ struct sockaddr_in {
     unsigned char sin_zero[8];
 };
 #define IPPROTO_IP 0
+#define IPPROTO_ICMP 1
 #define IPPROTO_TCP 6
 #define IPPROTO_UDP 17
 #define INADDR_ANY ((in_addr_t)0x00000000)

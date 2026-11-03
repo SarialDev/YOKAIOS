@@ -7,6 +7,9 @@
 #include "mm/pmm.h"
 #include "sched/task.h"
 #include "hal/net.h"
+#include "net/netcfg.h"
+#include "net/netproc.h"
+#include "net/lwip_port.h"
 #include "time/clock.h"
 #include "lib/string.h"
 #include "uapi/syscall_nr.h"
@@ -17,7 +20,7 @@ namespace {
 // lookup/readdir si dispar la ultima referinta (sb-ul are SB_NOCACHE, deci nici dentry-urile nu raman: un proces
 // terminat dispare din /proc). Un inode din /proc/<pid> tine doar numarul; la citire se cauta task-ul din nou
 enum class Kind : uint8_t {
-    Root, Meminfo, Uptime, Cpuinfo, Mounts, Self, PidDir, PidStatus, PidCmdline, PidMaps, NetDir, NetDev
+    Root, Meminfo, Uptime, Cpuinfo, Mounts, Self, PidDir, PidStatus, PidCmdline, PidMaps, NetDir, NetDev, NetTcp, NetUdp, NetRoute
 };
 
 const uint64_t GEN_MAX = 8192;
@@ -318,6 +321,47 @@ void gen_netdev(Buf& b){
     }
 }
 
+// ---- /proc/net/route (formatul Linux; valorile hex sunt u32 little-endian ca in /proc/net/tcp) ----
+
+void put_hex_u(Buf& b, uint32_t v, int width){
+    for(int i = width - 1; i >= 0; i--){
+        put_c(b, "0123456789ABCDEF"[(v >> (i * 4)) & 15]);
+    }
+}
+
+void gen_netroute(Buf& b){
+    put(b, "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n");
+    NetDevice* dev = net_device();
+    NetCfgInfo n;
+    netcfg_info(n);
+    const char* name = nullptr;
+    for(int i = 0; i < hal_count(HalKind::Net); i++){
+        if(hal_net(i) == dev){
+            name = hal_name(HalKind::Net, i);
+        }
+    }
+    if(!dev || !name || !n.bound){
+        return;
+    }
+    if(n.gw){
+        put(b, name);
+        put(b, "\t00000000\t");
+        put_hex_u(b, n.gw, 8);
+        put(b, "\t0003\t0\t0\t0\t00000000\t0\t0\t0\n");
+    }
+    put(b, name);
+    put_c(b, '\t');
+    put_hex_u(b, n.addr & n.mask, 8);
+    put(b, "\t00000000\t0001\t0\t0\t0\t");
+    put_hex_u(b, n.mask, 8);
+    put(b, "\t0\t0\t0\n");
+}
+
+// tcp / udp: tabelele lwIP, scrise direct in buffer
+void gen_netsock(Buf& b, int kind){
+    b.len += netproc_sockets(kind, b.p + b.len, b.cap - b.len);
+}
+
 // ---- spatiul user al unui proces: regiuni citite din tabelele de pagini ----
 
 struct Region {
@@ -497,6 +541,15 @@ int generate(Kind kind, uint64_t pid, Buf& b){
         return 0;
     case Kind::NetDev:
         gen_netdev(b);
+        return 0;
+    case Kind::NetTcp:
+        gen_netsock(b, 0);
+        return 0;
+    case Kind::NetUdp:
+        gen_netsock(b, 1);
+        return 0;
+    case Kind::NetRoute:
+        gen_netroute(b);
         return 0;
     case Kind::PidStatus:
     case Kind::PidCmdline:
@@ -697,19 +750,24 @@ int pid_readdir(Inode* dir, uint64_t index, DirEntry& out){
     return 1;
 }
 
+const Static net_files[] = {{"dev", Kind::NetDev}, {"tcp", Kind::NetTcp}, {"udp", Kind::NetUdp}, {"route", Kind::NetRoute}};
+const uint64_t NNET_FILES = sizeof(net_files) / sizeof(net_files[0]);
+
 int net_lookup(Inode* dir, const char* name, uint32_t len, Inode*& out){
-    if(!name_is("dev", name, len)){
-        return -ENOENT;
+    for(uint64_t k = 0; k < NNET_FILES; k++){
+        if(name_is(net_files[k].name, name, len)){
+            out = make_inode(dir->sb, net_files[k].kind, 0);
+            return out ? 0 : -ENOMEM;
+        }
     }
-    out = make_inode(dir->sb, Kind::NetDev, 0);
-    return out ? 0 : -ENOMEM;
+    return -ENOENT;
 }
 
 int net_readdir(Inode*, uint64_t index, DirEntry& out){
-    if(index > 0){
+    if(index >= NNET_FILES){
         return 0;
     }
-    fill_entry(out, ((uint64_t)Kind::NetDev) + 1, DT_REG, "dev");
+    fill_entry(out, ((uint64_t)net_files[index].kind) + 1, DT_REG, net_files[index].name);
     return 1;
 }
 

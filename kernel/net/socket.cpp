@@ -16,6 +16,8 @@ namespace {
 // Valorile Linux (uapi/net.h)
 const int K_SOCK_STREAM = 1;
 const int K_SOCK_DGRAM = 2;
+const int K_SOCK_RAW = 3;
+const int K_IPPROTO_ICMP = 1;
 const int K_SOCK_NONBLOCK = 04000;
 const int K_SOL_SOCKET = 1;
 const int K_SO_REUSEADDR = 2;
@@ -161,7 +163,7 @@ bool sock_is_stream(const File* f){
 int sock_create(int type, int proto, File*& out){
     bool nb = type & K_SOCK_NONBLOCK;
     int t = type & ~K_SOCK_NONBLOCK;
-    if(t != K_SOCK_STREAM && t != K_SOCK_DGRAM){
+    if(t != K_SOCK_STREAM && t != K_SOCK_DGRAM && !(t == K_SOCK_RAW && proto == K_IPPROTO_ICMP)){
         return -K_EPROTONOSUPPORT;
     }
     if(!net_ready()){
@@ -268,7 +270,7 @@ int64_t sock_sendto(File* f, const void* buf, uint64_t len, int flags, const KSo
     bool nb = nonblocking(f, flags);
     uint64_t deadline = deadline_for(s->sndto_ms);
     const uint8_t* p = (const uint8_t*)buf;
-    if(s->type == K_SOCK_DGRAM){
+    if(s->type != K_SOCK_STREAM){                 // DGRAM si RAW
         if(len > SOCK_IO_MAX * 2){
             return -K_EMSGSIZE;
         }
@@ -331,7 +333,7 @@ int64_t sock_recvfrom(File* f, void* buf, uint64_t len, int flags, KSockAddr* fr
         socklen_t sl = sizeof(sa);
         int r = lwip_recvfrom(s->lfd, buf, len, lf, (struct sockaddr*)&sa, &sl);
         if(r >= 0){
-            if(from && s->type == K_SOCK_DGRAM && sl >= sizeof(sa)){
+            if(from && s->type != K_SOCK_STREAM && sl >= sizeof(sa)){
                 from_lwip(sa, *from);
                 *has_from = true;
             }

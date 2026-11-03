@@ -7,6 +7,8 @@
 #include "lib/string.h"
 #include "drivers/tty.h"
 #include "fs/pseudofs.h"
+#include "net/socket.h"
+#include "syscall/net.h"
 
 namespace {
 
@@ -89,6 +91,9 @@ int64_t sys_ioctl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t, uint64_t, u
     File* f = p ? fd_get(p->fds, (int64_t)fd) : nullptr;
     if(!f){
         return -EBADF;
+    }
+    if(sock_is(f)){
+        return net_ioctl(f, cmd, arg);
     }
     if(f != console_file() && !devfs_is_console(f->inode)){
         return -ENOTTY;
