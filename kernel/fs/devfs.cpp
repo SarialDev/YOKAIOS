@@ -8,6 +8,9 @@
 #include "mm/kmalloc.h"
 #include "lib/string.h"
 #include "uapi/syscall_nr.h"
+#include "uapi/fb.h"
+#include "syscall/syscall.h"
+#include "arch/x86_64/paging.h"
 
 namespace {
 
@@ -151,7 +154,8 @@ void random_fill(uint8_t* buf, uint64_t len){
     }
 }
 
-// ---- fb0: pixeli de 32 bit (formatul framebuffer-ului), linii fara padding de pitch ----
+// ---- fb0: pixeli de 32 bit (formatul framebuffer-ului), linii fara padding de pitch (read/write); mmap = memoria
+// video cu pitch-ul real. In modul grafic (exista o mapare) read/write lucreaza tot pe ecran ----
 
 int64_t fb_rw(uint64_t pos, void* rbuf, const void* wbuf, uint64_t len){
     uint64_t w = fb_width();
@@ -174,9 +178,9 @@ int64_t fb_rw(uint64_t pos, void* rbuf, const void* wbuf, uint64_t len){
         int x = (int)(p % w);
         int y = (int)(p / w);
         if(rbuf){
-            ((uint32_t*)rbuf)[i] = fb_getpixel(x, y);
+            ((uint32_t*)rbuf)[i] = fb_user_getpixel(x, y);
         } else {
-            fb_putpixel(x, y, ((const uint32_t*)wbuf)[i]);
+            fb_user_putpixel(x, y, ((const uint32_t*)wbuf)[i]);
         }
     }
     return (int64_t)(px * 4);
@@ -432,6 +436,85 @@ FileSystemType devfs_type = {"devfs", dev_mount, nullptr};
 
 bool devfs_is_console(const Inode* i){
     return i && i->ops == &dev_ops && ((const DevNode*)i->priv)->kind == Kind::Console;
+}
+
+namespace {
+
+const DevNode* fb_node(const Inode* i){
+    if(!i || i->ops != &dev_ops || !fb_ready()){
+        return nullptr;
+    }
+    const DevNode* n = (const DevNode*)i->priv;
+    return n->kind == Kind::Fb ? n : nullptr;
+}
+
+uint64_t fb_map_len(){
+    uint64_t first = fb_phys_addr() & ~(PAGE_4K - 1);
+    uint64_t end = fb_phys_addr() + (uint64_t)fb_pitch() * fb_height();
+    return (end - first + PAGE_4K - 1) & ~(PAGE_4K - 1);
+}
+
+}
+
+uint64_t devfs_mmap_len(const Inode* i){
+    return fb_node(i) ? fb_map_len() : 0;
+}
+
+int64_t devfs_mmap_phys(const Inode* i, uint64_t off, uint64_t& pte_cache){
+    if(!fb_node(i)){
+        return -ENODEV;
+    }
+    if(off >= fb_map_len() || (off & (PAGE_4K - 1))){
+        return -ENXIO;
+    }
+    // Write-combining ca in kernel (PAT intrarea 1 = PWT); fara PAT necache-uit
+    pte_cache = fb_write_combining() ? PTE_PWT : (PTE_PWT | PTE_PCD);
+    return (int64_t)((fb_phys_addr() & ~(PAGE_4K - 1)) + off);
+}
+
+void devfs_mmap_ref(const Inode* i, bool get){
+    if(fb_node(i)){
+        if(get){
+            fb_user_get();
+        } else {
+            fb_user_put();
+        }
+    }
+}
+
+int64_t devfs_ioctl(Inode* i, uint64_t cmd, uint64_t arg){
+    if(!fb_node(i)){
+        return -ENOTTY;
+    }
+    uint8_t sh[3], sz[3];
+    for(int c = 0; c < 3; c++){
+        fb_channel(c, sh[c], sz[c]);
+    }
+    switch(cmd){
+    case FBIOGET_VSCREENINFO: {
+        KFbVarInfo v;
+        memset(&v, 0, sizeof(v));
+        v.xres = v.xres_virtual = fb_width();
+        v.yres = v.yres_virtual = fb_height();
+        v.bits_per_pixel = 32;
+        v.red = {sh[0], sz[0], 0};
+        v.green = {sh[1], sz[1], 0};
+        v.blue = {sh[2], sz[2], 0};
+        return user_access_ok(arg, sizeof(v), true) && copy_to_user(arg, &v, sizeof(v)) ? 0 : -EFAULT;
+    }
+    case FBIOGET_FSCREENINFO: {
+        KFbFixInfo f;
+        memset(&f, 0, sizeof(f));
+        memcpy(f.id, "yokaifb", 8);
+        f.smem_len = (uint32_t)fb_map_len();
+        f.type = FB_TYPE_PACKED_PIXELS;
+        f.visual = FB_VISUAL_TRUECOLOR;
+        f.line_length = fb_pitch();
+        return user_access_ok(arg, sizeof(f), true) && copy_to_user(arg, &f, sizeof(f)) ? 0 : -EFAULT;
+    }
+    default:
+        return -EINVAL;
+    }
 }
 
 void devfs_init(){

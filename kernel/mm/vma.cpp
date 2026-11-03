@@ -10,6 +10,7 @@
 #include "uapi/fs.h"
 #include "sched/sched.h"
 #include "lib/string.h"
+#include "fs/pseudofs.h"
 
 namespace {
 
@@ -39,12 +40,18 @@ Vma* new_vma(uint64_t start, uint64_t end, uint32_t prot, uint32_t flags, File* 
     v->off = off;
     if(file){
         file_get(file);
+        if(flags & VMA_DEVICE){
+            devfs_mmap_ref(file->inode, true);
+        }
     }
     return v;
 }
 
 void free_vma(Vma* v){
     if(v->file){
+        if(v->flags & VMA_DEVICE){
+            devfs_mmap_ref(v->file->inode, false);
+        }
         file_put(v->file);
     }
     kfree(v);
@@ -140,7 +147,17 @@ bool split_range(VmaList& l, uint64_t start, uint64_t end){
 }
 
 bool shared_file(const Vma* v){
-    return (v->flags & MAP_SHARED) && v->file && v->file->inode;
+    return (v->flags & MAP_SHARED) && !(v->flags & VMA_DEVICE) && v->file && v->file->inode;
+}
+
+// Pagina page dintr-o zona de dispozitiv: adresa fizica vine de la driver, PTE_DEV (fara pageref, nu se elibereaza)
+bool map_device(AddressSpace& as, Vma* v, uint64_t page){
+    uint64_t cache = 0;
+    int64_t phys = devfs_mmap_phys(v->file->inode, v->off + (page - v->start), cache);
+    if(phys < 0){
+        return false;
+    }
+    return vmm_map(as, page, (uint64_t)phys, pte_flags(v->prot, v->flags) | PTE_DEV | cache);
 }
 
 // Scrie in fisier paginile murdare (bit D) din [from, to) ale unei zone MAP_SHARED pe fisier
@@ -171,6 +188,9 @@ void writeback(AddressSpace& as, Vma* v, uint64_t from, uint64_t to, bool clear)
 
 // Pagina lui page din zona v, aduse in memorie (zero sau din fisier)
 bool populate(AddressSpace& as, Vma* v, uint64_t page){
+    if(v->flags & VMA_DEVICE){
+        return map_device(as, v, page);
+    }
     uint64_t phys = pmm_alloc_page();
     if(!phys){
         return false;
@@ -300,7 +320,9 @@ void vma_unmap_pages(AddressSpace& as, uint64_t from, uint64_t to){
         uint64_t e = vmm_entry(as, page);
         if(e & PTE_PRESENT){
             vmm_unmap(as, page);
-            page_put(e & PTE_ADDR_MASK);
+            if(!(e & PTE_DEV)){
+                page_put(e & PTE_ADDR_MASK);
+            }
         }
     }
 }
@@ -421,7 +443,13 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
         if(!f){
             return -EBADF;
         }
-        if(!f->inode || !S_ISREG(f->inode->mode) || !f->inode->ops || !f->inode->ops->read){
+        uint64_t dev_len = f->inode ? devfs_mmap_len(f->inode) : 0;
+        if(dev_len){
+            // /dev/fb0: doar MAP_SHARED, in limitele memoriei video
+            if(!shared || off >= dev_len || page_up(len) > dev_len - off){
+                return shared ? -ENXIO : -EINVAL;
+            }
+        } else if(!f->inode || !S_ISREG(f->inode->mode) || !f->inode->ops || !f->inode->ops->read){
             return -ENODEV;
         }
         if((f->flags & O_ACCMODE) == O_WRONLY){
@@ -463,6 +491,10 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
         }
     }
     uint32_t vflags = (uint32_t)flags & (MAP_SHARED | MAP_PRIVATE | MAP_ANONYMOUS);
+    bool device = f && devfs_mmap_len(f->inode);
+    if(device){
+        vflags |= VMA_DEVICE;
+    }
     // Zone anonime vecine cu aceleasi drepturi se unesc (mmap in bucla nu umple lista)
     Vma* prev = nullptr;
     for(Vma* v = l.head; v && v->start < start; v = v->next){
@@ -477,9 +509,10 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
     } else if(vma_insert(l, start, start + len, (uint32_t)prot, vflags, f, off)){
         return -ENOMEM;
     }
-    // MAP_SHARED anonim: paginile se aloca acum, ca fork sa le poata imparti (nu exista obiect de memorie partajata)
-    if(shared && !f){
-        Vma tmp = {start, start + len, (uint32_t)prot, vflags, nullptr, 0, nullptr};
+    // MAP_SHARED anonim: paginile se aloca acum, ca fork sa le poata imparti (nu exista obiect de memorie partajata).
+    // Dispozitiv: tot acum (fara page fault-uri la fiecare pagina din memoria video)
+    if(shared && (!f || device)){
+        Vma tmp = {start, start + len, (uint32_t)prot, vflags, f, off, nullptr};
         for(uint64_t page = start; page < start + len; page += PAGE_4K){
             if(!populate(as, &tmp, page)){
                 vma_unmap_pages(as, start, page);

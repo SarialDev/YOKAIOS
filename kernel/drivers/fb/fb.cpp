@@ -24,9 +24,19 @@ struct State {
     uint8_t size[3];        // marimile canalelor in biti
     bool wc;
     bool ready;
+    uint64_t phys;          // adresa fizica a primului pixel
 };
 
+
 State st;
+
+// Numarul de mapari /dev/fb0 din user; > 0 = modul grafic (consola nu mai atinge ecranul)
+uint32_t user_maps = 0;
+
+// Bufferul in care scrie consola: ecranul, sau nimic in modul grafic
+inline uint8_t* front(){
+    return __atomic_load_n(&user_maps, __ATOMIC_ACQUIRE) ? nullptr : st.front;
+}
 
 class FbDevice final : public Framebuffer {
 public:
@@ -97,6 +107,7 @@ __init bool fb_init(){
     }
 
     st.front = (uint8_t*)(FB_VIRT_BASE + b.addr);
+    st.phys = b.addr;
     st.width = b.width;
     st.height = b.height;
     st.pitch = b.pitch;
@@ -146,7 +157,9 @@ void fb_putpixel(int x, int y, uint32_t color){
     if(!st.ready || x < 0 || y < 0 || x >= (int)st.width || y >= (int)st.height){
         return;
     }
-    *px(st.front, x, y) = color;
+    if(uint8_t* f = front()){
+        *px(f, x, y) = color;
+    }
     if(st.back){
         *px(st.back, x, y) = color;
     }
@@ -172,8 +185,11 @@ void fb_fill_rect(int x, int y, int w, int h, uint32_t color){
     if(x >= x1 || y >= y1){
         return;
     }
+    uint8_t* f = front();
     for(int row = y; row < y1; row++){
-        fill32((uint8_t*)px(st.front, x, row), color, (uint32_t)(x1 - x));
+        if(f){
+            fill32((uint8_t*)px(f, x, row), color, (uint32_t)(x1 - x));
+        }
         if(st.back){
             fill32((uint8_t*)px(st.back, x, row), color, (uint32_t)(x1 - x));
         }
@@ -196,8 +212,11 @@ void fb_blit(int x, int y, const uint32_t* src, int w, int h, uint32_t src_pitch
         return;
     }
     const uint8_t* s = (const uint8_t*)src + (uint64_t)sy * src_pitch + (uint64_t)sx * 4;
+    uint8_t* f = front();
     for(int row = 0; row < ch; row++, s += src_pitch){
-        copy_up(px(st.front, x, y + row), s, (uint64_t)cw * 4);
+        if(f){
+            copy_up(px(f, x, y + row), s, (uint64_t)cw * 4);
+        }
         if(st.back){
             copy_up(px(st.back, x, y + row), s, (uint64_t)cw * 4);
         }
@@ -208,13 +227,16 @@ void fb_draw_glyph(int x, int y, const uint8_t* rows, int height, uint32_t fg, u
     if(!st.ready || x < 0 || y < 0 || x + 8 > (int)st.width || y + height > (int)st.height){
         return;
     }
+    uint8_t* fr = front();
     for(int r = 0; r < height; r++){
         uint8_t bits = rows[r];
-        uint32_t* f = px(st.front, x, y + r);
+        uint32_t* f = fr ? px(fr, x, y + r) : nullptr;
         uint32_t* b = st.back ? px(st.back, x, y + r) : nullptr;
         for(int c = 0; c < 8; c++){
             uint32_t v = (bits & (0x80 >> c)) ? fg : bg;
-            f[c] = v;
+            if(f){
+                f[c] = v;
+            }
             if(b){
                 b[c] = v;
             }
@@ -232,22 +254,65 @@ void fb_scroll_up(int dy, uint32_t fill){
     }
     uint64_t keep = (uint64_t)(st.height - dy) * st.pitch;
     uint64_t shift = (uint64_t)dy * st.pitch;
+    uint8_t* f = front();
     if(st.back){
         copy_up(st.back, st.back + shift, keep);
         for(uint32_t row = st.height - dy; row < st.height; row++){
             fill32(st.back + (uint64_t)row * st.pitch, fill, st.width);
         }
-        copy_up(st.front, st.back, (uint64_t)st.height * st.pitch);
-    } else {
-        copy_up(st.front, st.front + shift, keep);
+        if(f){
+            copy_up(f, st.back, (uint64_t)st.height * st.pitch);
+        }
+    } else if(f){
+        copy_up(f, f + shift, keep);
         for(uint32_t row = st.height - dy; row < st.height; row++){
-            fill32(st.front + (uint64_t)row * st.pitch, fill, st.width);
+            fill32(f + (uint64_t)row * st.pitch, fill, st.width);
         }
     }
 }
 
 void fb_flush(){
-    if(st.ready && st.back){
-        copy_up(st.front, st.back, (uint64_t)st.height * st.pitch);
+    uint8_t* f = front();
+    if(st.ready && st.back && f){
+        copy_up(f, st.back, (uint64_t)st.height * st.pitch);
     }
+}
+
+uint64_t fb_phys_addr(){ return st.phys; }
+uint32_t fb_pitch(){ return st.pitch; }
+
+void fb_channel(int c, uint8_t& shift, uint8_t& size){
+    shift = c >= 0 && c < 3 ? st.shift[c] : 0;
+    size = c >= 0 && c < 3 ? st.size[c] : 0;
+}
+
+void fb_user_get(){
+    __atomic_add_fetch(&user_maps, 1, __ATOMIC_ACQ_REL);
+}
+
+void fb_user_put(){
+    if(__atomic_sub_fetch(&user_maps, 1, __ATOMIC_ACQ_REL) == 0){
+        fb_flush();                     // ecranul consolei revine (fara back buffer ramane desenul aplicatiei)
+    }
+}
+
+bool fb_user_owned(){
+    return __atomic_load_n(&user_maps, __ATOMIC_ACQUIRE) != 0;
+}
+
+void fb_user_putpixel(int x, int y, uint32_t color){
+    if(!st.ready || x < 0 || y < 0 || x >= (int)st.width || y >= (int)st.height){
+        return;
+    }
+    *px(st.front, x, y) = color;
+    if(st.back && !fb_user_owned()){
+        *px(st.back, x, y) = color;
+    }
+}
+
+uint32_t fb_user_getpixel(int x, int y){
+    if(!st.ready || x < 0 || y < 0 || x >= (int)st.width || y >= (int)st.height){
+        return 0;
+    }
+    return *px(st.back && !fb_user_owned() ? st.back : st.front, x, y);
 }

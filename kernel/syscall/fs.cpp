@@ -96,7 +96,7 @@ int64_t sys_ioctl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t, uint64_t, u
         return net_ioctl(f, cmd, arg);
     }
     if(f != console_file() && !devfs_is_console(f->inode)){
-        return -ENOTTY;
+        return f->inode ? devfs_ioctl(f->inode, cmd, arg) : -ENOTTY;
     }
     switch(cmd){
     case TCGETS: {

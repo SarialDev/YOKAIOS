@@ -336,9 +336,14 @@ bool as_fork(AddressSpace& dst, AddressSpace& src){
                         e = (e & ~PTE_RW) | PTE_COW;
                         pt[l] = e;
                     }
-                    page_ref(phys);
+                    bool dev = e & PTE_DEV;     // memorie de dispozitiv: nu e RAM, fara contor
+                    if(!dev){
+                        page_ref(phys);
+                    }
                     if(!vmm_map(dst, virt, phys, e & ~PTE_ADDR_MASK)){
-                        page_put(phys);
+                        if(!dev){
+                            page_put(phys);
+                        }
                         ok = false;
                         break;
                     }
@@ -380,7 +385,7 @@ void as_destroy(AddressSpace& as){
                 }
                 uint64_t* pt = table(pd[k] & PTE_ADDR_MASK);
                 for(int l = 0; l < 512; l++){
-                    if(pt[l] & PTE_PRESENT){
+                    if((pt[l] & PTE_PRESENT) && !(pt[l] & PTE_DEV)){
                         page_put(pt[l] & PTE_ADDR_MASK);
                     }
                 }

@@ -32,3 +32,18 @@ void fb_draw_glyph(int x, int y, const uint8_t* rows, int height, uint32_t fg, u
 void fb_scroll_up(int dy, uint32_t fill);
 // Copiaza back buffer-ul in framebuffer (fara efect fara back buffer)
 void fb_flush();
+
+// ---- acces din user (T10.1: /dev/fb0 cu mmap si ioctl FBIOGET_*) ----
+// Adresa fizica a primului pixel (nu neaparat aliniata la pagina), pitch in bytes, marimea memoriei video (pitch * height)
+uint64_t fb_phys_addr();
+uint32_t fb_pitch();
+// Pozitia si marimea canalului c (0 = R, 1 = G, 2 = B) in pixel
+void fb_channel(int c, uint8_t& shift, uint8_t& size);
+// Modul grafic: cat timp un proces are /dev/fb0 mapat, consola (fbcon) scrie doar in back buffer, nu pe ecran.
+// fb_user_get/put numara maparile; la ultima eliberare ecranul se reface din back buffer (fb_flush)
+void fb_user_get();
+void fb_user_put();
+bool fb_user_owned();
+// Pixeli pentru read/write pe /dev/fb0: mereu pe ecran (in modul grafic back buffer-ul ramane al consolei)
+void fb_user_putpixel(int x, int y, uint32_t color);
+uint32_t fb_user_getpixel(int x, int y);

@@ -120,12 +120,14 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-rtl8139 test-lwip test-lwip-ping test-sockets test-dhcp test-netutils test-net test-net-one test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-rtl8139 test-lwip test-lwip-ping test-sockets test-dhcp test-netutils test-net test-net-one test-ygfx test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
 # Lua 5.4 (regulile se declara dupa "all", ca sa nu devina tinta implicita)
 include user/bin/lua/lua.mk
+# ygfx (T10.1): libygfx.a in sysroot, /bin/gfxdemo, /bin/ygfxtest, test-ygfx
+include user/lib/ygfx/ygfx.mk
 
 $(BUILD)/%.S.o: %.S
 	@mkdir -p $(dir $@)
@@ -315,7 +317,7 @@ $(TEST_ISO): $(KERNEL) $(INITRD) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 # make test = testele de nucleu (un boot) + integrarea stocarii (test-fs)
-test: test-core test-ysh test-fs test-net
+test: test-core test-ysh test-fs test-net test-ygfx
 
 test-core: $(TEST_ISO)
 	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log

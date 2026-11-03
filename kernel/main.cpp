@@ -69,6 +69,7 @@
 #include "tests/test_fs.h"
 #include "tests/test_libc.h"
 #include "tests/test_coreutils.h"
+#include "tests/test_ygfx.h"
 #include "tests/test_perm.h"
 #include "tests/test_caps.h"
 #include "tests/test_aslr.h"
@@ -438,6 +439,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "lua")){
         test_lua_run();
+    }
+    if(test_named(test, "ygfx")){
+        test_ygfx_run();
     }
     if(test_named(test, "vm")){
         test_vm_run();

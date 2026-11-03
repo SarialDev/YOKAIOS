@@ -15,6 +15,7 @@ const uint64_t PTE_GLOBAL = 1UL << 8;
 // partajata MAP_SHARED (fork o pastreaza comuna, fara CoW)
 const uint64_t PTE_COW = 1UL << 9;
 const uint64_t PTE_SHM = 1UL << 10;
+const uint64_t PTE_DEV = 1UL << 11;      // memorie de dispozitiv (/dev/fb0): nu e RAM, fara pageref, nu se elibereaza
 const uint64_t PTE_NX = 1UL << 63;
 const uint64_t PTE_ADDR_MASK = 0x000FFFFFFFFFF000UL;
 
