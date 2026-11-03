@@ -65,6 +65,7 @@
 #define SYS_INIT_MODULE 175     /* init_module(imagine, lungime): modul de kernel semnat; cere CAP_SYS_ADMIN */
 #define SYS_DELETE_MODULE 176   /* delete_module(nume) */
 #define SYS_SIGVERIFY   250     /* sigverify(op, date, lungime, semnatura): vezi kernel/core/verify.h */
+#define SYS_CRYPTCTL    251     /* cryptctl(op, arg): volume criptate; vezi kernel/block/crypt.h si uapi/crypt.h */
 #define SYS_FCNTL       72
 #define SYS_GETCWD      79
 #define SYS_CHDIR       80

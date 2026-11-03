@@ -13,6 +13,7 @@
 #include "proc/cred.h"
 #include "proc/caps.h"
 #include "core/verify.h"
+#include "block/crypt.h"
 #include "core/kmod.h"
 
 namespace {
@@ -292,6 +293,7 @@ constexpr Table make_table(){
     t.fn[SYS_INIT_MODULE] = sys_init_module;
     t.fn[SYS_DELETE_MODULE] = sys_delete_module;
     t.fn[SYS_SIGVERIFY] = sys_sigverify;
+    t.fn[SYS_CRYPTCTL] = sys_cryptctl;
     return t;
 }
 

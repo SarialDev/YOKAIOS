@@ -110,7 +110,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -195,12 +195,12 @@ $(BUILD)/libc/libc.a: $(LIBC_OBJS)
 	rm -f $@
 	ar rcs $@ $(LIBC_OBJS)
 
-$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs user/libc/yokai-pie.specs kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h
+$(SYSROOT)/.installed: $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o $(LIBC_HDRS) user/libc/yokai.specs user/libc/yokai-pie.specs kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h kernel/include/uapi/crypt.h
 	rm -rf $(SYSROOT)
 	mkdir -p $(SYSROOT)/include/uapi $(SYSROOT)/lib
 	cp -r user/libc/include/. $(SYSROOT)/include/
 	mkdir -p $(SYSROOT)/include/crypto && cp $(CRYPTO_HDRS) $(SYSROOT)/include/crypto/
-	cp kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h $(SYSROOT)/include/uapi/
+	cp kernel/include/uapi/syscall_nr.h kernel/include/uapi/caps.h kernel/include/uapi/crypt.h $(SYSROOT)/include/uapi/
 	cp $(BUILD)/libc/libc.a $(BUILD)/libc/crt0.o user/libc/yokai.specs user/libc/yokai-pie.specs $(SYSROOT)/lib/
 	touch $@
 
@@ -642,3 +642,17 @@ test-fs: $(BUILD)/yokai-fs.iso tests/mkdisk.sh tests/check_fs.sh
 	sh tests/check_fs.sh $(BUILD)/fs.img 1 $(BUILD)/fs
 	TEST_TIMEOUT=900 DISK=$(BUILD)/fs.img EXPECT_FILE=tests/expect-fs2.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/fs-boot2.log
 	sh tests/check_fs.sh $(BUILD)/fs.img 2 $(BUILD)/fs
+
+# Disc criptat (T8.8): test=crypt (vectori AES / XTS / ChaCha20, ram0 cu /bin/cryptsetup, ext4 pe sda criptat de tools/cryptimg);
+# tests/check_crypt.sh face imaginea, boot-eaza si verifica pe gazda ca discul brut nu are text in clar. Trei rulari:
+# AES-XTS (CPU implicit QEMU = fara AES-NI: varianta software), ChaCha20, AES-XTS cu "-cpu max" (AES-NI daca QEMU il emuleaza)
+$(BUILD)/yokai-crypt.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-crypt/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-crypt/boot/
+	sed 's/test=[^ ]*/test=crypt/' boot/grub-test.cfg > $(BUILD)/iso-crypt/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-crypt 2>/dev/null
+
+test-crypt: $(BUILD)/yokai-crypt.iso tests/check_crypt.sh
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/check_crypt.sh $< $(BUILD)/crypt-xts xts
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/check_crypt.sh $< $(BUILD)/crypt-chacha chacha20
+	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA) -cpu max" sh tests/check_crypt.sh $< $(BUILD)/crypt-xts-ni xts

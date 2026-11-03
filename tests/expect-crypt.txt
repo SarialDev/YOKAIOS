@@ -1,0 +1,8 @@
+[OK] test_crypt AES-128/192/256 (FIPS 197) si AES-XTS (vector independent)
+[OK] test_crypt ChaCha20 (RFC 8439)
+[OK] test_crypt ram0 xts: format, open, parola gresita, date brute fara text, close, --soft, passwd, antet modificat
+[OK] test_crypt ram0 chacha20: format, open, parola gresita, date brute fara text, close, --soft, passwd, antet modificat
+[OK] test_crypt ext4 montat rw pe crypt2 (sda criptat)
+[OK] test_crypt ext4 pe volum criptat: citit fisier existent, scris runtime.txt + bulk.txt (512 KiB)
+[OK] test_crypt ext4 dupa inchidere si redeschidere: datele sunt acolo
+[OK] test_crypt (AES-XTS + ChaCha20: vectori, ram0, ext4 pe disc criptat)
