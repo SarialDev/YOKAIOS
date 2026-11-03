@@ -6,6 +6,7 @@
 #include "mm/kmalloc.h"
 #include "mm/pmm.h"
 #include "sched/task.h"
+#include "hal/net.h"
 #include "time/clock.h"
 #include "lib/string.h"
 #include "uapi/syscall_nr.h"
@@ -16,7 +17,7 @@ namespace {
 // lookup/readdir si dispar la ultima referinta (sb-ul are SB_NOCACHE, deci nici dentry-urile nu raman: un proces
 // terminat dispare din /proc). Un inode din /proc/<pid> tine doar numarul; la citire se cauta task-ul din nou
 enum class Kind : uint8_t {
-    Root, Meminfo, Uptime, Cpuinfo, Mounts, Self, PidDir, PidStatus, PidCmdline, PidMaps
+    Root, Meminfo, Uptime, Cpuinfo, Mounts, Self, PidDir, PidStatus, PidCmdline, PidMaps, NetDir, NetDev
 };
 
 const uint64_t GEN_MAX = 8192;
@@ -33,6 +34,7 @@ struct Static {
 // Intrarile fixe din /proc, in ordinea din readdir (dupa ele vine "self", apoi procesele)
 const Static statics[] = {
     {"meminfo", Kind::Meminfo}, {"uptime", Kind::Uptime}, {"cpuinfo", Kind::Cpuinfo}, {"mounts", Kind::Mounts},
+    {"net", Kind::NetDir},
 };
 const uint64_t NSTATIC = sizeof(statics) / sizeof(statics[0]);
 
@@ -45,6 +47,7 @@ extern const InodeOps root_ops;
 extern const InodeOps pid_ops;
 extern const InodeOps file_ops;
 extern const InodeOps link_ops;
+extern const InodeOps net_ops;
 
 // ---- buffer de iesire ----
 
@@ -272,6 +275,49 @@ void gen_mounts(Buf& b){
     kfree(list);
 }
 
+// ---- /proc/net/dev: contoare RX/TX per interfata (formatul Linux) ----
+
+void gen_netdev(Buf& b){
+    put(b, "Inter-|   Receive                                                |  Transmit\n");
+    put(b, " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n");
+    for(int i = 0; i < hal_count(HalKind::Net); i++){
+        NetDevice* d = hal_net(i);
+        const char* name = hal_name(HalKind::Net, i);
+        if(!d || !name){
+            continue;
+        }
+        NetStats st = {};
+        d->stats(st);
+        uint64_t start = b.len;
+        uint64_t nl = 0;
+        while(name[nl]){
+            nl++;
+        }
+        for(uint64_t k = nl; k < 6; k++){
+            put_c(b, ' ');
+        }
+        put(b, name);
+        put_c(b, ':');
+        put_dec(b, st.rx_bytes);
+        put_c(b, ' ');
+        put_dec(b, st.rx_packets);
+        put_c(b, ' ');
+        put_dec(b, st.rx_errors);
+        put_c(b, ' ');
+        put_dec(b, st.rx_dropped);
+        put(b, " 0 0 0 0 ");
+        put_dec(b, st.tx_bytes);
+        put_c(b, ' ');
+        put_dec(b, st.tx_packets);
+        put_c(b, ' ');
+        put_dec(b, st.tx_errors);
+        put_c(b, ' ');
+        put_dec(b, st.tx_dropped);
+        put(b, " 0 0 0 0\n");
+        (void)start;
+    }
+}
+
 // ---- spatiul user al unui proces: regiuni citite din tabelele de pagini ----
 
 struct Region {
@@ -449,6 +495,9 @@ int generate(Kind kind, uint64_t pid, Buf& b){
     case Kind::Mounts:
         gen_mounts(b);
         return 0;
+    case Kind::NetDev:
+        gen_netdev(b);
+        return 0;
     case Kind::PidStatus:
     case Kind::PidCmdline:
     case Kind::PidMaps: {
@@ -506,6 +555,10 @@ Inode* make_inode(SuperBlock* sb, Kind kind, uint64_t pid){
     case Kind::Root:
         mode = MODE_DIR;
         ops = &root_ops;
+        break;
+    case Kind::NetDir:
+        mode = MODE_DIR;
+        ops = &net_ops;
         break;
     case Kind::PidDir:
         mode = MODE_DIR;
@@ -592,7 +645,8 @@ int root_lookup(Inode* dir, const char* name, uint32_t len, Inode*& out){
 
 int root_readdir(Inode* dir, uint64_t index, DirEntry& out){
     if(index < NSTATIC){
-        fill_entry(out, ((uint64_t)statics[index].kind) + 1, DT_REG, statics[index].name);
+        fill_entry(out, ((uint64_t)statics[index].kind) + 1, statics[index].kind == Kind::NetDir ? DT_DIR : DT_REG,
+                   statics[index].name);
         return 1;
     }
     if(index == NSTATIC){
@@ -643,6 +697,22 @@ int pid_readdir(Inode* dir, uint64_t index, DirEntry& out){
     return 1;
 }
 
+int net_lookup(Inode* dir, const char* name, uint32_t len, Inode*& out){
+    if(!name_is("dev", name, len)){
+        return -ENOENT;
+    }
+    out = make_inode(dir->sb, Kind::NetDev, 0);
+    return out ? 0 : -ENOMEM;
+}
+
+int net_readdir(Inode*, uint64_t index, DirEntry& out){
+    if(index > 0){
+        return 0;
+    }
+    fill_entry(out, ((uint64_t)Kind::NetDev) + 1, DT_REG, "dev");
+    return 1;
+}
+
 int64_t proc_read(Inode* i, uint64_t pos, void* buf, uint64_t len){
     char* tmp = (char*)kmalloc(GEN_MAX);
     if(!tmp){
@@ -683,6 +753,8 @@ const InodeOps root_ops = {root_lookup, nullptr, nullptr, nullptr, nullptr, null
                            root_readdir, nullptr, nullptr, nullptr};
 const InodeOps pid_ops = {pid_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                           pid_readdir, nullptr, nullptr, nullptr};
+const InodeOps net_ops = {net_lookup, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                          net_readdir, nullptr, nullptr, nullptr};
 const InodeOps file_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, proc_read, nullptr, nullptr,
                            nullptr, nullptr, nullptr, nullptr};
 const InodeOps link_ops = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,

@@ -101,16 +101,28 @@ const char *inet_ntop(int af, const void *src, char *dst, socklen_t size){
     return dst;
 }
 
-static int resolve(const char *name, uint32_t *ip){
+int __resolve_host(const char *name, uint32_t *ip);
+
+/* 1 = rezolvat, 0 = nu exista, -1 = DNS indisponibil (h_errno setat la 0 / -1) */
+static int resolve(const char *name, uint32_t *ip, int numeric_only){
     const char *end;
     if(parse_ipv4(name, ip, &end) && !*end){
         return 1;
+    }
+    if(numeric_only){
+        h_errno = HOST_NOT_FOUND;
+        return 0;
     }
     if(strcmp(name, "localhost") == 0){
         *ip = INADDR_LOOPBACK;
         return 1;
     }
-    return 0;
+    int r = __resolve_host(name, ip);
+    if(r == 0){
+        return 1;
+    }
+    h_errno = r < 0 ? TRY_AGAIN : HOST_NOT_FOUND;
+    return r < 0 ? -1 : 0;
 }
 
 struct hostent *gethostbyname(const char *name){
@@ -119,8 +131,10 @@ struct hostent *gethostbyname(const char *name){
     static char *aliases[1];
     static char *addrs[2];
     static uint32_t ip;
-    if(!name || !resolve(name, &ip)){
-        h_errno = HOST_NOT_FOUND;
+    if(!name || resolve(name, &ip, 0) != 1){
+        if(!name){
+            h_errno = HOST_NOT_FOUND;
+        }
         return NULL;
     }
     strncpy(hname, name, sizeof(hname) - 1);
@@ -192,8 +206,11 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
         return EAI_NONAME;
     }
     uint32_t ip = (flags & AI_PASSIVE) ? INADDR_ANY : INADDR_LOOPBACK;
-    if(node && !resolve(node, &ip)){
-        return EAI_NONAME;
+    if(node){
+        int r = resolve(node, &ip, flags & AI_NUMERICHOST);
+        if(r != 1){
+            return r < 0 ? EAI_AGAIN : EAI_NONAME;
+        }
     }
     int port = 0;
     if(service){

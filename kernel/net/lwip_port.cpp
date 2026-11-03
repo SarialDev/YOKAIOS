@@ -2,6 +2,7 @@
 // si pornirea thread-ului tcpip.
 #include "net/lwip_port.h"
 #include "net/netif.h"
+#include "net/netcfg.h"
 #include "lwip/init.h"
 #include "lwip/tcpip.h"
 #include "lwip/netif.h"
@@ -105,7 +106,8 @@ volatile bool ready;
 struct netif* the_netif;
 
 struct Cfg {
-    ip4_addr_t addr, mask, gw;
+    ip4_addr_t addr, mask, gw, dns;
+    bool dhcp;
     NetDevice* dev;
 };
 Cfg cfg;
@@ -137,29 +139,39 @@ void tcpip_ready(void*){
         return;
     }
     ready = true;
-    // ip4addr_ntoa foloseste un buffer static: un singur kprintf cu trei adrese ar suprascrie buffer-ul, deci copiem
-    char a[16], m[16], g[16];
-    strncpy(a, ip4addr_ntoa(&cfg.addr), sizeof(a));
-    strncpy(m, ip4addr_ntoa(&cfg.mask), sizeof(m));
-    strncpy(g, ip4addr_ntoa(&cfg.gw), sizeof(g));
-    a[15] = m[15] = g[15] = 0;
-    kprintf("net: eth0 %s mask %s gw %s\n", a, m, g);
+    netcfg_attach(the_netif, cfg.dhcp, cfg.dns.addr);
 }
 
 }
 
 bool net_init(){
-    if(!cmdline_get("ip=")){
+    // net=off opreste reteaua. Fara ip= (sau cu ip=dhcp) adresa vine prin DHCP; testele (test= in cmdline) pornesc reteaua
+    // doar cu ip= / net=dhcp explicit, ca sa nu se schimbe task-urile si timpii celorlalte teste
+    const char* net = cmdline_get("net=");
+    const char* ipv = cmdline_get("ip=");
+    if(net && net[0] == 'o' && net[1] == 'f' && net[2] == 'f'){
         return false;
     }
+    bool dhcp_arg = net && net[0] == 'd';
+    if(!ipv && !dhcp_arg && cmdline_has("test")){
+        return false;
+    }
+    cfg.dhcp = !ipv || (ipv[0] == 'd' && ipv[1] == 'h' && ipv[2] == 'c' && ipv[3] == 'p');
     if(hal_count(HalKind::Net) == 0){
-        kprintf("net: ip= dat, dar nu exista placa de retea\n");
+        if(ipv){
+            kprintf("net: ip= dat, dar nu exista placa de retea\n");
+        }
         return false;
     }
     IP4_ADDR(&cfg.mask, 255, 255, 255, 0);
     ip4_addr_set_zero(&cfg.gw);
-    if(!parse_ip("ip=", cfg.addr, true) || !parse_ip("mask=", cfg.mask, false) || !parse_ip("gw=", cfg.gw, false)){
-        return false;
+    ip4_addr_set_zero(&cfg.addr);
+    ip4_addr_set_zero(&cfg.dns);
+    if(!cfg.dhcp){
+        if(!parse_ip("ip=", cfg.addr, true) || !parse_ip("mask=", cfg.mask, false) || !parse_ip("gw=", cfg.gw, false) ||
+           !parse_ip("dns=", cfg.dns, false)){
+            return false;
+        }
     }
     // Prima placa fizica (eth0, eth1, ...)
     cfg.dev = nullptr;
@@ -170,7 +182,9 @@ bool net_init(){
         }
     }
     if(!cfg.dev){
-        kprintf("net: nu exista placa fizica\n");
+        if(ipv){
+            kprintf("net: nu exista placa fizica\n");
+        }
         return false;
     }
     tcpip_init(tcpip_ready, nullptr);

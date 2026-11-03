@@ -387,7 +387,9 @@ static void phase_c(int port){
         CHECK(ntohs(ra->sin_port) == 7 && ra->sin_addr.s_addr == inet_addr("10.0.2.2") && res->ai_next == NULL);
         freeaddrinfo(res);
     }
+    hints.ai_flags = AI_NUMERICHOST;                /* cu DNS (T9.4) un nume necunoscut ar interoga reteaua */
     CHECK(getaddrinfo("nu-exista.example", NULL, &hints, &res) == EAI_NONAME);
+    hints.ai_flags = 0;
     struct hostent *h = gethostbyname("localhost");
     CHECK(h && h->h_length == 4 && memcmp(h->h_addr, "\x7f\0\0\x01", 4) == 0);
     char txt[INET_ADDRSTRLEN];

@@ -2,8 +2,9 @@
 #define _NETDB_H
 #include <sys/socket.h>
 #include <netinet/in.h>
-/* Fara DNS (lwIP e construit fara): rezolvarea merge pentru adrese numerice si "localhost"; serviciile dintr-un tabel mic
- * (echo, daytime, ftp, ssh, telnet, smtp, domain, http, https) sau numere */
+/* Rezolvare (T9.4): adrese numerice, /etc/hosts, "localhost", apoi DNS (A, IPv4) spre serverele din /etc/resolv.conf
+ * (scris de kernel din DHCP; extensie "nameserver a.b.c.d#port"); cu AI_NUMERICHOST doar adrese numerice. Serviciile
+ * dintr-un tabel mic (echo, daytime, ftp, ssh, telnet, smtp, domain, http, https) sau numere */
 struct hostent {
     char *h_name;
     char **h_aliases;
@@ -41,6 +42,7 @@ struct addrinfo {
 #define EAI_SERVICE (-8)
 #define EAI_MEMORY (-10)
 #define HOST_NOT_FOUND 1
+#define TRY_AGAIN 2
 #define NO_DATA 4
 extern int h_errno;
 struct hostent *gethostbyname(const char *name);

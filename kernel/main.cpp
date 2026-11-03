@@ -88,6 +88,7 @@
 #include "tests/test_e1000.h"
 #include "tests/test_lwip.h"
 #include "tests/test_sockets.h"
+#include "tests/test_dhcp.h"
 #include "tests/test_iso9660.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
@@ -387,6 +388,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "lwip")){
         test_lwip_run();
+    }
+    if(test_named(test, "dhcp")){
+        test_dhcp_run();
     }
     if(test_named(test, "sockets")){
         test_sockets_run();

@@ -15,10 +15,12 @@
 #define LWIP_UDP                    1
 #define LWIP_TCP                    1
 #define LWIP_RAW                    1
-#define LWIP_DHCP                   0
+#define LWIP_DHCP                   1
+#define LWIP_DHCP_PROVIDE_DNS_SERVERS 2    // serverele DNS din oferta DHCP intra in lwIP (netcfg le scrie in resolv.conf)
 #define LWIP_AUTOIP                 0
 #define LWIP_IGMP                   0
-#define LWIP_DNS                    0
+#define LWIP_DNS                    1       // doar pentru a pastra serverele; rezolvarea de nume o face libc (UDP direct)
+#define DNS_MAX_SERVERS             2
 #define LWIP_NETIF_LOOPBACK         0
 #define LWIP_HAVE_LOOPIF            0
 
@@ -62,7 +64,7 @@
 #define MEM_ALIGNMENT               8
 #define MEM_SIZE                    (192 * 1024)
 #define MEMP_NUM_PBUF               32
-#define MEMP_NUM_UDP_PCB            8
+#define MEMP_NUM_UDP_PCB            12
 #define MEMP_NUM_TCP_PCB            16
 #define MEMP_NUM_TCP_PCB_LISTEN     8
 #define MEMP_NUM_TCP_SEG            64

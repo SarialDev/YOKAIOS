@@ -3,8 +3,8 @@
 
 struct netif;
 
-// Porneste lwIP daca cmdline-ul are ip=a.b.c.d (cu optional mask= implicit 255.255.255.0 si gw=) si exista o placa de
-// retea in HAL: thread-ul "tcpip" (NORMAL ridicat) creeaza interfata pe prima placa. Nu blocheaza (se poate chema din
+// Porneste lwIP daca exista o placa de retea in HAL. Adresa: ip=a.b.c.d (optional mask= implicit 255.255.255.0, gw=, dns=)
+// sau DHCP cand ip= lipseste / e ip=dhcp (net=off opreste reteaua; in teste doar cu ip= sau net=dhcp): thread-ul "tcpip" (NORMAL ridicat) creeaza interfata pe prima placa. Nu blocheaza (se poate chema din
 // boot). false fara ip= / fara placa / fara memorie.
 bool net_init();
 // true dupa ce thread-ul tcpip a creat interfata

@@ -120,7 +120,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-lwip test-lwip-ping test-sockets test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-lwip test-lwip-ping test-sockets test-dhcp test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -285,6 +285,7 @@ $(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PK
 	mkdir -p $(ROOTFS)/usr/share/ypkg && cp $(PKG_YOKAI) $(ROOTFS)/usr/share/ypkg/
 	mkdir -p $(ROOTFS)/lib/modules && for f in $(MOD_KO); do cp $$f $(ROOTFS)/lib/modules/; done
 	ln -s ../proc/mounts $(ROOTFS)/etc/mtab
+	ln -s ../run/resolv.conf $(ROOTFS)/etc/resolv.conf
 	find $(ROOTFS) -type d -exec chmod 755 {} +
 	find $(ROOTFS) -type f -exec chmod 644 {} +
 	chmod 755 $(ROOTFS)/bin/* $(ROOTFS)/sbin/*
@@ -637,6 +638,7 @@ $(BUILD)/yokai-e1000.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 include tests/lwip.mk
 include tests/sockets.mk
+include tests/dhcp.mk
 
 test-e1000: $(BUILD)/yokai-e1000.iso
 	EXPECT_FILE=tests/expect-e1000.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/e1000.log
