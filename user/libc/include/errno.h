@@ -38,4 +38,6 @@ extern int errno;
 #define ENOTEMPTY 39
 #define ELOOP 40
 #define EOPNOTSUPP 95
+#define ENOKEY 126
+#define EKEYREJECTED 129
 #endif

@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """mkyokai: construieste si verifica pachete .yokai pe gazda (vezi docs/PACKAGE_FORMAT.md).
 
-  mkyokai build <director> [-o iesire.yokai]   <director>/manifest.toml (sablon, fara [files]) + <director>/root/ (continutul)
-  mkyokai verify <fisier.yokai>                verifica arhiva si hash-urile
+  mkyokai build <director> [-o iesire.yokai] [--unsigned] [--key F]   <director>/manifest.toml (sablon, fara [files]) + <director>/root/
+  mkyokai verify <fisier.yokai> [--pub HEX|--key F]   verifica arhiva, hash-urile si semnatura Ed25519 (ce nu e semnat esueaza)
   mkyokai info <fisier.yokai>                  tipareste manifestul
+
+build semneaza manifestul (T8.5) cu cheia din tools/sign.py ($YOKAI_SIGN_KEY, altfel cheia de dezvoltare locala);
+--unsigned lasa `signature = ""`.
 
 Rezultatul e determinist (mtime = SOURCE_DATE_EPOCH sau 0, uid/gid 0, ordine alfabetica).
 """
@@ -13,6 +16,9 @@ import os
 import re
 import sys
 import tarfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sign  # noqa: E402  (tools/sign.py)
 
 ALLOWED_TOP = {"bin", "sbin", "lib", "usr", "etc", "opt", "var", "home"}
 DB_REL = "var/lib/ypkg"
@@ -47,7 +53,7 @@ def scalar(text, key):
     return m.group(1) if m else None
 
 
-def build(pkgdir, out):
+def build(pkgdir, out, unsigned=False, keyfile=None):
     mpath = os.path.join(pkgdir, "manifest.toml")
     rootdir = os.path.join(pkgdir, "root")
     if not os.path.isfile(mpath) or not os.path.isdir(rootdir):
@@ -111,6 +117,11 @@ def build(pkgdir, out):
         if erel not in {r for r, _, b, _ in payload if b is not None}:
             die("entry (%s) nu e un fisier din root/" % entry)
     manifest = (text.rstrip("\n") + "\n\n[files]\n" + "\n".join(lines) + "\n").encode("utf-8")
+    sigstate = "nesemnat"
+    if not unsigned:
+        # semnatura acopera tot manifestul cu linia signature blanca; hash-urile din [files] acopera continutul
+        manifest = sign.manifest_set_signature(manifest, sign.manifest_sign(sign.ensure_key(keyfile), manifest))
+        sigstate = "semnat"
 
     mtime = int(os.environ.get("SOURCE_DATE_EPOCH", "0"))
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -127,7 +138,7 @@ def build(pkgdir, out):
         add("manifest.toml", 0o644, manifest)
         for rel, ap, blob, mode in payload:
             add(rel, mode, blob)
-    print("mkyokai: %s %s -> %s (%d fisiere)" % (name, version, out, len(lines)))
+    print("mkyokai: %s %s -> %s (%d fisiere, %s)" % (name, version, out, len(lines), sigstate))
 
 
 def read_package(path):
@@ -156,8 +167,17 @@ def read_package(path):
     return tf, members[1:], mtext, declared
 
 
-def verify(path):
+def verify(path, pub):
     tf, members, mtext, declared = read_package(path)
+    mraw = mtext.encode("utf-8")
+    try:
+        sigok = sign.manifest_verify(pub, mraw)
+    except ValueError as e:
+        die("%s: %s" % (path, e))
+    if sigok is None:
+        die("%s: pachet nesemnat (signature = \"\")" % path)
+    if not sigok:
+        die("%s: semnatura Ed25519 INVALIDA" % path)
     seen = set()
     for m in members:
         if m.isdir():
@@ -176,25 +196,45 @@ def verify(path):
     missing = set(declared) - seen
     if missing:
         die("lipsesc din arhiva: " + ", ".join(sorted(missing)))
-    print("ok: %s %s (%d fisiere)" % (scalar(mtext, "name"), scalar(mtext, "version"), len(declared)))
+    print("ok: %s %s (%d fisiere, semnatura valida)" % (scalar(mtext, "name"), scalar(mtext, "version"), len(declared)))
 
 
 def main(argv):
     if len(argv) >= 3 and argv[1] == "build":
         out = None
+        keyfile = None
         args = argv[2:]
         if "-o" in args:
             i = args.index("-o")
             out = args[i + 1]
             del args[i:i + 2]
+        if "--key" in args:
+            i = args.index("--key")
+            keyfile = args[i + 1]
+            del args[i:i + 2]
+        unsigned = "--unsigned" in args
+        args = [a for a in args if a != "--unsigned"]
         if len(args) != 1:
-            die("uz: mkyokai build <director> [-o iesire.yokai]")
+            die("uz: mkyokai build <director> [-o iesire.yokai] [--unsigned] [--key F]")
         pkgdir = args[0].rstrip("/")
         if out is None:
             out = os.path.basename(os.path.abspath(pkgdir)) + ".yokai"
-        build(pkgdir, out)
-    elif len(argv) == 3 and argv[1] == "verify":
-        verify(argv[2])
+        build(pkgdir, out, unsigned, keyfile)
+    elif len(argv) >= 3 and argv[1] == "verify":
+        args = argv[2:]
+        pub = None
+        keyfile = None
+        for flag in ("--pub", "--key"):
+            if flag in args:
+                i = args.index(flag)
+                if flag == "--pub":
+                    pub = bytes.fromhex(args[i + 1])
+                else:
+                    keyfile = args[i + 1]
+                del args[i:i + 2]
+        if len(args) != 1:
+            die("uz: mkyokai verify <fisier.yokai> [--pub HEX|--key F]")
+        verify(args[0], pub or sign.public_key(sign.ensure_key(keyfile)))
     elif len(argv) == 3 and argv[1] == "info":
         _tf, _m, mtext, _d = read_package(argv[2])
         sys.stdout.write(mtext)

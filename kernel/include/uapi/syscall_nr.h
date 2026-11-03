@@ -62,6 +62,9 @@
 #define SYS_SCHED_SETSCHEDULER 144
 #define SYS_SCHED_GETSCHEDULER 145
 #define SYS_IOPERM      173
+#define SYS_INIT_MODULE 175     /* init_module(imagine, lungime): modul de kernel semnat; cere CAP_SYS_ADMIN */
+#define SYS_DELETE_MODULE 176   /* delete_module(nume) */
+#define SYS_SIGVERIFY   250     /* sigverify(op, date, lungime, semnatura): vezi kernel/core/verify.h */
 #define SYS_FCNTL       72
 #define SYS_GETCWD      79
 #define SYS_CHDIR       80
@@ -116,6 +119,8 @@
 #define EMLINK          31
 #define EOPNOTSUPP      95
 #define ELOOP           40
+#define ENOKEY          126     /* nesemnat */
+#define EKEYREJECTED    129     /* semnatura nu corespunde */
 
 /* wait4: optiuni si codificarea starii (ca pe Linux) */
 #define WNOHANG         1

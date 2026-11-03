@@ -73,6 +73,7 @@
 #include "tests/test_caps.h"
 #include "tests/test_aslr.h"
 #include "tests/test_crypto.h"
+#include "tests/test_sign.h"
 #include "tests/test_lua.h"
 #include "tests/test_vm.h"
 #include "tests/test_ypkg.h"
@@ -419,6 +420,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "crypto")){
         test_crypto_run();
+    }
+    if(test_named(test, "sign")){
+        test_sign_run();
     }
     if(test_named(test, "vfs")){
         test_vfs_run();

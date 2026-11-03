@@ -1,4 +1,5 @@
 ARCH ?= x86_64
+.DEFAULT_GOAL := all
 
 CC  = gcc
 CXX = g++
@@ -36,6 +37,30 @@ LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size
 SRCS := $(shell find boot kernel lib -name '*.S' -o -name '*.c' -o -name '*.cpp')
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
+# --- Semnaturi Ed25519 (T8.5) ---
+# Cheia privata sta in AFARA depozitului: SIGN_KEY=<fisier> (sau $YOKAI_SIGN_KEY), altfel ~/.config/yokai/sign.key; daca
+# lipseste, tools/sign.py genereaza o cheie de dezvoltare locala. Cheia PUBLICA se compileaza in kernel (build/yokai_pubkey.c);
+# la schimbarea cheii se reconstruiesc kernelul, pachetele .yokai si modulele. Kernelul, pachetele si modulele se semneaza la build.
+SIGN_KEY  ?=
+SIGN      = python3 tools/sign.py $(if $(SIGN_KEY),--key $(SIGN_KEY))
+MKYOKAI   = python3 tools/mkyokai
+SIGN_ARG  = $(if $(SIGN_KEY),--key $(SIGN_KEY))
+PUBKEY_C  = $(BUILD)/yokai_pubkey.c
+OBJS     += $(BUILD)/yokai_pubkey.c.o $(BUILD)/third_party/monocypher/monocypher.c.o
+
+# Se rescrie doar daca cheia s-a schimbat (altfel obiectul nu se reface)
+$(PUBKEY_C): FORCE
+	@mkdir -p $(BUILD)
+	$(SIGN) pubkey --format c -o $@
+
+$(BUILD)/yokai_pubkey.c.o: $(PUBKEY_C)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Monocypher (EdDSA) e cod tert: fara avertismente-erori; crypto_wipe se redenumeste (lib/crypto/sha256.c are propriul crypto_wipe)
+$(BUILD)/third_party/monocypher/monocypher.c.o: CFLAGS += -w -Dcrypto_wipe=monocypher_wipe
+
+FORCE:
+
 # Programe user statice, puse in /bin din initrd: user/test/*.S (asm pur) si user/test/*.c (C cu libc-ul propriu)
 USER_SRCS := $(wildcard user/test/*.S)
 USER_CSRCS := $(wildcard user/test/*.c)
@@ -60,6 +85,7 @@ LIBC_OBJS   := $(patsubst user/libc/src/%.c,$(BUILD)/libc/%.o,$(LIBC_SRCS)) $(BU
 CRYPTO_SRCS := $(wildcard lib/crypto/*.c)
 CRYPTO_HDRS := $(wildcard lib/crypto/*.h)
 LIBC_OBJS   += $(patsubst lib/crypto/%.c,$(BUILD)/libc/crypto_%.o,$(CRYPTO_SRCS))
+LIBC_OBJS   += $(BUILD)/libc/monocypher.o
 LIBC_HDRS   := $(shell find user/libc/include -type f) $(CRYPTO_HDRS)
 # Userland cu SSE2/x87 (kernelul salveaza starea FPU la comutare, fork si semnale), fara stack protector/CET.
 # libc e -fPIE: aceeasi libc.a merge si in programe ET_EXEC (yokai.specs) si in static-pie (yokai-pie.specs, ASLR)
@@ -84,7 +110,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -157,6 +183,10 @@ $(BUILD)/libc/crypto_%.o: lib/crypto/%.c $(CRYPTO_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(LIBC_FLAGS) -c $< -o $@
 
+$(BUILD)/libc/monocypher.o: third_party/monocypher/monocypher.c third_party/monocypher/monocypher.h
+	@mkdir -p $(dir $@)
+	$(CC) $(LIBC_FLAGS) -w -Dcrypto_wipe=monocypher_wipe -c $< -o $@
+
 $(BUILD)/libc/crt0.o: user/crt/crt0.S
 	@mkdir -p $(dir $@)
 	$(CC) -m64 -c $< -o $@
@@ -203,7 +233,7 @@ PKG_NAMES   := $(notdir $(patsubst %/,%,$(wildcard user/pkg/*/)))
 PKG_FILES   := $(shell find user/pkg -type f 2>/dev/null)
 PKG_YOKAI   := $(patsubst %,$(BUILD)/pkg/%.yokai,$(PKG_NAMES))
 
-$(BUILD)/pkg/%.yokai: tools/mkyokai $(PKG_FILES) $(SYSROOT)/.installed
+$(BUILD)/pkg/%.yokai: tools/mkyokai tools/sign.py $(PUBKEY_C) $(PKG_FILES) $(SYSROOT)/.installed
 	rm -rf $(BUILD)/pkgstage/$*
 	mkdir -p $(BUILD)/pkgstage/$*
 	cp user/pkg/$*/manifest.toml $(BUILD)/pkgstage/$*/
@@ -213,9 +243,29 @@ $(BUILD)/pkg/%.yokai: tools/mkyokai $(PKG_FILES) $(SYSROOT)/.installed
 	    mkdir -p $(BUILD)/pkgstage/$*/root/opt/$*/bin; \
 	    $(UCC) -O2 -Wall -Wextra -Werror -o $(BUILD)/pkgstage/$*/root/opt/$*/bin/$$(basename $$c .c) $$c || exit 1; \
 	done
-	python3 tools/mkyokai build $(BUILD)/pkgstage/$* -o $@
+	$(MKYOKAI) build $(BUILD)/pkgstage/$* -o $@ $(SIGN_ARG)
 
-$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PKG_YOKAI) Makefile
+# Module de kernel (T8.5): modules/<nume>/<nume>.c -> ELF relocabil (ET_REL) -> semnat (ELF || semnatura || magic) -> /lib/modules/<nume>.ko
+MOD_NAMES   := $(notdir $(patsubst %/,%,$(wildcard modules/*/)))
+MOD_KO      := $(patsubst %,$(BUILD)/modules/%.ko,$(MOD_NAMES))
+MOD_CFLAGS   = -c -O2 -g0 -Wall -Wextra -Werror -std=gnu11 -ffreestanding -nostdlib -fPIC -fno-plt -fno-common -fno-stack-protector \
+               -fcf-protection=none -mno-red-zone -mno-sse -mno-mmx -mno-80387 -fno-asynchronous-unwind-tables -march=x86-64
+
+define MOD_RULE
+$$(BUILD)/modules/$(1).o: $$(wildcard modules/$(1)/*.c)
+	@mkdir -p $$(dir $$@)
+	$$(CC) $$(MOD_CFLAGS) -o $$@ $$^
+endef
+$(foreach m,$(MOD_NAMES),$(eval $(call MOD_RULE,$(m))))
+
+$(BUILD)/modules/%.ko: $(BUILD)/modules/%.o tools/sign.py $(PUBKEY_C)
+	$(SIGN) sign-module $< -o $@
+
+# Semnatura detasata a kernelului (ajunge in ISO ca /boot/kernel.sig; se verifica pe gazda cu `make verify-sign`)
+$(BUILD)/kernel.sig: $(KERNEL) tools/sign.py $(PUBKEY_C)
+	$(SIGN) sign-kernel $(KERNEL) -o $@
+
+$(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PKG_YOKAI) $(MOD_KO) Makefile
 	rm -rf $(ROOTFS)
 	mkdir -p $(addprefix $(ROOTFS)/,$(ROOT_DIRS))
 	cp -r rootfs/. $(ROOTFS)/
@@ -223,6 +273,7 @@ $(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PK
 	for f in $(SBIN_ELFS); do cp $$f $(ROOTFS)/sbin/$$(basename $$f .elf); done
 	mkdir -p $(ROOTFS)/usr/share/lua && cp $(LUA_SHARE) $(ROOTFS)/usr/share/lua/
 	mkdir -p $(ROOTFS)/usr/share/ypkg && cp $(PKG_YOKAI) $(ROOTFS)/usr/share/ypkg/
+	mkdir -p $(ROOTFS)/lib/modules && for f in $(MOD_KO); do cp $$f $(ROOTFS)/lib/modules/; done
 	ln -s ../proc/mounts $(ROOTFS)/etc/mtab
 	find $(ROOTFS) -type d -exec chmod 755 {} +
 	find $(ROOTFS) -type f -exec chmod 644 {} +
@@ -237,9 +288,9 @@ $(INITRD): $(USER_ELFS) $(BIN_ELFS) $(SBIN_ELFS) $(ROOTFS_SRC) $(LUA_SHARE) $(PK
 	tar --format=ustar --owner=1000 --group=1000 --numeric-owner --mtime='2026-01-01 00:00Z' \
 	    -rf $@ -C $(ROOTFS) ./home/yokai
 
-$(ISO): $(KERNEL) $(INITRD) boot/grub.cfg
+$(ISO): $(KERNEL) $(BUILD)/kernel.sig $(INITRD) boot/grub.cfg
 	@mkdir -p $(BUILD)/iso/boot/grub
-	cp $(KERNEL) $(INITRD) $(BUILD)/iso/boot/
+	cp $(KERNEL) $(BUILD)/kernel.sig $(INITRD) $(BUILD)/iso/boot/
 	cp boot/grub.cfg $(BUILD)/iso/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso 2>/dev/null
 
@@ -334,6 +385,19 @@ $(BUILD)/panic-crypto.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-crypto: $(BUILD)/panic-crypto.iso
 	EXPECT_FILE=tests/expect-crypto.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/crypto.log
+
+# semnaturi Ed25519 (T8.5): `make verify-sign` verifica pe gazda semnaturile kernelului, modulelor si pachetelor; test-sign adauga
+# test=sign (kernel: module semnate / modificate, domenii separate) si respingerea pe gazda a unui pachet modificat cu un octet
+$(BUILD)/panic-sign.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+verify-sign: $(BUILD)/kernel.sig $(MOD_KO) $(PKG_YOKAI)
+	$(SIGN) verify-kernel $(KERNEL) $(BUILD)/kernel.sig
+	for f in $(MOD_KO); do $(SIGN) verify-module $$f || exit 1; done
+	for f in $(PKG_YOKAI); do $(MKYOKAI) verify $$f $(SIGN_ARG) || exit 1; done
+
+test-sign: $(BUILD)/panic-sign.iso verify-sign
+	SIGN_KEY="$(SIGN_KEY)" sh tests/check_sign.sh $(BUILD)
+	EXPECT_FILE=tests/expect-sign.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/sign.log
 
 test-pci-q35: $(BUILD)/panic-pci.iso
 	EXPECT_FILE=tests/expect-pci-q35.txt SMP=$(SMP) QEMU_EXTRA="-machine q35 $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/pci-q35.log

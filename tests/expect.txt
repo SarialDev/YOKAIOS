@@ -160,5 +160,6 @@ libctest: atexit ok
 [OK] test_crypto kernel
 [OK] cryptotest
 [OK] test_crypto (SHA-256
+[OK] test_sign (Ed25519
 [OK] userspace
 [OK] test_userspace

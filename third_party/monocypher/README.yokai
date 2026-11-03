@@ -1,0 +1,6 @@
+Monocypher 4.0.3 (Loup Vaillant et al.), fisierele monocypher.c / monocypher.h neschimbate.
+Licenta: BSD-2-Clause sau CC-0 (la alegere), vezi LICENSE.txt.
+Sursa: arhiva sdist "pymonocypher 4.0.3.5" de pe PyPI (contine monocypher.c/.h originale); https://monocypher.org
+In YokaiOS se foloseste doar partea EdDSA (crypto_eddsa_check_equation, crypto_eddsa_reduce, ...) peste SHA-512 din
+lib/crypto/sha512.c, adica Ed25519 standard (RFC 8032), nu varianta Monocypher cu BLAKE2b. Glue: lib/crypto/ed25519.c.
+crypto_wipe din monocypher.c se redenumeste la compilare (-Dcrypto_wipe=monocypher_wipe): lib/crypto/sha256.c are propriul crypto_wipe.

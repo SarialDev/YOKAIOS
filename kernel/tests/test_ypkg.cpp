@@ -43,7 +43,8 @@ void test_ypkg_run(){
     if(process_count() != procs_before){
         panic("test_ypkg: %ld procese ramase", (int64_t)(process_count() - procs_before));
     }
-    if(pmm_free_count() + 8 < free_before){
+    // 24 = marja de la inceput + tabelele de pagini (PD/PT) create la prima incarcare a unui modul de kernel (insmod din ypkgtest)
+    if(pmm_free_count() + 24 < free_before){
         panic("test_ypkg: %ld pagini pierdute", (int64_t)(free_before - pmm_free_count()));
     }
     kprintf("[OK] test_ypkg (ypkg: pachete .yokai)\n");

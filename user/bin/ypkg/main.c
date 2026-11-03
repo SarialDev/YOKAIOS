@@ -1,5 +1,5 @@
 /* ypkg: instaleaza/sterge pachete .yokai (tar ustar + manifest.toml cu SHA-256 per fisier). Vezi docs/PACKAGE_FORMAT.md
- *   ypkg [-r radacina] [-f] install <fisier.yokai> | remove <nume> | list | info <nume|fisier.yokai> | run <nume> [arg...] | verify <fisier.yokai>
+ *   ypkg [-r radacina] [-f] [-U] install <fisier.yokai> | remove <nume> | list | info <nume|fisier.yokai> | run <nume> [arg...] | verify <fisier.yokai>
  * Baza de date: <radacina>/var/lib/ypkg/<nume>/{manifest.toml,files}. Radacina implicita: "/" (sau $YPKG_ROOT) */
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/sign.h>
 #include "ypkg.h"
 
 #define DB_REL "var/lib/ypkg"
@@ -16,6 +17,7 @@
 
 static const char *root = "";   /* fara '/' la sfarsit; "" = "/" */
 static int force;
+static int allow_unsigned;      /* -U: accepta pachete NESEMNATE, doar daca kernelul are sign=permissive (teste) */
 
 typedef struct {
     char **v;
@@ -381,6 +383,126 @@ bad:
     return -1;
 }
 
+/* ---- Semnatura Ed25519 (T8.5) ----
+ * Semnatura (128 cifre hex in `signature = "..."`) acopera manifest.toml cu linia signature inlocuita prin `signature = ""`
+ * (contextul de domeniu "yokai-pkg-v1\n" il pune kernelul); manifestul acopera continutul prin SHA-256 din [files].
+ * Verificarea o face kernelul, cu cheia publica compilata in el (sigverify). Niciun pachet nesemnat sau cu semnatura
+ * gresita nu se instaleaza; -U (numai cu sign=permissive in kernel) accepta doar pachete nesemnate, niciodata semnaturi gresite. */
+
+static int hexval(int c){
+    if(c >= '0' && c <= '9'){
+        return c - '0';
+    }
+    if(c >= 'a' && c <= 'f'){
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
+/* Imparte manifestul in jurul liniei `signature = ...`: intoarce manifestul blanc (malloc, *blen) si semnatura hex (sig, poate fi goala) */
+static char *manifest_blank(const char *raw, size_t len, size_t *blen, char sig[129], char *err, size_t errsz){
+    size_t ls = 0, found_s = 0, found_e = 0;
+    int count = 0;
+    while(ls <= len){
+        size_t le = ls;
+        while(le < len && raw[le] != '\n'){
+            le++;
+        }
+        if(le - ls >= 9 && memcmp(raw + ls, "signature", 9) == 0){
+            size_t q = ls + 9;
+            while(q < le && (raw[q] == ' ' || raw[q] == '\t')){
+                q++;
+            }
+            if(q < le && raw[q] == '='){
+                count++;
+                found_s = ls;
+                found_e = le;
+            }
+        }
+        if(le >= len){
+            break;
+        }
+        ls = le + 1;
+    }
+    if(count != 1){
+        snprintf(err, errsz, "manifestul trebuie sa aiba exact o linie `signature = ...`");
+        return NULL;
+    }
+    /* forma stricta: signature <ws> = <ws> "hex" <ws> */
+    size_t q = found_s + 9;
+    while(raw[q] == ' ' || raw[q] == '\t'){
+        q++;
+    }
+    q++;                                    /* '=' */
+    while(q < found_e && (raw[q] == ' ' || raw[q] == '\t')){
+        q++;
+    }
+    size_t n = 0;
+    int ok = q < found_e && raw[q] == '"';
+    if(ok){
+        q++;
+        while(q < found_e && raw[q] != '"' && n < 128 && hexval((unsigned char)raw[q]) >= 0){
+            sig[n++] = raw[q++];
+        }
+        ok = q < found_e && raw[q] == '"';
+        q++;
+    }
+    while(ok && q < found_e && (raw[q] == ' ' || raw[q] == '\t')){
+        q++;
+    }
+    if(!ok || q != found_e || (n != 0 && n != 128)){
+        snprintf(err, errsz, "linia signature are forma gresita (se asteapta: signature = \"<128 cifre hex>\")");
+        return NULL;
+    }
+    sig[n] = 0;
+    static const char blank[] = "signature = \"\"";
+    char *b = malloc(len + sizeof(blank));
+    if(!b){
+        snprintf(err, errsz, "memorie insuficienta");
+        return NULL;
+    }
+    memcpy(b, raw, found_s);
+    memcpy(b + found_s, blank, sizeof(blank) - 1);
+    memcpy(b + found_s + sizeof(blank) - 1, raw + found_e, len - found_e);
+    *blen = len - (found_e - found_s) + sizeof(blank) - 1;
+    return b;
+}
+
+static int pkg_check_sig(const Pkg *p, char *err, size_t errsz){
+    char hex[129];
+    size_t blen;
+    char *b = manifest_blank(p->raw, p->rawlen, &blen, hex, err, errsz);
+    if(!b){
+        return -1;
+    }
+    int rc = -1;
+    if(hex[0] == 0){
+        if(!allow_unsigned){
+            snprintf(err, errsz, "pachet nesemnat (signature gol): refuz");
+        } else if(sigverify(SIGV_POLICY, NULL, 0, NULL) != 1){
+            snprintf(err, errsz, "pachet nesemnat: -U cere un kernel pornit cu sign=permissive");
+        } else {
+            fprintf(stderr, "ypkg: atentie: pachet NESEMNAT acceptat (-U, kernel sign=permissive)\n");
+            rc = 0;
+        }
+        free(b);
+        return rc;
+    }
+    unsigned char sig[64];
+    for(int i = 0; i < 64; i++){
+        sig[i] = (unsigned char)(hexval((unsigned char)hex[2 * i]) * 16 + hexval((unsigned char)hex[2 * i + 1]));
+    }
+    if(sigverify(SIGV_PACKAGE, b, blen, sig) == 0){
+        rc = 0;
+    } else if(errno == EKEYREJECTED){
+        snprintf(err, errsz, "semnatura Ed25519 INVALIDA (manifest modificat sau semnat cu o cheie necunoscuta): refuz");
+    } else {
+        snprintf(err, errsz, "verificarea semnaturii a esuat: %s", strerror(errno));
+    }
+    free(b);
+    return rc;
+}
+
 /* Trecerea 1: fiecare intrare tar trebuie sa fie in manifest, cu marimea si SHA-256 declarate; nimic in plus, nimic lipsa */
 static int pkg_verify(Pkg *p, char *err, size_t errsz){
     if(lseek(p->fd, p->data_off, SEEK_SET) < 0){
@@ -543,7 +665,7 @@ static void rollback(List *files, List *dirs){
 static int do_install(const char *file){
     Pkg p;
     char err[256];
-    if(pkg_open(&p, file, err, sizeof(err)) < 0 || pkg_verify(&p, err, sizeof(err)) < 0){
+    if(pkg_open(&p, file, err, sizeof(err)) < 0 || pkg_verify(&p, err, sizeof(err)) < 0 || pkg_check_sig(&p, err, sizeof(err)) < 0){
         fprintf(stderr, "ypkg: %s\n", err);
         pkg_close(&p);
         return 1;
@@ -847,7 +969,11 @@ static void print_info(const Manifest *m){
     printf("%-12s%s\n", "Intrare:", m->entry ? m->entry : "-");
     print_join("Dependente:", m->deps, m->ndeps);
     print_join("Permisiuni:", m->perms, m->nperms);
-    printf("%-12s%s\n", "Semnatura:", m->signature[0] ? m->signature : "(nesemnat)");
+    if(m->signature[0]){
+        printf("%-12sed25519:%.16s...\n", "Semnatura:", m->signature);
+    } else {
+        printf("%-12s%s\n", "Semnatura:", "(nesemnat)");
+    }
     printf("%-12s%d\n", "Fisiere:", m->nfiles);
     for(int i = 0; i < m->nfiles; i++){
         printf("  /%s  (%lld B, %04o)\n", m->files[i].path, m->files[i].size, m->files[i].mode);
@@ -880,12 +1006,12 @@ static int do_info(const char *what){
 static int do_verify(const char *file){
     Pkg p;
     char err[256];
-    if(pkg_open(&p, file, err, sizeof(err)) < 0 || pkg_verify(&p, err, sizeof(err)) < 0){
+    if(pkg_open(&p, file, err, sizeof(err)) < 0 || pkg_verify(&p, err, sizeof(err)) < 0 || pkg_check_sig(&p, err, sizeof(err)) < 0){
         fprintf(stderr, "ypkg: %s\n", err);
         pkg_close(&p);
         return 1;
     }
-    printf("ok: %s %s (%d fisiere)\n", p.m.name, p.m.version, p.m.nfiles);
+    printf("ok: %s %s (%d fisiere, %s)\n", p.m.name, p.m.version, p.m.nfiles, p.m.signature[0] ? "semnatura valida" : "NESEMNAT, acceptat cu -U");
     pkg_close(&p);
     return 0;
 }
@@ -918,7 +1044,7 @@ static int do_run(const char *name, char **args){
 }
 
 static int usage(int rc){
-    fprintf(rc ? stderr : stdout, "uz: ypkg [-r radacina] [-f] install FISIER.yokai | remove NUME | list | info NUME|FISIER | run NUME [arg...] | verify FISIER\n");
+    fprintf(rc ? stderr : stdout, "uz: ypkg [-r radacina] [-f] [-U] install FISIER.yokai | remove NUME | list | info NUME|FISIER | run NUME [arg...] | verify FISIER\n");
     return rc;
 }
 
@@ -935,6 +1061,8 @@ int main(int argc, char **argv){
     for(; i < argc && argv[i][0] == '-' && argv[i][1]; i++){
         if(strcmp(argv[i], "-f") == 0){
             force = 1;
+        } else if(strcmp(argv[i], "-U") == 0){
+            allow_unsigned = 1;
         } else if((strcmp(argv[i], "-r") == 0 || strcmp(argv[i], "--root") == 0) && i + 1 < argc){
             snprintf(rootbuf, sizeof(rootbuf), "%s", argv[++i]);
         } else {

@@ -12,6 +12,8 @@
 #include "proc/signal.h"
 #include "proc/cred.h"
 #include "proc/caps.h"
+#include "core/verify.h"
+#include "core/kmod.h"
 
 namespace {
 
@@ -287,6 +289,9 @@ constexpr Table make_table(){
     t.fn[SYS_SCHED_SETSCHEDULER] = sys_sched_setscheduler;
     t.fn[SYS_SCHED_GETSCHEDULER] = sys_sched_getscheduler;
     t.fn[SYS_IOPERM] = sys_ioperm;
+    t.fn[SYS_INIT_MODULE] = sys_init_module;
+    t.fn[SYS_DELETE_MODULE] = sys_delete_module;
+    t.fn[SYS_SIGVERIFY] = sys_sigverify;
     return t;
 }
 

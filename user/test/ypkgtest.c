@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/sign.h>
 
 static int checks, failed;
 
@@ -67,11 +68,16 @@ static int runv(const char *prog, char *const *argv){
     return WIFEXITED(status) ? WEXITSTATUS(status) : 1000 + WTERMSIG(status);
 }
 
+static int unsigned_ok;     /* 1 = ypkg -U (pachete nesemnate, doar cu kernel sign=permissive) */
+
 /* ypkg -r /tmp/yp <args...> */
 static int ypkg(const char *a1, const char *a2, const char *a3){
     char *av[8];
     int n = 0;
     av[n++] = "ypkg";
+    if(unsigned_ok){
+        av[n++] = "-U";
+    }
     av[n++] = "-r";
     av[n++] = ROOT;
     if(a1){ av[n++] = (char *)a1; }
@@ -206,9 +212,9 @@ static void test_basic(void){
     CHECK(ypkg("frumos", NULL, NULL) == 2);
     CHECK(ypkg("list", NULL, NULL) == 0 && out[0] == 0);              // fara baza de date = nimic instalat
 
-    CHECK(ypkg("verify", HELLO, NULL) == 0 && has(out, "ok: hello 1.0.0 (2 fisiere)"));
+    CHECK(ypkg("verify", HELLO, NULL) == 0 && has(out, "ok: hello 1.0.0 (2 fisiere, semnatura valida)"));
     CHECK(ypkg("info", HELLO, NULL) == 0 && has(out, "Nume:       hello") && has(out, "Versiune:   1.0.0") &&
-          has(out, "Intrare:    /opt/hello/bin/hello") && has(out, "(nesemnat)") && has(out, "Dependente: -") &&
+          has(out, "Intrare:    /opt/hello/bin/hello") && has(out, "Semnatura:  ed25519:") && has(out, "Dependente: -") &&
           has(out, "/opt/hello/share/hello.txt  (44 B, 0644)") && has(out, "/opt/hello/bin/hello  ("));
 
     // hello-extra cere hello >= 1.0: fara hello nu se instaleaza si nu lasa nimic in urma
@@ -305,9 +311,14 @@ static void test_tamper(void){
     unlink("/tmp/bad3.yokai");
 }
 
+/* Pachetele facute aici sunt NESEMNATE: se instaleaza cu -U (kernelul de test are sign=permissive) */
 static int try_pkg(const char *manifest, const TEnt *ents, int n){
     mkpkg("/tmp/t1.yokai", manifest, ents, n);
-    return ypkg("install", "/tmp/t1.yokai", NULL);
+    int old = unsigned_ok;
+    unsigned_ok = 1;
+    int rc = ypkg("install", "/tmp/t1.yokai", NULL);
+    unsigned_ok = old;
+    return rc;
 }
 
 static void test_crafted(void){
@@ -315,11 +326,10 @@ static void test_crafted(void){
     CHECK(try_pkg(mk_manifest("", "opt/t1/f", 1), good, 1) == 0 && file_is(ROOT "/opt/t1/f", "x\n"));
     CHECK(ypkg("remove", "t1", NULL) == 0 && !exists(ROOT "/opt/t1"));
 
-    // fara semnatura (camp lipsa), lipseste din manifest -> refuzat; gol -> acceptat (semnatura vine in T8.5)
+    // campul signature lipseste -> refuzat; o semnatura care nu e 128 cifre hex -> refuzata chiar si cu -U
     CHECK(try_pkg(mk_manifest("", "opt/t1/f", 0), good, 1) == 1 && has(err, "signature"));
-    CHECK(try_pkg(mk_manifest("signature = \"ab12\"", "opt/t1/f", 0), good, 1) == 0);
-    CHECK(ypkg("info", "t1", NULL) == 0 && has(out, "Semnatura:  ab12"));
-    CHECK(ypkg("remove", "t1", NULL) == 0);
+    CHECK(try_pkg(mk_manifest("signature = \"ab12\"", "opt/t1/f", 0), good, 1) == 1 && has(err, "forma gresita"));
+    CHECK(!exists(ROOT "/var/lib/ypkg/t1"));
 
     // cai ostile
     static const TEnt trav[] = {{"opt/../../evil", '0', "x\n"}};
@@ -421,9 +431,138 @@ static void test_real_root(void){
     CHECK(!exists("/opt/hello"));
 }
 
+#define H128 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+static int write_buf(const char *path, const void *b, size_t n){
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if(fd < 0){
+        return -1;
+    }
+    write(fd, b, n);
+    return close(fd);
+}
+
+/* Semnaturi Ed25519 (T8.5): pachetele livrate sunt semnate; orice modificare a manifestului, o semnatura mutata de la alt pachet,
+ * una gresita sau lipsa => refuz; -U accepta DOAR pachete nesemnate (si numai in kernel cu sign=permissive) */
+static void test_signing(void){
+    static const TEnt good[] = {{"opt/t1/f", '0', "x\n"}};
+    CHECK(sigverify(SIGV_POLICY, NULL, 0, NULL) == 1);              // kernelul de test: sign=permissive
+    size_t n, ne;
+    char *pkg = slurp_file(HELLO, &n);
+    char *extra = slurp_file(EXTRA, &ne);
+    CHECK(pkg && extra);
+    if(!pkg || !extra){
+        return;
+    }
+    char *sg = memmem(pkg, n, "signature = \"", 13);
+    CHECK(sg != NULL && sg[13 + 128] == '"');                       // 128 cifre hex = 64 de octeti
+    char *se = memmem(extra, ne, "signature = \"", 13);
+    CHECK(se != NULL);
+    CHECK(ypkg("install", HELLO, NULL) == 0 && ypkg("remove", "hello", NULL) == 0);   // pachetul livrat, nemodificat
+
+    // un singur octet schimbat in manifest (versiune, permisiuni, nume, fisiere) => semnatura invalida, chiar si cu -U
+    static const struct { const char *from, *to; } edits[] = {
+        {"version = \"1.0.0\"", "version = \"1.0.1\""},
+        {"\"tty\"", "\"ttz\""},                                   // permisiuni
+        {"\"cap.net\"", "\"cap.nex\""},                          // plafonul de capabilitati
+        {"description = \"P", "description = \"Q"},
+        {"mode = 0o755", "mode = 0o757"},
+    };
+    for(unsigned i = 0; i < sizeof(edits) / sizeof(edits[0]); i++){
+        char *at = memmem(pkg, n, edits[i].from, strlen(edits[i].from));
+        checks++;
+        if(!at){
+            failed++;
+            fprintf(stderr, "ypkgtest: FAIL nu gasesc \"%s\" in hello.yokai\n", edits[i].from);
+            continue;
+        }
+        memcpy(at, edits[i].to, strlen(edits[i].to));
+        write_buf("/tmp/bad.yokai", pkg, n);
+        memcpy(at, edits[i].from, strlen(edits[i].from));
+        CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA"));
+        CHECK(ypkg("verify", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA"));
+        unsigned_ok = 1;
+        CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA"));
+        unsigned_ok = 0;
+        CHECK(!exists(ROOT "/opt/hello") && !exists(ROOT "/var/lib/ypkg/hello"));
+    }
+    // un octet din semnatura insasi; o cifra care nu e hex; semnatura de la alt pachet; zerouri / "aaaa"
+    char sv[129];
+    memcpy(sv, sg + 13, 128);
+    sv[128] = 0;
+    sg[13] = sg[13] == '0' ? '1' : '0';
+    write_buf("/tmp/bad.yokai", pkg, n);
+    CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA"));
+    memcpy(sg + 13, sv, 128);
+    sg[20] = 'g';
+    write_buf("/tmp/bad.yokai", pkg, n);
+    CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "forma gresita"));
+    memcpy(sg + 13, sv, 128);
+    memcpy(se + 13, sv, 128);                                       // semnatura lui hello pe manifestul lui hello-extra
+    write_buf("/tmp/bad.yokai", extra, ne);
+    CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA"));
+    CHECK(ypkg("install", HELLO, NULL) == 0);
+    CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA") && !exists(ROOT "/opt/hello-extra"));
+    CHECK(ypkg("remove", "hello", NULL) == 0);
+    {
+        memset(sg + 13, 'a', 128);
+        write_buf("/tmp/bad.yokai", pkg, n);
+        CHECK(ypkg("install", "/tmp/bad.yokai", NULL) == 1 && has(err, "INVALIDA"));
+    }
+    free(pkg);
+    free(extra);
+    unlink("/tmp/bad.yokai");
+
+    // nesemnat: refuzat implicit; cu -U (kernel permisiv) intra, cu avertisment; semnatura gresita nu intra nici cu -U
+    mkpkg("/tmp/t1.yokai", mk_manifest("", "opt/t1/f", 1), good, 1);
+    CHECK(ypkg("install", "/tmp/t1.yokai", NULL) == 1 && has(err, "nesemnat") && !exists(ROOT "/opt/t1"));
+    CHECK(ypkg("verify", "/tmp/t1.yokai", NULL) == 1 && has(err, "nesemnat"));
+    unsigned_ok = 1;
+    CHECK(ypkg("verify", "/tmp/t1.yokai", NULL) == 0 && has(out, "NESEMNAT"));
+    CHECK(ypkg("install", "/tmp/t1.yokai", NULL) == 0 && has(err, "NESEMNAT") && exists(ROOT "/opt/t1/f"));
+    unsigned_ok = 0;
+    CHECK(ypkg("info", "t1", NULL) == 0 && has(out, "Semnatura:  (nesemnat)"));
+    CHECK(ypkg("remove", "t1", NULL) == 0);
+    mkpkg("/tmp/t1.yokai", mk_manifest("signature = \"" H128 "\"", "opt/t1/f", 0), good, 1);
+    unsigned_ok = 1;
+    CHECK(ypkg("install", "/tmp/t1.yokai", NULL) == 1 && has(err, "INVALIDA") && !exists(ROOT "/opt/t1"));
+    unsigned_ok = 0;
+    unlink("/tmp/t1.yokai");
+
+    // module de kernel din userland (insmod / rmmod): semnat intra, modificat cu un octet / fara semnatura nu
+    {
+        size_t mn;
+        char *mod = slurp_file("/lib/modules/hello_mod.ko", &mn);
+        CHECK(mod && mn > 72);
+        if(mod){
+            CHECK(runv("/sbin/insmod", (char *[]){"insmod", "/lib/modules/hello_mod.ko", NULL}) == 0);
+            CHECK(runv("/sbin/insmod", (char *[]){"insmod", "/lib/modules/hello_mod.ko", NULL}) == 1 && has(err, "insmod:"));
+            CHECK(runv("/sbin/rmmod", (char *[]){"rmmod", "hello_mod", NULL}) == 0);
+            CHECK(runv("/sbin/rmmod", (char *[]){"rmmod", "hello_mod", NULL}) == 1 && has(err, "nu e incarcat"));
+            mod[mn / 2] ^= 1;
+            write_buf("/tmp/bad.ko", mod, mn);
+            mod[mn / 2] ^= 1;
+            CHECK(runv("/sbin/insmod", (char *[]){"insmod", "/tmp/bad.ko", NULL}) == 1 && has(err, "INVALIDA"));
+            write_buf("/tmp/bad.ko", mod, mn - 72);                     // fara semnatura si magic
+            CHECK(runv("/sbin/insmod", (char *[]){"insmod", "/tmp/bad.ko", NULL}) == 1 && has(err, "nesemnat"));
+            CHECK(runv("/sbin/rmmod", (char *[]){"rmmod", "hello_mod", NULL}) == 1);   // nu s-a incarcat nimic
+            unlink("/tmp/bad.ko");
+            free(mod);
+        }
+    }
+
+    // sigverify direct: date goale / pointer gresit
+    unsigned char sig[64] = {0};
+    CHECK(sigverify(SIGV_PACKAGE, "abc", 3, sig) == -1 && errno == EKEYREJECTED);
+    CHECK(sigverify(SIGV_PACKAGE, "abc", 0, sig) == -1 && errno == EINVAL);
+    CHECK(sigverify(SIGV_PACKAGE, (void *)8, 3, sig) == -1 && errno == EFAULT);
+    CHECK(sigverify(7, "abc", 3, sig) == -1 && errno == EINVAL);
+}
+
 int main(void){
     test_basic();
     test_tamper();
+    test_signing();
     test_crafted();
     test_versions();
     test_real_root();

@@ -24,7 +24,7 @@ description = "Program de proba"            # opțional
 entry = "/opt/hello/bin/hello"              # opțional: fișierul principal (trebuie să fie în [files]); `ypkg run`
 deps = ["libfoo >= 1.2", "bar"]             # opțional: "nume [op versiune]", op ∈ >= <= > < = ==
 permissions = ["tty", "cap.net"]            # opțional: etichete libere (se afișează); cele "cap.<nume>" sunt plafonul de capabilități, vezi mai jos
-signature = ""                              # obligatoriu ca cheie; GOL până la T8.5
+signature = "7be1…"                         # obligatoriu; 128 cifre hex Ed25519 (vezi mai jos); gol = nesemnat
 
 [files]
 "opt/hello/bin/hello"       = { sha256 = "7fe18d6b…0ce4", size = 59760, mode = 0o755 }
@@ -41,13 +41,24 @@ signature = ""                              # obligatoriu ca cheie; GOL până l
 
 ## Câmpul `signature` (T8.5)
 
-Acum rămâne gol (`signature = ""`); ypkg îl afișează în `info` (`(nesemnat)` dacă e gol) dar nu îl verifică. T8.5 îl va
-umple: semnătura va acoperi `manifest.toml` cu linia `signature = ...` înlocuită prin `signature = ""`, iar manifestul
-acoperă conținutul prin hash-urile din `[files]`, deci o semnătură pe manifest protejează tot pachetul.
+`signature = "<128 cifre hex>"` este semnătura **Ed25519** (RFC 8032, 64 de octeți) peste `manifest.toml` cu linia
+`signature = ...` înlocuită prin `signature = ""` (manifestul trebuie să aibă exact o astfel de linie, în forma strictă
+`signature = "hex"`). Mesajul semnat este prefixat cu contextul de domeniu `yokai-pkg-v1\n`, deci o semnătură de modul sau de
+kernel nu valorează ca semnătură de pachet. Manifestul acoperă conținutul prin hash-urile SHA-256 din `[files]`, deci o
+semnătură pe manifest protejează tot pachetul: un octet schimbat în orice fișier strică hash-ul, unul schimbat în manifest
+strică semnătura.
+
+* `tools/mkyokai build` semnează cu cheia privată din `tools/sign.py` (`--key F`, `$YOKAI_SIGN_KEY` sau cheia de dezvoltare
+  locală `~/.config/yokai/sign.key`, generată dacă lipsește); `--unsigned` lasă `signature = ""`.
+* `ypkg install` și `ypkg verify` verifică semnătura prin syscall-ul `sigverify` (kernelul folosește cheia publică compilată
+  în el). Pachet nesemnat sau cu semnătură greșită => refuz, nimic nu se scrie. `-U` acceptă doar pachete **nesemnate** și
+  numai dacă kernelul e pornit cu `sign=permissive` (folosit de teste); o semnătură greșită se refuză întotdeauna.
+* `ypkg info` arată `ed25519:<16 cifre>...` sau `(nesemnat)`.
 
 ## Reguli de validare (ypkg)
 
-ypkg verifică **tot** înainte să scrie ceva (și verifică din nou hash-urile în timp ce extrage):
+ypkg verifică **tot** înainte să scrie ceva (și verifică din nou hash-urile în timp ce extrage); semnătura se verifică după
+pașii 1-4 (structură + hash-uri), tot înainte de orice scriere:
 
 1. prima intrare este `manifest.toml` (cel mult 1 MiB) și se parsează fără erori; `format = 1`, nume/versiune valide,
    `signature` prezent, dependențele bine formate, `entry` (dacă există) este un fișier din `[files]`;
@@ -101,13 +112,13 @@ Pachetele de probă (`hello`, `hello-extra`) sunt în initrd, în `/usr/share/yp
 ## mkyokai (gazdă)
 
 ```
-tools/mkyokai build DIRECTOR [-o iesire.yokai]   DIRECTOR/manifest.toml = șablonul (fără [files]) + DIRECTOR/root/ = conținutul
-tools/mkyokai verify FIȘIER.yokai
+tools/mkyokai build DIRECTOR [-o iesire.yokai] [--unsigned] [--key F]   DIRECTOR/manifest.toml = șablonul (fără [files]) + DIRECTOR/root/ = conținutul
+tools/mkyokai verify FIȘIER.yokai [--pub HEX|--key F]   hash-uri + semnătură Ed25519 (nesemnat = eroare)
 tools/mkyokai info FIȘIER.yokai
 ```
 
-Calculează SHA-256, mărimea și modul (`0o755` dacă fișierul are vreun bit de execuție, altfel `0o644`), adaugă `[files]` și
-`signature = ""` dacă lipsește, și scrie un tar ustar determinist (ordine alfabetică, mtime = `$SOURCE_DATE_EPOCH` sau 0,
+Calculează SHA-256, mărimea și modul (`0o755` dacă fișierul are vreun bit de execuție, altfel `0o644`), adaugă `[files]`,
+`signature = ""` dacă lipsește (apoi îl semnează), și scrie un tar ustar determinist (ordine alfabetică, mtime = `$SOURCE_DATE_EPOCH` sau 0,
 uid/gid 0). Același director dă aceiași octeți. Cere doar Python 3 (cu `tomllib`, la 3.11+, validează sintaxa șablonului).
 
 În repo, `make` construiește `build/pkg/<nume>.yokai` din `user/pkg/<nume>/` (`manifest.toml`, `root/`, iar fiecare `*.c` se
@@ -116,4 +127,4 @@ compilează în `root/opt/<nume>/bin/<nume>`) și le pune în initrd. `make test
 ## Neacoperit (acum)
 
 Fără compresie, fără upgrade (`install` peste un pachet existent e refuzat; `remove` și `install` din nou), fără scripturi
-de instalare, fără verificarea semnăturii (T8.5), fără repo de pachete în rețea (după T9), fără `conflicts`/`provides`.
+de instalare, fără revocare / mai multe chei de încredere, fără repo de pachete în rețea (după T9), fără `conflicts`/`provides`.
