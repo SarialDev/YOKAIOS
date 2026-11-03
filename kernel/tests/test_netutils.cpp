@@ -42,13 +42,13 @@ void test_netutils_run(){
     char http[16], echo[16];
     get_port("nethttp=", http, sizeof(http));
     get_port("netecho=", echo, sizeof(echo));
-    const char* const argv[] = {"nettest", http, echo, nullptr};
+    const char* const argv[] = {"netutiltest", http, echo, nullptr};
     uint64_t free_before = pmm_free_count();
     uint64_t procs_before = process_count();
     uint64_t tasks_before = task_count();
-    uint64_t pid = exec_spawn("/bin/nettest", argv, envp);
+    uint64_t pid = exec_spawn("/bin/netutiltest", argv, envp);
     if(!pid){
-        panic("test_netutils: /bin/nettest nu a pornit");
+        panic("test_netutils: /bin/netutiltest nu a pornit");
     }
     while(task_count() > tasks_before){
         yield();

@@ -92,6 +92,7 @@
 #include "tests/test_sockets.h"
 #include "tests/test_dhcp.h"
 #include "tests/test_netutils.h"
+#include "tests/test_net.h"
 #include "tests/test_iso9660.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
@@ -404,6 +405,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "netutils")){
         test_netutils_run();
+    }
+    if(test_named(test, "net")){
+        test_net_run();
     }
     if(test_named(test, "iso9660")){
         test_iso9660_run();

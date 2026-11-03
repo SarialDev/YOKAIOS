@@ -1,0 +1,9 @@
+[OK] hal
+nettest: [OK] dhcp (10.0.2.15, DNS 10.0.2.3)
+nettest: [OK] ping 10.0.2.2
+nettest: astept host
+nettest: [OK] wget + sha256 (300000 octeti)
+nettest: [OK] echo TCP prin hostfwd (200000 octeti)
+[OK] nettest
+[OK] test_net
+[OK] boot
