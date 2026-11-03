@@ -155,8 +155,9 @@ void check_block(){
 }
 
 void check_net_fb(){
+    int lo_idx = hal_count(HalKind::Net);       // placile reale (eth0..) sunt deja inregistrate
     CHECK(hal_register(HalKind::Net, &loopnet, "lo0"));
-    NetDevice* n = hal_net(0);
+    NetDevice* n = hal_net(lo_idx);
     uint8_t mac[6];
     n->mac(mac);
     CHECK(mac[0] == 0x10 && mac[5] == 0x15 && n->link_up());

@@ -29,12 +29,20 @@ ARCHFLAGS = -m32
 LDARCH    = -m elf_i386
 endif
 
-CFLAGS   = $(ARCHFLAGS) $(COMMON)
-CXXFLAGS = $(ARCHFLAGS) $(COMMON) -fno-exceptions -fno-rtti
+# lwIP (T9.2): antetele vendorizate + optiunile/portul din kernel/net; compat/ da string.h etc. fara libc
+LWIP_INC = -Ithird_party/lwip/src/include -Ikernel/net -isystem kernel/net/compat
+
+CFLAGS   = $(ARCHFLAGS) $(COMMON) $(LWIP_INC)
+CXXFLAGS = $(ARCHFLAGS) $(COMMON) $(LWIP_INC) -fno-exceptions -fno-rtti
 ASFLAGS  = $(ARCHFLAGS) $(COMMON)
 LDFLAGS  = $(LDARCH) -T boot/linker.ld -nostdlib -z noexecstack -z max-page-size=0x1000 --build-id=none
 
 SRCS := $(shell find boot kernel lib -name '*.S' -o -name '*.c' -o -name '*.cpp')
+# lwIP 2.2.1 vendorizat neschimbat: nucleul, IPv4 (ARP/ICMP/UDP/TCP), API-ul netconn/socket si ethernet.c
+LWIP_DIR  = third_party/lwip/src
+LWIP_SRCS = $(wildcard $(LWIP_DIR)/core/*.c) $(wildcard $(LWIP_DIR)/core/ipv4/*.c) $(wildcard $(LWIP_DIR)/api/*.c) \
+            $(LWIP_DIR)/netif/ethernet.c
+SRCS += $(LWIP_SRCS)
 OBJS := $(patsubst %,$(BUILD)/%.o,$(SRCS))
 
 # --- Semnaturi Ed25519 (T8.5) ---
@@ -58,6 +66,8 @@ $(BUILD)/yokai_pubkey.c.o: $(PUBKEY_C)
 
 # Monocypher (EdDSA) e cod tert: fara avertismente-erori; crypto_wipe se redenumeste (lib/crypto/sha256.c are propriul crypto_wipe)
 $(BUILD)/third_party/monocypher/monocypher.c.o: CFLAGS += -w -Dcrypto_wipe=monocypher_wipe
+# Codul lwIP e tert: fara avertismente-erori
+$(patsubst %,$(BUILD)/%.o,$(LWIP_SRCS)): CFLAGS += -w
 
 FORCE:
 
@@ -110,7 +120,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-lwip test-lwip-ping test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -616,6 +626,19 @@ ISO_QEMU = -boot order=d -device ahci,id=ahci0 -drive file=$(BUILD)/yokai-iso966
 
 test-iso: $(BUILD)/yokai-iso9660.iso $(BUILD)/isotest.iso
 	EXPECT_FILE=tests/expect-iso9660.txt SMP=$(SMP) QEMU_EXTRA="$(ISO_QEMU) $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/iso9660.log
+
+# e1000 (QEMU -nic user,model=e1000 pus de run_qemu.sh): kernelul ruleaza doar test=e1000 (ARP catre gateway-ul slirp,
+# statistici, handler, inele rasucite); QEMU nu da MSI pe e1000, deci driverul merge in modul de interogare
+$(BUILD)/yokai-e1000.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+	@mkdir -p $(BUILD)/iso-e1000/boot/grub
+	cp $(KERNEL) $(INITRD) $(BUILD)/iso-e1000/boot/
+	sed 's/test=[^ ]*/test=e1000/' boot/grub-test.cfg > $(BUILD)/iso-e1000/boot/grub/grub.cfg
+	grub-mkrescue -o $@ $(BUILD)/iso-e1000 2>/dev/null
+
+include tests/lwip.mk
+
+test-e1000: $(BUILD)/yokai-e1000.iso
+	EXPECT_FILE=tests/expect-e1000.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/e1000.log
 
 # Dezvoltare interactiva: ISO-ul apare si ca CD pe AHCI (/media/cdrom) si exista un disc NVMe gol de 64 MiB (nvme0n1)
 build/nvme-run.img:

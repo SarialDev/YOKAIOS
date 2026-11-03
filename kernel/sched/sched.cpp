@@ -50,6 +50,14 @@ bool empty(const ListLink& head){
     return head.next == &head;
 }
 
+void push_front(ListLink& head, Task* t){
+    ListLink& l = t->queue;
+    l.next = head.next;
+    l.prev = &head;
+    head.next->prev = &l;
+    head.next = &l;
+}
+
 void push_back(ListLink& head, Task* t){
     ListLink& l = t->queue;
     l.prev = head.prev;
@@ -87,6 +95,8 @@ void enqueue_on(uint32_t cpu, Task* t){
     t->cpu = cpu;
     if(is_rt(t)){
         rt_enqueue(rq.rt, t);
+    } else if(t->prio > 0){
+        push_front(rq.normal, t);               // NORMAL cu prioritate ridicata (ex. tcpip): primul din coada NORMAL
     } else {
         push_back(rq.normal, t);
     }
@@ -155,7 +165,8 @@ uint32_t select_cpu(const Task* t){
 void check_preempt(uint32_t cpu, const Task* t){
     PerCpu& c = cpus[cpu];
     Task* cur = c.current;
-    if(cur == c.idle || (is_rt(t) && (!is_rt(cur) || t->prio > cur->prio))){
+    if(cur == c.idle || (is_rt(t) && (!is_rt(cur) || t->prio > cur->prio)) ||
+       (!is_rt(t) && !is_rt(cur) && t->prio > cur->prio)){
         c.need_resched = true;
         smp_send_resched(cpu);
     }
@@ -410,6 +421,25 @@ bool sched_sleep_until(uint64_t wake_ns){
     t->state = TaskState::BLOCKED;
     insert_sleeper(t);
     schedule();
+    return true;
+}
+
+bool sched_block_until(uint64_t wake_ns){
+    Task* t = task_current();
+    if(t == this_cpu()->idle){
+        panic("sched_block_until: task-ul idle nu are voie sa se blocheze");
+    }
+    if(!hal_irqchip_smp()){
+        sched_block();                          // fara tick programabil: nu exista trezire la termen
+        return false;
+    }
+    SpinlockGuard lock(sched_lock);
+    // Ca in sched_block: un sched_wake venit intre BLOCKED si acest lock a anulat deja blocarea
+    if(t->state == TaskState::BLOCKED){
+        t->wake_ns = wake_ns;
+        insert_sleeper(t);
+        schedule();
+    }
     return true;
 }
 

@@ -106,6 +106,10 @@ void check_enable(){
 }
 
 void check_drivers(){
+    // Placa e1000 e luata de driverul real: o eliberam ca sa probam potrivirea dupa ID
+    PciDevice* e1000 = pci_find(VENDOR_INTEL, DEV_E1000);
+    CHECK(e1000);
+    e1000->driver = nullptr;
     CHECK(pci_register_driver(&drv_e1000));
     CHECK(pci_register_driver(&drv_net));
     CHECK(pci_register_driver(&drv_host));

@@ -81,8 +81,12 @@
 #include "tests/test_userspace.h"
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
+#include "drivers/net/e1000.h"
+#include "net/lwip_port.h"
 #include "fs/iso9660.h"
 #include "tests/test_nvme.h"
+#include "tests/test_e1000.h"
+#include "tests/test_lwip.h"
 #include "tests/test_iso9660.h"
 #include "block/blockdev.h"
 #include "block/bcache.h"
@@ -256,6 +260,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     usb_init();
     ahci_init();
     nvme_init();
+    e1000_init();
+    // lwIP (T9.2): doar cu "ip=" in cmdline; thread-ul tcpip creeaza interfata pe prima placa
+    net_init();
     hal_list();
     kprintf("[OK] hal\n");
     kprintf("[OK] rtc\n");
@@ -373,6 +380,12 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "nvme")){
         test_nvme_run();
+    }
+    if(test_named(test, "e1000")){
+        test_e1000_run();
+    }
+    if(test_named(test, "lwip")){
+        test_lwip_run();
     }
     if(test_named(test, "iso9660")){
         test_iso9660_run();

@@ -21,6 +21,10 @@ bool sched_sleep_until(uint64_t wake_ns);
 
 // Pentru WaitQueue: comuta de pe task-ul curent, deja marcat BLOCKED (cu intreruperile oprite)
 void sched_block();
+// Ca sched_block, dar se trezeste singur la monotonic_ns() >= wake_ns (task-ul trebuie sa fie deja BLOCKED si ceva
+// il poate trezi cu sched_wake, care il scoate si din lista de adormiti). false daca nu exista trezire la termen
+// (fara tick programabil: se comporta ca sched_block)
+bool sched_block_until(uint64_t wake_ns);
 // Task BLOCKED -> READY, la coada runqueue-ului
 void sched_wake(Task* t);
 

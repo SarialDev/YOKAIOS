@@ -8,6 +8,9 @@
 # intreg in ysh (editare, istoric, Tab, pipe-uri, redirectari) si asteapta rezultatul fiecarei comenzi in log
 # USB=0: fara xHCI; QEMU_EXTRA="-machine pc,i8042=off": fara PS/2 (tastatura doar prin usb-kbd)
 # DISK=<imagine>: disc SATA (AHCI, format raw) cu imaginea data; boot de pe CD (-boot order=d). Imaginea o poate modifica kernelul
+# NIC="..." inlocuieste placa implicita (-nic user,model=e1000), ex. cu hostfwd sau -netdev socket (test-lwip)
+# HOST_CMD="comanda": se ruleaza pe gazda cand kernelul tipareste "astept host" (HOST_MARK schimba textul); iesirea ei
+# merge in <log>.host, iar un cod nenul pica testul (test-lwip: clientul TCP/UDP, peer-ul de ping)
 # SMP=n alege numarul de CPU-uri (implicit 4); expect.txt: @SMP@ = n, prefixul "@smp>1 " = doar cu 2+ CPU-uri
 set -u
 
@@ -32,7 +35,7 @@ rm -f "$SOCK"
 timeout "$TIMEOUT" qemu-system-x86_64 -cdrom "$ISO" -m 512M -smp "$SMP" \
     -display none -serial "file:$LOG.raw" -monitor "unix:$SOCK,server,nowait" -no-reboot \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-    -nic user,model=e1000 -device edu -netdev user,id=vn0 -device virtio-net-pci,netdev=vn0 \
+    ${NIC:--nic user,model=e1000} -device edu -netdev user,id=vn0 -device virtio-net-pci,netdev=vn0 \
     $USB_DEVICES $DISK_DEVICES \
     ${QEMU_EXTRA:-} < /dev/null > "$LOG.qemu" 2>&1 &
 QPID=$!
@@ -67,6 +70,18 @@ PY
 ) &
 SENDER=$!
 
+HELPER=""
+if [ -n "${HOST_CMD:-}" ]; then
+    (
+        while ! grep -q "${HOST_MARK:-astept host}" "$LOG.raw" 2>/dev/null; do
+            kill -0 $QPID 2>/dev/null || exit 0
+            sleep 0.2
+        done
+        sh -c "$HOST_CMD" > "$LOG.host" 2>&1
+    ) &
+    HELPER=$!
+fi
+
 wait $QPID
 rc=$?
 kill $SENDER 2>/dev/null
@@ -75,6 +90,18 @@ tr -d '\r' < "$LOG.raw" > "$LOG"
 rm -f "$LOG.raw" "$LOG.qemu"
 
 fail=0
+if [ -n "$HELPER" ]; then
+    wait $HELPER
+    hrc=$?
+    if [ -f "$LOG.host" ]; then
+        cat "$LOG.host"
+    fi
+    if [ $hrc -ne 0 ]; then
+        echo "FAIL: HOST_CMD a iesit cu codul $hrc"
+        fail=1
+    fi
+fi
+
 if [ -n "${EXPECT_PANIC:-}" ]; then
     # panic in modul test: outb(0xf4, 0x11) -> 35
     if [ $rc -ne 35 ]; then

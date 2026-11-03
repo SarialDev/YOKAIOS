@@ -1,0 +1,3 @@
+lwIP 2.2.1 (tag STABLE-2_2_1_RELEASE, commit 77dcd25a72509eb83f72b033d219b1d40cd8eb95), vendorizat neschimbat din
+https://github.com/lwip-tcpip/lwip . Pastrate: COPYING, README, src/{api,core,include,netif}, src/Filelists.mk.
+Licenta: BSD 3 clauze (COPYING). Portul pentru YokaiOS este in kernel/net/ (lwipopts.h, arch/, sys_arch.cpp, ...).

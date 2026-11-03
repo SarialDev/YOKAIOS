@@ -1,0 +1,10 @@
+[OK] serial
+[OK] multiboot2
+[OK] pci 
+[OK] hal
+e1000: eth0 52:54:00:12:34:56
+[OK] test_e1000 basic
+[OK] test_e1000 arp statistici
+[OK] test_e1000 handler
+[OK] test_e1000 (e1000)
+[OK] boot

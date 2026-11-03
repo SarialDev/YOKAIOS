@@ -1,0 +1,11 @@
+[OK] hal
+net: eth0 10.0.2.15 mask 255.255.255.0 gw 10.0.2.2
+[OK] test_lwip netif
+lwip: astept host (ping)
+lwip: echo request 1
+lwip: echo request 2
+lwip: echo request 3
+[OK] test_lwip host ping
+[OK] test_lwip stats
+[OK] test_lwip (lwip)
+[OK] boot
