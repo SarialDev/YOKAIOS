@@ -20,12 +20,12 @@ $(BUILD)/yokai-lwip-ping.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-lwip: $(BUILD)/yokai-lwip.iso
 	HP=$$($(FREE_PORT)); \
-	NIC="-nic user,model=e1000,hostfwd=tcp:127.0.0.1:$$HP-:7,hostfwd=udp:127.0.0.1:$$HP-:7" \
+	NIC="-nic user,model=$(NICMODEL),hostfwd=tcp:127.0.0.1:$$HP-:7,hostfwd=udp:127.0.0.1:$$HP-:7" \
 	HOST_CMD="python3 tests/lwip_host.py $$HP" \
 	EXPECT_FILE=tests/expect-lwip.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/lwip.log
 
 test-lwip-ping: $(BUILD)/yokai-lwip-ping.iso
 	HP=$$($(FREE_PORT)); \
-	NIC="-netdev socket,id=ln0,listen=127.0.0.1:$$HP -device e1000,netdev=ln0" \
+	NIC="-netdev socket,id=ln0,listen=127.0.0.1:$$HP -device $(NICMODEL),netdev=ln0" \
 	HOST_CMD="python3 tests/lwip_peer.py $$HP" \
 	EXPECT_FILE=tests/expect-lwip-ping.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/lwip-ping.log

@@ -1,0 +1,10 @@
+[OK] serial
+[OK] multiboot2
+[OK] pci 
+[OK] hal
+rtl8139: eth0 52:54:00:12:34:56
+[OK] test_rtl8139 basic
+[OK] test_rtl8139 arp statistici
+[OK] test_rtl8139 handler
+[OK] test_rtl8139 (rtl8139)
+[OK] boot

@@ -11,6 +11,6 @@ test-netutils: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	cp $(KERNEL) $(INITRD) $(BUILD)/iso-netutils/boot/; \
 	sed "s/test=[^ ]*/test=netutils $(LWIP_ARGS) nethttp=$$WP netecho=$$EP/" boot/grub-test.cfg > $(BUILD)/iso-netutils/boot/grub/grub.cfg; \
 	grub-mkrescue -o $(BUILD)/yokai-netutils.iso $(BUILD)/iso-netutils 2>/dev/null; \
-	NIC="-nic user,model=e1000,hostfwd=tcp:127.0.0.1:$$HP-:7" \
+	NIC="-nic user,model=$(NICMODEL),hostfwd=tcp:127.0.0.1:$$HP-:7" \
 	HOST_CMD="python3 tests/netutils_host.py $$HP $$WP $$EP" \
 	EXPECT_FILE=tests/expect-netutils.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(BUILD)/yokai-netutils.iso $(BUILD)/netutils.log

@@ -120,7 +120,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-lwip test-lwip-ping test-sockets test-dhcp test-netutils test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-rtl8139 test-lwip test-lwip-ping test-sockets test-dhcp test-netutils test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -636,6 +636,7 @@ $(BUILD)/yokai-e1000.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	sed 's/test=[^ ]*/test=e1000/' boot/grub-test.cfg > $(BUILD)/iso-e1000/boot/grub/grub.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-e1000 2>/dev/null
 
+include tests/rtl8139.mk
 include tests/lwip.mk
 include tests/sockets.mk
 include tests/dhcp.mk

@@ -10,6 +10,6 @@ test-sockets: $(KERNEL) $(INITRD) boot/grub-test.cfg
 	cp $(KERNEL) $(INITRD) $(BUILD)/iso-sockets/boot/; \
 	sed "s/test=[^ ]*/test=sockets $(LWIP_ARGS) sockhost=$$SP/" boot/grub-test.cfg > $(BUILD)/iso-sockets/boot/grub/grub.cfg; \
 	grub-mkrescue -o $(BUILD)/yokai-sockets.iso $(BUILD)/iso-sockets 2>/dev/null; \
-	NIC="-nic user,model=e1000,hostfwd=tcp:127.0.0.1:$$HP-:7,hostfwd=udp:127.0.0.1:$$HP-:7" \
+	NIC="-nic user,model=$(NICMODEL),hostfwd=tcp:127.0.0.1:$$HP-:7,hostfwd=udp:127.0.0.1:$$HP-:7" \
 	HOST_CMD="python3 tests/sockets_host.py $$HP $$SP" \
 	EXPECT_FILE=tests/expect-sockets.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(BUILD)/yokai-sockets.iso $(BUILD)/sockets.log

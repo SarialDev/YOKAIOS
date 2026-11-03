@@ -82,10 +82,12 @@
 #include "drivers/ahci/ahci.h"
 #include "drivers/nvme/nvme.h"
 #include "drivers/net/e1000.h"
+#include "drivers/net/rtl8139.h"
 #include "net/lwip_port.h"
 #include "fs/iso9660.h"
 #include "tests/test_nvme.h"
 #include "tests/test_e1000.h"
+#include "tests/test_rtl8139.h"
 #include "tests/test_lwip.h"
 #include "tests/test_sockets.h"
 #include "tests/test_dhcp.h"
@@ -264,6 +266,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     ahci_init();
     nvme_init();
     e1000_init();
+    rtl8139_init();
     // lwIP (T9.2): doar cu "ip=" in cmdline; thread-ul tcpip creeaza interfata pe prima placa
     net_init();
     hal_list();
@@ -386,6 +389,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "e1000")){
         test_e1000_run();
+    }
+    if(test_named(test, "rtl8139")){
+        test_rtl8139_run();
     }
     if(test_named(test, "lwip")){
         test_lwip_run();
