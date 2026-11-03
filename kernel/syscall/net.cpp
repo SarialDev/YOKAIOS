@@ -1,0 +1,509 @@
+// Syscall-uri de retea (T9.3): socket-uri BSD peste net/socket.cpp, plus poll / select pentru orice fd (socket, pipe,
+// consola, fisiere VFS). Adresele sunt struct sockaddr_in de pe Linux (uapi/net.h).
+#include "syscall/net.h"
+#include "syscall/syscall.h"
+#include "uapi/syscall_nr.h"
+#include "uapi/net.h"
+#include "uapi/fs.h"
+#include "net/socket.h"
+#include "proc/process.h"
+#include "proc/signal.h"
+#include "sched/sched.h"
+#include "time/clock.h"
+#include "mm/kmalloc.h"
+#include "lib/string.h"
+#include "drivers/tty.h"
+#include "fs/pseudofs.h"
+
+namespace {
+
+const uint32_t SOCKADDR_LEN = sizeof(k_sockaddr_in);
+const int POLL_MAX = PROC_MAX_FD;
+
+// Socket-ul de la fd; err = -EBADF / -ENOTSOCK
+File* sock_of(uint64_t fd, int64_t& err){
+    Process* p = process_current();
+    File* f = p ? fd_get(p->fds, (int64_t)fd) : nullptr;
+    if(!f){
+        err = -EBADF;
+        return nullptr;
+    }
+    if(!sock_is(f)){
+        err = -ENOTSOCK;
+        return nullptr;
+    }
+    return f;
+}
+
+int addr_from_user(uint64_t addr, uint64_t len, KSockAddr& out){
+    if(len < SOCKADDR_LEN){
+        return -EINVAL;
+    }
+    k_sockaddr_in sa;
+    if(!copy_from_user(&sa, addr, sizeof(sa))){
+        return -EFAULT;
+    }
+    if(sa.sin_family != AF_INET){
+        return -EAFNOSUPPORT;
+    }
+    out.ip = sa.sin_addr;
+    out.port = sa.sin_port;
+    return 0;
+}
+
+// Scrie adresa si lungimea ei (taiata la *lenp primit); addr == 0 = nu vrea adresa
+int addr_to_user(uint64_t addr, uint64_t lenp, const KSockAddr& a){
+    if(!addr || !lenp){
+        return 0;
+    }
+    uint32_t have;
+    if(!copy_from_user(&have, lenp, sizeof(have))){
+        return -EFAULT;
+    }
+    k_sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = a.port;
+    sa.sin_addr = a.ip;
+    uint32_t n = have < SOCKADDR_LEN ? have : SOCKADDR_LEN;
+    uint32_t full = SOCKADDR_LEN;
+    if(!copy_to_user(addr, &sa, n) || !copy_to_user(lenp, &full, sizeof(full))){
+        return -EFAULT;
+    }
+    return 0;
+}
+
+}
+
+int64_t sys_socket(uint64_t domain, uint64_t type, uint64_t proto, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    if(!p){
+        return -EINVAL;
+    }
+    if(domain != AF_INET){
+        return -EAFNOSUPPORT;
+    }
+    File* f;
+    int err = sock_create((int)type, (int)proto, f);
+    if(err){
+        return err;
+    }
+    int fd = fd_install(p->fds, f);
+    if(fd < 0){
+        file_put(f);
+    }
+    return fd;
+}
+
+int64_t sys_bind(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    KSockAddr a;
+    if(!f){
+        return err;
+    }
+    err = addr_from_user(addr, len, a);
+    return err ? err : sock_bind(f, a);
+}
+
+int64_t sys_listen(uint64_t fd, uint64_t backlog, uint64_t, uint64_t, uint64_t, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    return f ? sock_listen(f, (int)backlog) : err;
+}
+
+int64_t sys_connect(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    KSockAddr a;
+    if(!f){
+        return err;
+    }
+    err = addr_from_user(addr, len, a);
+    return err ? err : sock_connect(f, a);
+}
+
+int64_t sys_accept(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t){
+    Process* p = process_current();
+    int64_t err;
+    File* f = sock_of(fd, err);
+    if(!f){
+        return err;
+    }
+    File* nf;
+    KSockAddr peer;
+    err = sock_accept(f, nf, peer);
+    if(err){
+        return err;
+    }
+    int nfd = fd_install(p->fds, nf);
+    if(nfd < 0){
+        file_put(nf);
+        return nfd;
+    }
+    addr_to_user(addr, lenp, peer);
+    return nfd;
+}
+
+int64_t sys_sendto(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t alen){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    if(!f){
+        return err;
+    }
+    if(!user_access_ok(buf, len, false)){
+        return -EFAULT;
+    }
+    KSockAddr to;
+    if(addr){
+        err = addr_from_user(addr, alen, to);
+        if(err){
+            return err;
+        }
+    }
+    bool stream = sock_is_stream(f);
+    if(!stream && len > SOCK_IO_MAX * 2){
+        return -EMSGSIZE;
+    }
+    uint64_t chunk = stream ? SOCK_IO_MAX : SOCK_IO_MAX * 2;
+    uint64_t want = len < chunk ? len : chunk;
+    uint8_t* tmp = (uint8_t*)kmalloc(want ? want : 1);
+    if(!tmp){
+        return -ENOMEM;
+    }
+    int64_t total = 0;
+    int64_t result = 0;
+    do {
+        uint64_t n = len - (uint64_t)total < chunk ? len - (uint64_t)total : chunk;
+        if(!copy_from_user(tmp, buf + (uint64_t)total, n)){
+            result = total ? total : -EFAULT;
+            break;
+        }
+        int64_t r = sock_sendto(f, tmp, n, (int)flags, addr ? &to : nullptr);
+        if(r < 0){
+            result = total ? total : r;
+            break;
+        }
+        total += r;
+        result = total;
+        if((uint64_t)r < n){
+            break;
+        }
+    } while((uint64_t)total < len);
+    kfree(tmp);
+    if(result == -EPIPE && !(flags & MSG_NOSIGNAL)){
+        signal_send_self(SIGPIPE);
+    }
+    return result;
+}
+
+int64_t sys_recvfrom(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t lenp){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    if(!f){
+        return err;
+    }
+    if(!user_access_ok(buf, len, true)){
+        return -EFAULT;
+    }
+    uint64_t chunk = sock_is_stream(f) ? SOCK_IO_MAX : SOCK_IO_MAX * 2;
+    uint64_t want = len < chunk ? len : chunk;
+    uint8_t* tmp = (uint8_t*)kmalloc(want ? want : 1);
+    if(!tmp){
+        return -ENOMEM;
+    }
+    KSockAddr from;
+    bool has_from;
+    int64_t r = want ? sock_recvfrom(f, tmp, want, (int)flags, &from, &has_from) : 0;
+    if(r > 0 && !copy_to_user(buf, tmp, (uint64_t)r)){
+        r = -EFAULT;
+    }
+    kfree(tmp);
+    if(r >= 0 && has_from){
+        addr_to_user(addr, lenp, from);
+    }
+    return r;
+}
+
+int64_t sys_shutdown(uint64_t fd, uint64_t how, uint64_t, uint64_t, uint64_t, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    if(!f){
+        return err;
+    }
+    return how > SHUT_RDWR ? -EINVAL : sock_shutdown(f, (int)how);
+}
+
+int64_t sys_getsockname(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    KSockAddr a;
+    if(!f){
+        return err;
+    }
+    err = sock_name(f, false, a);
+    return err ? err : addr_to_user(addr, lenp, a);
+}
+
+int64_t sys_getpeername(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    KSockAddr a;
+    if(!f){
+        return err;
+    }
+    err = sock_name(f, true, a);
+    return err ? err : addr_to_user(addr, lenp, a);
+}
+
+int64_t sys_setsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, uint64_t len, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    if(!f){
+        return err;
+    }
+    uint8_t tmp[16];
+    if(len > sizeof(tmp)){
+        return -EINVAL;
+    }
+    if(!copy_from_user(tmp, val, len)){
+        return -EFAULT;
+    }
+    return sock_setopt(f, (int)level, (int)opt, tmp, (uint32_t)len);
+}
+
+int64_t sys_getsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, uint64_t lenp, uint64_t){
+    int64_t err;
+    File* f = sock_of(fd, err);
+    if(!f){
+        return err;
+    }
+    uint32_t len;
+    uint8_t tmp[16];
+    if(!copy_from_user(&len, lenp, sizeof(len))){
+        return -EFAULT;
+    }
+    if(len > sizeof(tmp)){
+        len = sizeof(tmp);
+    }
+    err = sock_getopt(f, (int)level, (int)opt, tmp, &len);
+    if(err){
+        return err;
+    }
+    return copy_to_user(val, tmp, len) && copy_to_user(lenp, &len, sizeof(len)) ? 0 : -EFAULT;
+}
+
+// --- poll / select ---
+
+namespace {
+
+struct Ent {
+    File* f;                    // nullptr = ignorat (fd negativ) sau POLLNVAL
+    uint32_t ev;
+    uint32_t rev;
+    bool sock;
+};
+
+// Starea unui fisier care nu e socket
+uint32_t file_mask(File* f){
+    if(f == console_file() || devfs_is_console(f->inode)){
+        return POLLOUT | (tty_readable() ? POLLIN : 0);
+    }
+    if(f->ops->poll){
+        return f->ops->poll(f);
+    }
+    return POLLIN | POLLOUT;
+}
+
+// Asteapta pana cand cel putin o intrare are evenimente, timeout_ms (< 0 = fara limita) sau un semnal. Intoarce cate intrari
+// au evenimente, 0 la expirare sau -EINTR. Socket-urile asteapta in lwIP (trezire imediata), restul se sondeaza din ms in ms
+int64_t poll_engine(Ent* e, int n, int64_t timeout_ms){
+    uint64_t end = timeout_ms > 0 ? monotonic_ns() + (uint64_t)timeout_ms * 1000000UL : 0;
+    for(;;){
+        File* sf[POLL_MAX];
+        uint32_t sev[POLL_MAX], srev[POLL_MAX];
+        int sidx[POLL_MAX];
+        int ns = 0;
+        bool others = false;
+        int ready = 0;
+        for(int i = 0; i < n; i++){
+            e[i].rev = 0;
+            if(!e[i].f){
+                continue;
+            }
+            if(e[i].sock){
+                sf[ns] = e[i].f;
+                sev[ns] = e[i].ev;
+                sidx[ns++] = i;
+            } else {
+                others = true;
+                e[i].rev = file_mask(e[i].f) & (e[i].ev | POLLERR | POLLHUP);
+                ready += e[i].rev != 0;
+            }
+        }
+        int64_t tmo = 0;
+        if(!ready && timeout_ms != 0){
+            int64_t slice = others ? 1 : 20;
+            if(end){
+                uint64_t now = monotonic_ns();
+                int64_t rem = now >= end ? 0 : (int64_t)((end - now + 999999UL) / 1000000UL);
+                tmo = rem < slice ? rem : slice;
+            } else {
+                tmo = slice;
+            }
+        }
+        if(ns){
+            sock_poll_wait(sf, sev, srev, ns, (int)tmo);
+            for(int j = 0; j < ns; j++){
+                Ent& x = e[sidx[j]];
+                x.rev = srev[j] & (x.ev | POLLERR | POLLHUP | POLLNVAL);
+            }
+        } else if(tmo > 0){
+            sched_sleep_until(monotonic_ns() + 1000000UL);
+        }
+        int count = 0;
+        for(int i = 0; i < n; i++){
+            count += e[i].rev != 0;
+        }
+        if(count){
+            return count;
+        }
+        if(timeout_ms == 0 || (end && monotonic_ns() >= end)){
+            return 0;
+        }
+        if(signal_pending()){
+            return -EINTR;
+        }
+    }
+}
+
+File* fd_file(int64_t fd){
+    Process* p = process_current();
+    return p ? fd_get(p->fds, fd) : nullptr;
+}
+
+}
+
+int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout_ms, uint64_t, uint64_t, uint64_t){
+    if(nfds > (uint64_t)POLL_MAX * 2){
+        return -EINVAL;
+    }
+    int n = (int)nfds;
+    k_pollfd pf[POLL_MAX * 2];
+    Ent e[POLL_MAX * 2];
+    if(n && !copy_from_user(pf, fds, n * sizeof(k_pollfd))){
+        return -EFAULT;
+    }
+    // Cel mult POLL_MAX socket-uri sunt asteptate deodata (cate fd-uri are un proces)
+    int socks = 0;
+    for(int i = 0; i < n; i++){
+        e[i].f = pf[i].fd >= 0 ? fd_file(pf[i].fd) : nullptr;
+        e[i].ev = (uint32_t)(uint16_t)pf[i].events;
+        e[i].rev = 0;
+        e[i].sock = e[i].f && sock_is(e[i].f);
+        socks += e[i].sock;
+    }
+    if(socks > POLL_MAX){
+        return -EINVAL;
+    }
+    int64_t r = poll_engine(e, n, (int32_t)timeout_ms);       // int timeout: -1 vine cu bitii de sus zero
+    if(r < 0){
+        return r;
+    }
+    int64_t count = 0;
+    for(int i = 0; i < n; i++){
+        uint32_t rev = e[i].rev;
+        if(pf[i].fd >= 0 && !e[i].f){
+            rev = POLLNVAL;
+        }
+        pf[i].revents = (short)rev;
+        count += rev != 0;
+    }
+    if(n && !copy_to_user(fds, pf, n * sizeof(k_pollfd))){
+        return -EFAULT;
+    }
+    return count;
+}
+
+int64_t sys_select(uint64_t nfds, uint64_t rd, uint64_t wr, uint64_t ex, uint64_t timeout, uint64_t){
+    if(nfds > FD_SETSIZE){
+        return -EINVAL;
+    }
+    const uint64_t words = (nfds + 63) / 64;
+    uint64_t set[3][FD_SETSIZE / 64];
+    const uint64_t user[3] = {rd, wr, ex};
+    memset(set, 0, sizeof(set));
+    for(int k = 0; k < 3; k++){
+        if(user[k] && words && !copy_from_user(set[k], user[k], words * 8)){
+            return -EFAULT;
+        }
+    }
+    int64_t timeout_ms = -1;
+    if(timeout){
+        k_timeval tv;
+        if(!copy_from_user(&tv, timeout, sizeof(tv))){
+            return -EFAULT;
+        }
+        if(tv.tv_sec < 0 || tv.tv_usec < 0 || tv.tv_usec >= 1000000){
+            return -EINVAL;
+        }
+        timeout_ms = tv.tv_sec * 1000 + (tv.tv_usec + 999) / 1000;
+    }
+    Ent e[POLL_MAX];
+    int fdnum[POLL_MAX];
+    int n = 0;
+    int socks = 0;
+    for(uint64_t fd = 0; fd < nfds; fd++){
+        uint32_t ev = 0;
+        if(set[0][fd / 64] >> (fd % 64) & 1){
+            ev |= POLLIN;
+        }
+        if(set[1][fd / 64] >> (fd % 64) & 1){
+            ev |= POLLOUT;
+        }
+        if(set[2][fd / 64] >> (fd % 64) & 1){
+            ev |= POLLPRI;
+        }
+        if(!ev){
+            continue;
+        }
+        File* f = fd < (uint64_t)POLL_MAX ? fd_file((int64_t)fd) : nullptr;
+        if(!f || n == POLL_MAX){
+            return -EBADF;
+        }
+        e[n].f = f;
+        e[n].ev = ev;
+        e[n].rev = 0;
+        e[n].sock = sock_is(f);
+        socks += e[n].sock;
+        fdnum[n++] = (int)fd;
+    }
+    int64_t r = poll_engine(e, n, timeout_ms);
+    if(r < 0){
+        return r;
+    }
+    memset(set, 0, sizeof(set));
+    int64_t count = 0;
+    for(int i = 0; i < n; i++){
+        uint64_t bit = 1UL << (fdnum[i] % 64);
+        uint32_t rev = e[i].rev;
+        if(rev & (POLLIN | POLLHUP | POLLERR)){
+            if(e[i].ev & POLLIN){
+                set[0][fdnum[i] / 64] |= bit;
+                count++;
+            }
+        }
+        if(rev & (POLLOUT | POLLERR)){
+            if(e[i].ev & POLLOUT){
+                set[1][fdnum[i] / 64] |= bit;
+                count++;
+            }
+        }
+    }
+    for(int k = 0; k < 3; k++){
+        if(user[k] && words && !copy_to_user(user[k], set[k], words * 8)){
+            return -EFAULT;
+        }
+    }
+    return count;
+}

@@ -1,5 +1,6 @@
 #include "proc/file.h"
 #include "uapi/syscall_nr.h"
+#include "uapi/net.h"
 #include "mm/kmalloc.h"
 #include "lib/kprintf.h"
 #include "drivers/tty.h"
@@ -20,7 +21,11 @@ int64_t console_write(File*, const void* buf, uint64_t len, bool){
 void console_close(File*){
 }
 
-const FileOps console_ops = {console_read, console_write, console_close, nullptr, nullptr};
+uint32_t console_poll(File*){
+    return POLLOUT | (tty_readable() ? POLLIN : 0);
+}
+
+const FileOps console_ops = {console_read, console_write, console_close, nullptr, nullptr, console_poll};
 File console = {&console_ops, nullptr, CONSOLE_REFS, nullptr, nullptr, 0, 0};
 
 }

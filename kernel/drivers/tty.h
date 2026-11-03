@@ -14,6 +14,8 @@ void tty_activate();
 bool tty_active();
 // Blocheaza pana exista date (sau -EAGAIN cu nonblock). 0 = EOF (Ctrl-D pe linie goala, sau tty neactivat)
 int64_t tty_read(void* buf, uint64_t len, bool nonblock);
+// Un read() n-ar bloca acum (date, EOF sau tty neactivat)? Pentru poll/select
+bool tty_readable();
 int64_t tty_write(const void* buf, uint64_t len);
 void tty_get_termios(KTermios& t);
 void tty_set_termios(const KTermios& t);

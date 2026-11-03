@@ -3,6 +3,7 @@
 #include "syscall/fs.h"
 #include "syscall/mem.h"
 #include "syscall/misc.h"
+#include "syscall/net.h"
 #include "uapi/syscall_nr.h"
 #include "proc/process.h"
 #include "ipc/pipe.h"
@@ -294,6 +295,20 @@ constexpr Table make_table(){
     t.fn[SYS_DELETE_MODULE] = sys_delete_module;
     t.fn[SYS_SIGVERIFY] = sys_sigverify;
     t.fn[SYS_CRYPTCTL] = sys_cryptctl;
+    t.fn[SYS_POLL] = sys_poll;
+    t.fn[SYS_SELECT] = sys_select;
+    t.fn[SYS_SOCKET] = sys_socket;
+    t.fn[SYS_CONNECT] = sys_connect;
+    t.fn[SYS_ACCEPT] = sys_accept;
+    t.fn[SYS_SENDTO] = sys_sendto;
+    t.fn[SYS_RECVFROM] = sys_recvfrom;
+    t.fn[SYS_SHUTDOWN] = sys_shutdown;
+    t.fn[SYS_BIND] = sys_bind;
+    t.fn[SYS_LISTEN] = sys_listen;
+    t.fn[SYS_GETSOCKNAME] = sys_getsockname;
+    t.fn[SYS_GETPEERNAME] = sys_getpeername;
+    t.fn[SYS_SETSOCKOPT] = sys_setsockopt;
+    t.fn[SYS_GETSOCKOPT] = sys_getsockopt;
     return t;
 }
 

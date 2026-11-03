@@ -1,0 +1,10 @@
+[OK] hal
+net: eth0 10.0.2.15 mask 255.255.255.0 gw 10.0.2.2
+socktest: [OK] faza A (api, poll/select, EINTR)
+socktest: astept host
+socktest: accept de la 10.0.2.2
+socktest: [OK] faza B (server echo: 2 clienti TCP, 200000 octeti, 3 datagrame UDP)
+socktest: [OK] faza C (client, connect neblocant, shutdown, netdb)
+[OK] socktest
+[OK] test_sockets
+[OK] boot

@@ -230,6 +230,16 @@ int64_t tty_read(void* buf, uint64_t len, bool nonblock){
     return (int64_t)n;
 }
 
+bool tty_readable(){
+    if(!is_active){
+        return true;
+    }
+    uint64_t flags = lock.lock_irqsave();
+    bool r = !rx_empty() || eof_pending;
+    lock.unlock_irqrestore(flags);
+    return r;
+}
+
 int64_t tty_write(const void* buf, uint64_t len){
     kwrite((const char*)buf, len);
     return (int64_t)len;

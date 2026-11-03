@@ -119,7 +119,7 @@ int64_t file_getdents(File* f, void* buf, uint64_t len){
 
 }
 
-const FileOps vfs_file_ops = {file_read, file_write, file_close, file_lseek, file_getdents};
+const FileOps vfs_file_ops = {file_read, file_write, file_close, file_lseek, file_getdents, nullptr};
 
 File* vfs_file_new(const Path& p, uint32_t flags){
     File* f = file_alloc(&vfs_file_ops, nullptr);

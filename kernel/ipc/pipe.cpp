@@ -1,5 +1,6 @@
 #include "ipc/pipe.h"
 #include "uapi/syscall_nr.h"
+#include "uapi/net.h"
 #include "sync/spinlock.h"
 #include "sync/waitqueue.h"
 #include "mm/kmalloc.h"
@@ -82,6 +83,22 @@ int64_t pipe_write(File* f, const void* src, uint64_t len, bool nonblock){
     return (int64_t)done;
 }
 
+uint32_t pipe_poll_read(File* f){
+    Pipe* p = (Pipe*)f->priv;
+    uint64_t flags = p->lock.lock_irqsave();
+    uint32_t r = (p->count ? POLLIN : 0) | (p->writers == 0 ? POLLHUP : 0);
+    p->lock.unlock_irqrestore(flags);
+    return r;
+}
+
+uint32_t pipe_poll_write(File* f){
+    Pipe* p = (Pipe*)f->priv;
+    uint64_t flags = p->lock.lock_irqsave();
+    uint32_t r = p->readers == 0 ? POLLERR : p->count < PIPE_SIZE ? POLLOUT : 0;
+    p->lock.unlock_irqrestore(flags);
+    return r;
+}
+
 int64_t no_read(File*, void*, uint64_t, bool){
     return -EBADF;
 }
@@ -116,8 +133,8 @@ void close_write(File* f){
     close_end((Pipe*)f->priv, false);
 }
 
-const FileOps read_ops = {pipe_read, no_write, close_read, nullptr, nullptr};
-const FileOps write_ops = {no_read, pipe_write, close_write, nullptr, nullptr};
+const FileOps read_ops = {pipe_read, no_write, close_read, nullptr, nullptr, pipe_poll_read};
+const FileOps write_ops = {no_read, pipe_write, close_write, nullptr, nullptr, pipe_poll_write};
 
 }
 

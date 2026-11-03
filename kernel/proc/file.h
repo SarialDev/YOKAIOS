@@ -15,6 +15,8 @@ struct FileOps {
     // Optionale (nullptr = nu se poate: -ESPIPE / -ENOTDIR)
     int64_t (*lseek)(File* f, int64_t off, int whence);
     int64_t (*getdents)(File* f, void* buf, uint64_t len);   // Dirent64 pe buffer de kernel
+    // poll/select: starea acum, biti POLLIN/POLLOUT/POLLERR/POLLHUP (uapi/net.h). nullptr = mereu citibil si scriibil
+    uint32_t (*poll)(File* f);
 };
 
 struct File {
