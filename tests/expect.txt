@@ -158,8 +158,11 @@ libctest: atexit ok
 [OK] aslrtest
 [OK] test_aslr
 [OK] test_crypto kernel
+[OK] test_crypto official vectors
 [OK] cryptotest
 [OK] test_crypto (SHA-256
+[OK] sectest
+[OK] test_crypto security
 [OK] test_sign (Ed25519
 [OK] userspace
 [OK] test_userspace
