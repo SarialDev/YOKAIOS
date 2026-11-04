@@ -1,4 +1,5 @@
 #include "drivers/tty.h"
+#include "sync/pollwait.h"
 #include "hal/input.h"
 #include "hal/console.h"
 #include "keycodes.h"
@@ -174,6 +175,7 @@ void on_input(const InputEvent& ev){
     lock.unlock_irqrestore(flags);
     if(ready){
         readq.wake_all();
+        poll_notify();
     }
     if(sig && pgid){
         signal_send_pgrp(pgid, sig, false);
@@ -292,6 +294,7 @@ void tty_inject(const char* s, uint64_t n){
     lock.unlock_irqrestore(flags);
     if(ready){
         readq.wake_all();
+        poll_notify();
     }
     if(sig && pgid){
         signal_send_pgrp(pgid, sig, false);

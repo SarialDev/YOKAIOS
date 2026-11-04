@@ -4,6 +4,9 @@
 #include "syscall/mem.h"
 #include "syscall/misc.h"
 #include "syscall/net.h"
+#include "ipc/shm.h"
+#include "drivers/yinput.h"
+#include "sched/rt.h"
 #include "uapi/syscall_nr.h"
 #include "proc/process.h"
 #include "ipc/pipe.h"
@@ -42,7 +45,7 @@ int64_t sys_read(uint64_t fd, uint64_t buf, uint64_t len, uint64_t, uint64_t, ui
     uint64_t done = 0;
     while(done < len){
         uint64_t want = len - done < IO_CHUNK ? len - done : IO_CHUNK;
-        int64_t n = f->ops->read(f, chunk, want, done > 0);
+        int64_t n = f->ops->read(f, chunk, want, done > 0 || (f->flags & O_NONBLOCK));     // fcntl(O_NONBLOCK): pipe, tty, AF_UNIX
         if(n <= 0){
             return done ? (int64_t)done : n;
         }
@@ -72,7 +75,7 @@ int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t len, uint64_t, uint64_t, u
         if(!copy_from_user(chunk, buf + done, n)){
             return done ? (int64_t)done : -EFAULT;
         }
-        int64_t w = f->ops->write(f, chunk, n, false);
+        int64_t w = f->ops->write(f, chunk, n, (f->flags & O_NONBLOCK) != 0);
         if(w < 0){
             if(w == -EPIPE){
                 signal_send_self(SIGPIPE);      // capatul de citire e inchis: SIGPIPE (implicit omoara), apoi EPIPE
@@ -309,6 +312,12 @@ constexpr Table make_table(){
     t.fn[SYS_GETPEERNAME] = sys_getpeername;
     t.fn[SYS_SETSOCKOPT] = sys_setsockopt;
     t.fn[SYS_GETSOCKOPT] = sys_getsockopt;
+    t.fn[SYS_SOCKETPAIR] = sys_socketpair;
+    t.fn[SYS_SHM_OPEN] = sys_shm_open;
+    t.fn[SYS_SHM_UNLINK] = sys_shm_unlink;
+    t.fn[SYS_FTRUNCATE] = sys_ftruncate;
+    t.fn[SYS_INPUTCTL] = sys_inputctl;
+    t.fn[SYS_RT_STATS] = sys_rt_stats;
     return t;
 }
 

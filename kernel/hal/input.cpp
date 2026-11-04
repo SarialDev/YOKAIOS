@@ -11,6 +11,7 @@ uint32_t head = 0;      // urmatorul de citit
 uint32_t tail = 0;      // urmatorul de scris
 uint64_t dropped = 0;
 InputListener listener = nullptr;
+InputListener grabber = nullptr;     // input_grab: are prioritate fata de listener
 
 }
 
@@ -23,7 +24,7 @@ void input_push(const InputEvent& ev){
             dropped++;
         }
         ring[tail++ & (INPUT_RING_SIZE - 1)] = ev;
-        cb = listener;
+        cb = grabber ? grabber : listener;
     }
     if(cb){
         cb(ev);
@@ -49,4 +50,13 @@ InputListener input_subscribe(InputListener cb){
     InputListener old = listener;
     listener = cb;
     return old;
+}
+
+bool input_grab(InputListener cb){
+    SpinlockGuard lock(ring_lock);
+    if(cb && grabber){
+        return false;
+    }
+    grabber = cb;
+    return true;
 }

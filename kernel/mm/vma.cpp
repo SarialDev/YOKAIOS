@@ -11,6 +11,7 @@
 #include "sched/sched.h"
 #include "lib/string.h"
 #include "fs/pseudofs.h"
+#include "ipc/shm.h"
 
 namespace {
 
@@ -190,6 +191,19 @@ void writeback(AddressSpace& as, Vma* v, uint64_t from, uint64_t to, bool clear)
 bool populate(AddressSpace& as, Vma* v, uint64_t page){
     if(v->flags & VMA_DEVICE){
         return map_device(as, v, page);
+    }
+    if(v->flags & VMA_SHMOBJ){
+        // Pagina obiectului de memorie partajata: o referinta in plus cat timp e mapata (page_put la munmap / exit)
+        int64_t phys = shm_page(v->file, v->off + (page - v->start));
+        if(phys < 0){
+            return false;
+        }
+        page_ref((uint64_t)phys);
+        if(!vmm_map(as, page, (uint64_t)phys, pte_flags(v->prot, v->flags))){
+            page_put((uint64_t)phys);
+            return false;
+        }
+        return true;
     }
     uint64_t phys = pmm_alloc_page();
     if(!phys){
@@ -444,7 +458,16 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
             return -EBADF;
         }
         uint64_t dev_len = f->inode ? devfs_mmap_len(f->inode) : 0;
-        if(dev_len){
+        if(shm_is(f)){
+            // shm_open: doar MAP_SHARED, in limitele obiectului (dimensiunea din ftruncate)
+            uint64_t sz = page_up(shm_size(f));
+            if(!shared){
+                return -EINVAL;
+            }
+            if(off >= sz || len > sz - off){
+                return -ENXIO;
+            }
+        } else if(dev_len){
             // /dev/fb0: doar MAP_SHARED, in limitele memoriei video
             if(!shared || off >= dev_len || page_up(len) > dev_len - off){
                 return shared ? -ENXIO : -EINVAL;
@@ -495,6 +518,10 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
     if(device){
         vflags |= VMA_DEVICE;
     }
+    bool shmobj = f && shm_is(f);
+    if(shmobj){
+        vflags |= VMA_SHMOBJ;
+    }
     // Zone anonime vecine cu aceleasi drepturi se unesc (mmap in bucla nu umple lista)
     Vma* prev = nullptr;
     for(Vma* v = l.head; v && v->start < start; v = v->next){
@@ -511,7 +538,7 @@ int64_t vma_mmap(uint64_t addr, uint64_t len, uint64_t prot, uint64_t flags, int
     }
     // MAP_SHARED anonim: paginile se aloca acum, ca fork sa le poata imparti (nu exista obiect de memorie partajata).
     // Dispozitiv: tot acum (fara page fault-uri la fiecare pagina din memoria video)
-    if(shared && (!f || device)){
+    if(shared && (!f || device || shmobj)){
         Vma tmp = {start, start + len, (uint32_t)prot, vflags, f, off, nullptr};
         for(uint64_t page = start; page < start + len; page += PAGE_4K){
             if(!populate(as, &tmp, page)){

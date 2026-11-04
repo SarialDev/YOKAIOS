@@ -1,4 +1,6 @@
 #include "syscall/fs.h"
+#include "ipc/shm.h"
+#include "net/unix.h"
 #include "syscall/syscall.h"
 #include "uapi/syscall_nr.h"
 #include "proc/process.h"
@@ -79,6 +81,12 @@ int64_t sys_fstat(uint64_t fd, uint64_t user, uint64_t, uint64_t, uint64_t, uint
         // Consola si pipe-uri: fara inode
         memset(&st, 0, sizeof(st));
         st.st_mode = (f == console_file() ? S_IFCHR : S_IFIFO) | 0600;
+        if(shm_is(f)){
+            st.st_mode = S_IFREG | 0600;
+            st.st_size = shm_size(f);
+        } else if(unix_is(f)){
+            st.st_mode = S_IFSOCK | 0600;
+        }
         st.st_nlink = 1;
         st.st_blksize = 4096;
     }

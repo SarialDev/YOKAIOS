@@ -56,6 +56,7 @@ int unlink(const char *path);
 int symlink(const char *target, const char *linkpath);
 ssize_t readlink(const char *path, char *buf, size_t n);
 int access(const char *path, int mode);
+int ftruncate(int fd, off_t length);
 int isatty(int fd);
 unsigned sleep(unsigned sec);
 int usleep(unsigned usec);

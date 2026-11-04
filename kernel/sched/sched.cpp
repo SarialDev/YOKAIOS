@@ -36,6 +36,7 @@ struct RunQueue {
 // nu poate fi luat de alt CPU pana nu i s-a salvat contextul
 Spinlock sched_lock("sched");
 RunQueue rqs[MAX_CPUS];
+uint64_t rt_busy_ticks[MAX_CPUS];      // tick-uri in care CPU-ul rula un task RT
 ListLink sleepers = {&sleepers, &sleepers};     // BLOCKED, sortate dupa wake_ns (comune tuturor CPU-urilor)
 ListLink zombies = {&zombies, &zombies};        // ZOMBIE, de eliberat
 volatile uint64_t next_wake = SCHED_NO_WAKE;    // wake_ns al primului sleeper, citit fara lock de clock.cpp
@@ -538,6 +539,14 @@ uint64_t sched_next_wake(){
     return next_wake;
 }
 
+uint64_t sched_rt_busy_ms(){
+    uint64_t sum = 0;
+    for(uint32_t i = 0; i < MAX_CPUS; i++){
+        sum += __atomic_load_n(&rt_busy_ticks[i], __ATOMIC_RELAXED);
+    }
+    return sum * 1000 / TIMER_HZ;
+}
+
 void sched_tick(uint64_t now){
     PerCpu* c = this_cpu();
     if(c->id == 0){
@@ -551,6 +560,7 @@ void sched_tick(uint64_t now){
             c->need_resched = true;
         }
     } else if(is_rt(cur)){
+        __atomic_add_fetch(&rt_busy_ticks[c->id], 1, __ATOMIC_RELAXED);     // rt_stats(): incarcarea RT
         // RT: fara timeslice; cedeaza doar unui RT mai important sau cand se blocheaza
         if(rt_top_prio(rq.rt) > cur->prio){
             c->need_resched = true;

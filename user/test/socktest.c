@@ -67,7 +67,8 @@ static pid_t signal_later(long ms){
 /* --- faza A: API si poll/select fara retea --- */
 static void phase_a(void){
     errno = 0;
-    CHECK(socket(1, SOCK_STREAM, 0) < 0 && errno == EAFNOSUPPORT);       /* AF_UNIX: nu (inca) */
+    CHECK(socket(17, SOCK_STREAM, 0) < 0 && errno == EAFNOSUPPORT);      /* familie necunoscuta */
+    CHECK(socket(1, SOCK_DGRAM, 0) < 0 && errno == EPROTONOSUPPORT);     /* AF_UNIX (T10.2): doar SOCK_STREAM */
     errno = 0;
     CHECK(socket(AF_INET, 3, 0) < 0 && errno == EPROTONOSUPPORT);        /* SOCK_RAW */
     char b[8];

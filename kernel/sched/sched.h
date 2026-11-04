@@ -46,3 +46,5 @@ void sched_irq_exit();
 
 // Bucla task-ului idle al fiecarui CPU: elibereaza task-urile terminate, ia de lucru de la altii, doarme cu hlt
 [[noreturn]] void sched_idle();
+// Timpul total (ms, toate CPU-urile) in care au rulat task-uri RT, esantionat la tick (pentru rt_stats)
+uint64_t sched_rt_busy_ms();

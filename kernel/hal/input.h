@@ -65,3 +65,6 @@ bool input_pop(InputEvent& out);
 uint64_t input_dropped();
 // Un singur abonat; nullptr il scoate. Intoarce abonatul anterior
 InputListener input_subscribe(InputListener cb);
+// Captura exclusiva (compozitorul, drivers/yinput.cpp): cat timp exista, evenimentele merg doar la cb, nu la abonat
+// (terminalul nu mai primeste taste). nullptr o elibereaza. false daca altcineva o are deja
+bool input_grab(InputListener cb);

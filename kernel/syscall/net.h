@@ -3,6 +3,7 @@
 
 // Syscall-urile de retea (net.cpp): socket-uri BSD, poll, select. Legate in table.cpp
 int64_t sys_socket(uint64_t domain, uint64_t type, uint64_t proto, uint64_t, uint64_t, uint64_t);
+int64_t sys_socketpair(uint64_t domain, uint64_t type, uint64_t proto, uint64_t sv, uint64_t, uint64_t);
 int64_t sys_connect(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t, uint64_t);
 int64_t sys_accept(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t);
 int64_t sys_sendto(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t alen);

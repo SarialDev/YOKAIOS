@@ -18,6 +18,9 @@
 #include "hal/net.h"
 #include "net/lwip_port.h"
 #include "net/netcfg.h"
+#include "net/unix.h"
+#include "ipc/shm.h"
+#include "sync/pollwait.h"
 
 namespace {
 
@@ -77,12 +80,176 @@ int addr_to_user(uint64_t addr, uint64_t lenp, const KSockAddr& a){
     return 0;
 }
 
+// --- AF_UNIX (T10.2): struct sockaddr_un = {uint16_t sun_family; char sun_path[108]} ---
+
+const uint32_t SUN_HDR = 2;
+
+File* unix_file(uint64_t fd){
+    Process* p = process_current();
+    File* f = p ? fd_get(p->fds, (int64_t)fd) : nullptr;
+    return unix_is(f) ? f : nullptr;
+}
+
+// Calea din sockaddr_un: pana la primul '\0' (nume in sistemul de fisiere) sau toti octetii (abstract, '\0' primul)
+int sun_from_user(uint64_t addr, uint64_t len, char* path, uint32_t& plen){
+    if(len <= SUN_HDR || len > SUN_HDR + UNIX_PATH_MAX){
+        return -EINVAL;
+    }
+    uint8_t raw[SUN_HDR + UNIX_PATH_MAX];
+    if(!copy_from_user(raw, addr, len)){
+        return -EFAULT;
+    }
+    uint16_t fam = (uint16_t)(raw[0] | raw[1] << 8);
+    if(fam != AF_UNIX){
+        return -EAFNOSUPPORT;
+    }
+    uint32_t n = (uint32_t)len - SUN_HDR;
+    const char* src = (const char*)raw + SUN_HDR;
+    if(src[0]){
+        uint32_t k = 0;
+        while(k < n && src[k]){
+            k++;
+        }
+        n = k;
+    }
+    memcpy(path, src, n);
+    plen = n;
+    return 0;
+}
+
+int sun_to_user(uint64_t addr, uint64_t lenp, const char* path, uint32_t plen){
+    if(!addr || !lenp){
+        return 0;
+    }
+    uint32_t have;
+    if(!copy_from_user(&have, lenp, sizeof(have))){
+        return -EFAULT;
+    }
+    uint8_t raw[SUN_HDR + UNIX_PATH_MAX + 1];
+    memset(raw, 0, sizeof(raw));
+    raw[0] = AF_UNIX;
+    memcpy(raw + SUN_HDR, path, plen);
+    // Ca pe Linux: numele din sistemul de fisiere se intoarce cu terminator
+    uint32_t full = SUN_HDR + plen + (plen && path[0] ? 1 : 0);
+    if(full > SUN_HDR + UNIX_PATH_MAX){
+        full = SUN_HDR + UNIX_PATH_MAX;
+    }
+    uint32_t n = have < full ? have : full;
+    if(!copy_to_user(addr, raw, n) || !copy_to_user(lenp, &full, sizeof(full))){
+        return -EFAULT;
+    }
+    return 0;
+}
+
+int64_t unix_sendto(File* f, uint64_t buf, uint64_t len, uint64_t flags){
+    if(!user_access_ok(buf, len, false)){
+        return -EFAULT;
+    }
+    uint8_t* tmp = (uint8_t*)kmalloc(SOCK_IO_MAX);
+    if(!tmp){
+        return -ENOMEM;
+    }
+    int64_t total = 0, result = 0;
+    while((uint64_t)total < len){
+        uint64_t n = len - (uint64_t)total < SOCK_IO_MAX ? len - (uint64_t)total : SOCK_IO_MAX;
+        if(!copy_from_user(tmp, buf + (uint64_t)total, n)){
+            result = total ? total : -EFAULT;
+            break;
+        }
+        int64_t r = unix_send(f, tmp, n, (int)flags);
+        if(r < 0){
+            result = total ? total : r;
+            break;
+        }
+        total += r;
+        result = total;
+        if((uint64_t)r < n){
+            break;
+        }
+    }
+    kfree(tmp);
+    if(result == -EPIPE && !(flags & MSG_NOSIGNAL)){
+        signal_send_self(SIGPIPE);
+    }
+    return result;
+}
+
+int64_t unix_recvfrom(File* f, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t lenp){
+    if(!user_access_ok(buf, len, true)){
+        return -EFAULT;
+    }
+    uint64_t want = len < SOCK_IO_MAX ? len : SOCK_IO_MAX;
+    uint8_t* tmp = (uint8_t*)kmalloc(want ? want : 1);
+    if(!tmp){
+        return -ENOMEM;
+    }
+    int64_t r = want ? unix_recv(f, tmp, want, (int)flags) : 0;
+    if(r > 0 && !copy_to_user(buf, tmp, (uint64_t)r)){
+        r = -EFAULT;
+    }
+    kfree(tmp);
+    if(r >= 0){
+        sun_to_user(addr, lenp, "", 0);         // partenerul unui stream: fara nume
+    }
+    return r;
+}
+
+}
+
+int64_t sys_socketpair(uint64_t domain, uint64_t type, uint64_t proto, uint64_t sv, uint64_t, uint64_t){
+    Process* p = process_current();
+    if(!p){
+        return -EINVAL;
+    }
+    if(domain != AF_UNIX){
+        return domain == AF_INET ? -EOPNOTSUPP : -EAFNOSUPPORT;
+    }
+    if(!user_access_ok(sv, 2 * sizeof(int), true)){
+        return -EFAULT;
+    }
+    File* a;
+    File* b;
+    int err = unix_pair((int)type, (int)proto, a, b);
+    if(err){
+        return err;
+    }
+    int fds[2];
+    fds[0] = fd_install(p->fds, a);
+    if(fds[0] < 0){
+        file_put(a);
+        file_put(b);
+        return fds[0];
+    }
+    fds[1] = fd_install(p->fds, b);
+    if(fds[1] < 0){
+        fd_close(p->fds, fds[0]);
+        file_put(b);
+        return fds[1];
+    }
+    if(!copy_to_user(sv, fds, sizeof(fds))){
+        fd_close(p->fds, fds[0]);
+        fd_close(p->fds, fds[1]);
+        return -EFAULT;
+    }
+    return 0;
 }
 
 int64_t sys_socket(uint64_t domain, uint64_t type, uint64_t proto, uint64_t, uint64_t, uint64_t){
     Process* p = process_current();
     if(!p){
         return -EINVAL;
+    }
+    if(domain == AF_UNIX){
+        File* uf;
+        int uerr = unix_create((int)type, (int)proto, uf);
+        if(uerr){
+            return uerr;
+        }
+        int ufd = fd_install(p->fds, uf);
+        if(ufd < 0){
+            file_put(uf);
+        }
+        return ufd;
     }
     if(domain != AF_INET){
         return -EAFNOSUPPORT;
@@ -103,6 +270,12 @@ int64_t sys_socket(uint64_t domain, uint64_t type, uint64_t proto, uint64_t, uin
 }
 
 int64_t sys_bind(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        char path[UNIX_PATH_MAX];
+        uint32_t plen;
+        int e = sun_from_user(addr, len, path, plen);
+        return e ? e : unix_bind(uf, path, plen);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     KSockAddr a;
@@ -114,12 +287,21 @@ int64_t sys_bind(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t, u
 }
 
 int64_t sys_listen(uint64_t fd, uint64_t backlog, uint64_t, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        return unix_listen(uf, (int)backlog);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     return f ? sock_listen(f, (int)backlog) : err;
 }
 
 int64_t sys_connect(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        char path[UNIX_PATH_MAX];
+        uint32_t plen;
+        int e = sun_from_user(addr, len, path, plen);
+        return e ? e : unix_connect(uf, path, plen);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     KSockAddr a;
@@ -131,6 +313,21 @@ int64_t sys_connect(uint64_t fd, uint64_t addr, uint64_t len, uint64_t, uint64_t
 }
 
 int64_t sys_accept(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        Process* up = process_current();
+        File* nf;
+        int e = unix_accept(uf, nf);
+        if(e){
+            return e;
+        }
+        int nfd = fd_install(up->fds, nf);
+        if(nfd < 0){
+            file_put(nf);
+            return nfd;
+        }
+        sun_to_user(addr, lenp, "", 0);
+        return nfd;
+    }
     Process* p = process_current();
     int64_t err;
     File* f = sock_of(fd, err);
@@ -153,6 +350,11 @@ int64_t sys_accept(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t
 }
 
 int64_t sys_sendto(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t alen){
+    if(File* uf = unix_file(fd)){
+        (void)addr;
+        (void)alen;
+        return unix_sendto(uf, buf, len, flags);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     if(!f){
@@ -205,6 +407,9 @@ int64_t sys_sendto(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint
 }
 
 int64_t sys_recvfrom(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t lenp){
+    if(File* uf = unix_file(fd)){
+        return unix_recvfrom(uf, buf, len, flags, addr, lenp);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     if(!f){
@@ -233,6 +438,9 @@ int64_t sys_recvfrom(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, ui
 }
 
 int64_t sys_shutdown(uint64_t fd, uint64_t how, uint64_t, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        return how > SHUT_RDWR ? -EINVAL : unix_shutdown(uf, (int)how);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     if(!f){
@@ -242,6 +450,12 @@ int64_t sys_shutdown(uint64_t fd, uint64_t how, uint64_t, uint64_t, uint64_t, ui
 }
 
 int64_t sys_getsockname(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        char path[UNIX_PATH_MAX];
+        uint32_t plen;
+        int e = unix_name(uf, false, path, plen);
+        return e ? e : sun_to_user(addr, lenp, path, plen);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     KSockAddr a;
@@ -253,6 +467,12 @@ int64_t sys_getsockname(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uin
 }
 
 int64_t sys_getpeername(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uint64_t, uint64_t){
+    if(File* uf = unix_file(fd)){
+        char path[UNIX_PATH_MAX];
+        uint32_t plen;
+        int e = unix_name(uf, true, path, plen);
+        return e ? e : sun_to_user(addr, lenp, path, plen);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     KSockAddr a;
@@ -264,6 +484,16 @@ int64_t sys_getpeername(uint64_t fd, uint64_t addr, uint64_t lenp, uint64_t, uin
 }
 
 int64_t sys_setsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, uint64_t len, uint64_t){
+    if(File* uf = unix_file(fd)){
+        uint8_t ubuf[16];
+        if(len > sizeof(ubuf)){
+            return -EINVAL;
+        }
+        if(!copy_from_user(ubuf, val, len)){
+            return -EFAULT;
+        }
+        return unix_setopt(uf, (int)level, (int)opt, ubuf, (uint32_t)len);
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     if(!f){
@@ -280,6 +510,21 @@ int64_t sys_setsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, 
 }
 
 int64_t sys_getsockopt(uint64_t fd, uint64_t level, uint64_t opt, uint64_t val, uint64_t lenp, uint64_t){
+    if(File* uf = unix_file(fd)){
+        uint32_t ulen;
+        uint8_t ubuf[16];
+        if(!copy_from_user(&ulen, lenp, sizeof(ulen))){
+            return -EFAULT;
+        }
+        if(ulen > sizeof(ubuf)){
+            ulen = sizeof(ubuf);
+        }
+        int e = unix_getopt(uf, (int)level, (int)opt, ubuf, &ulen);
+        if(e){
+            return e;
+        }
+        return copy_to_user(val, ubuf, ulen) && copy_to_user(lenp, &ulen, sizeof(ulen)) ? 0 : -EFAULT;
+    }
     int64_t err;
     File* f = sock_of(fd, err);
     if(!f){
@@ -460,10 +705,12 @@ uint32_t file_mask(File* f){
 }
 
 // Asteapta pana cand cel putin o intrare are evenimente, timeout_ms (< 0 = fara limita) sau un semnal. Intoarce cate intrari
-// au evenimente, 0 la expirare sau -EINTR. Socket-urile asteapta in lwIP (trezire imediata), restul se sondeaza din ms in ms
+// au evenimente, 0 la expirare sau -EINTR. Socket-urile lwIP asteapta in lwIP (trezire imediata; fd-urile de alt fel se
+// sondeaza atunci din ms in ms), altfel se doarme in poll_wait pana la un poll_notify
 int64_t poll_engine(Ent* e, int n, int64_t timeout_ms){
     uint64_t end = timeout_ms > 0 ? monotonic_ns() + (uint64_t)timeout_ms * 1000000UL : 0;
     for(;;){
+        uint64_t seq = poll_seq();              // inainte de verificare: o schimbare de acum incolo trezeste poll_wait
         File* sf[POLL_MAX];
         uint32_t sev[POLL_MAX], srev[POLL_MAX];
         int sidx[POLL_MAX];
@@ -502,8 +749,9 @@ int64_t poll_engine(Ent* e, int n, int64_t timeout_ms){
                 Ent& x = e[sidx[j]];
                 x.rev = srev[j] & (x.ev | POLLERR | POLLHUP | POLLNVAL);
             }
-        } else if(tmo > 0){
-            sched_sleep_until(monotonic_ns() + 1000000UL);
+        } else if(!ready && timeout_ms != 0){
+            // Fara socket-uri lwIP: pipe, terminal, AF_UNIX, input anunta schimbarile prin poll_notify (fara sondare)
+            poll_wait(seq, end);
         }
         int count = 0;
         for(int i = 0; i < n; i++){

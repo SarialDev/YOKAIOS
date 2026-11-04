@@ -1,4 +1,5 @@
 #include "proc/signal.h"
+#include "sync/pollwait.h"
 #include "arch/x86_64/fpu.h"
 #include "proc/process.h"
 #include "syscall/syscall.h"
@@ -227,6 +228,7 @@ void signal_post_locked(Process* p, int sig){
     __atomic_fetch_or(&p->sig.pending, bit(sig), __ATOMIC_ACQ_REL);
     if(p->main){
         WaitQueue::interrupt_task(p->main);
+        poll_interrupt(p->main);
     }
 }
 

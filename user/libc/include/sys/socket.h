@@ -9,6 +9,9 @@ struct sockaddr { sa_family_t sa_family; char sa_data[14]; };
 struct sockaddr_storage { sa_family_t ss_family; char __pad[126]; };
 
 #define AF_UNSPEC 0
+#define AF_UNIX 1               /* T10.2: SOCK_STREAM, struct sockaddr_un in <sys/un.h> */
+#define AF_LOCAL AF_UNIX
+#define PF_UNIX AF_UNIX
 #define AF_INET 2
 #define PF_INET AF_INET
 #define SOCK_STREAM 1
@@ -47,4 +50,5 @@ int getsockname(int fd, struct sockaddr *addr, socklen_t *len);
 int getpeername(int fd, struct sockaddr *addr, socklen_t *len);
 int setsockopt(int fd, int level, int opt, const void *val, socklen_t len);
 int getsockopt(int fd, int level, int opt, void *val, socklen_t *len);
+int socketpair(int domain, int type, int protocol, int sv[2]);
 #endif

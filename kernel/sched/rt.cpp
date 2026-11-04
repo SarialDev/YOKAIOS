@@ -284,3 +284,13 @@ void rt_task_destroyed(Task* t){
     }
     kfree(p);
 }
+
+void rt_totals(uint32_t& count, uint64_t& misses){
+    SpinlockGuard lock(rt_lock);
+    count = 0;
+    misses = 0;
+    for(ListLink* l = periodic.next; l != &periodic; l = l->next){
+        count++;
+        misses += periodic_of(l)->misses;
+    }
+}

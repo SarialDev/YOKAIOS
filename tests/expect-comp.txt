@@ -1,0 +1,3 @@
+[OK] comptest
+[OK] test_comp
+[OK] boot

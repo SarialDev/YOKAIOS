@@ -10,6 +10,7 @@ const uint32_t VMA_HEAP = 1u << 16;         // heap-ul brk
 const uint32_t VMA_STACK = 1u << 17;        // stiva (creste lent prin page fault)
 const uint32_t VMA_SYSTEM = 1u << 18;       // trambulina de semnale: nu se poate muta / sterge din user
 const uint32_t VMA_DEVICE = 1u << 19;       // memorie de dispozitiv (/dev/fb0, MAP_SHARED): pagini fizice fixe, PTE_DEV
+const uint32_t VMA_SHMOBJ = 1u << 20;       // obiect shm_open (ipc/shm.h): paginile obiectului, cu pageref, PTE_SHM
 
 // O zona contigua din spatiul user, cu aceleasi drepturi si aceeasi sursa. Lista e sortata dupa start si fara suprapuneri.
 // Paginile se aduc la primul acces (page fault): anonim = zero, fisier = citit din inode la off + (addr - start)

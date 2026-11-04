@@ -83,6 +83,10 @@ void rt_stop(Task* t);
 // Copie a statisticilor; false daca t nu e periodic
 bool rt_stats(const Task* t, RtStats& out);
 void rt_stats_print();
+// Cate task-uri periodice exista si suma deadline-urilor lor ratate
+void rt_totals(uint32_t& count, uint64_t& misses);
+// Syscall rt_stats (uapi/rtstats.h)
+int64_t sys_rt_stats(uint64_t user, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 // Pentru watchdog (din IRQ, intreruperile oprite): fn(p, now) pe fiecare task periodic, sub rt_lock.
 // false (fara apeluri) daca rt_lock e ocupat

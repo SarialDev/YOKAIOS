@@ -77,7 +77,7 @@ USER_CSRCS := $(wildcard user/test/*.c)
 USER_ELFS := $(patsubst user/test/%.S,$(BUILD)/user/%.elf,$(USER_SRCS)) $(patsubst user/test/%.c,$(BUILD)/user/%.elf,$(USER_CSRCS))
 # Programe C in /bin si /sbin: user/bin/<nume>.c (un fisier), user/bin/<nume>/*.c (mai multe fisiere, ex. ysh), user/sbin/<nume>.c
 BIN_CSRCS   := $(wildcard user/bin/*.c)
-BIN_DIRS    := $(filter-out user/bin/lua,$(patsubst %/,%,$(wildcard user/bin/*/)))
+BIN_DIRS    := $(filter-out user/bin/lua user/bin/ycomp,$(patsubst %/,%,$(wildcard user/bin/*/)))
 SBIN_CSRCS  := $(wildcard user/sbin/*.c)
 BIN_ELFS    := $(patsubst user/bin/%.c,$(BUILD)/ubin/%.elf,$(BIN_CSRCS)) $(patsubst user/bin/%,$(BUILD)/ubin/%.elf,$(BIN_DIRS))
 BIN_ELFS    += $(BUILD)/ubin/lua.elf
@@ -120,7 +120,7 @@ RT_ACCEL := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "-ic
 # -icount ruleaza CPU-urile virtuale pe rand intr-un singur thread: cu mai multe, un CPU asteapta randul zeci de ms
 RT_SMP := $(shell [ -w /dev/kvm ] && echo "$(SMP)" || echo 1)
 
-.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-rtl8139 test-lwip test-lwip-ping test-sockets test-dhcp test-netutils test-net test-net-one test-ygfx test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
+.PHONY: all iso run sysroot test test-ysh test-smash test-relock test-rt test-ysh test-pci-q35 test-coreutils test-lua test-vm test-ypkg test-perm test-caps test-aslr test-crypto test-sign test-crypt verify-sign FORCE test-ahci test-ahci-gpt test-ahci-mbr test-fat32 test-ext4 test-ext4-refuse test-ext4-recover test-ext4w test-ext4-host test-nvme test-e1000 test-rtl8139 test-lwip test-lwip-ping test-sockets test-dhcp test-netutils test-net test-net-one test-ygfx test-comp test-iso test-fs test-core run-cd run-ext4 test-mouse test-usb test-input-ps2 test-input-usb test-nofb debug clean
 
 all: $(ISO)
 
@@ -128,6 +128,8 @@ all: $(ISO)
 include user/bin/lua/lua.mk
 # ygfx (T10.1): libygfx.a in sysroot, /bin/gfxdemo, /bin/ygfxtest, test-ygfx
 include user/lib/ygfx/ygfx.mk
+# ywin + ycomp (T10.2): compozitorul /bin/ycomp, libywin.a, /bin/ywdemo, /bin/comptest, test-comp
+include user/lib/ywin/ywin.mk
 
 $(BUILD)/%.S.o: %.S
 	@mkdir -p $(dir $@)
@@ -317,7 +319,7 @@ $(TEST_ISO): $(KERNEL) $(INITRD) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 # make test = testele de nucleu (un boot) + integrarea stocarii (test-fs)
-test: test-core test-ysh test-fs test-net test-ygfx
+test: test-core test-ysh test-fs test-net test-ygfx test-comp
 
 test-core: $(TEST_ISO)
 	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log

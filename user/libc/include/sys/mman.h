@@ -21,4 +21,7 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off);
 int munmap(void *addr, size_t len);
 int mprotect(void *addr, size_t len, int prot);
 int msync(void *addr, size_t len, int flags);
+/* Memorie partajata POSIX (T10.2): nume "/x", apoi ftruncate + mmap(MAP_SHARED); flags O_RDONLY/O_RDWR/O_CREAT/O_EXCL/O_TRUNC */
+int shm_open(const char *name, int oflag, mode_t mode);
+int shm_unlink(const char *name);
 #endif

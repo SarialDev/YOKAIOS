@@ -80,6 +80,12 @@
 #define SYS_DELETE_MODULE 176   /* delete_module(nume) */
 #define SYS_SIGVERIFY   250     /* sigverify(op, date, lungime, semnatura): vezi kernel/core/verify.h */
 #define SYS_CRYPTCTL    251     /* cryptctl(op, arg): volume criptate; vezi kernel/block/crypt.h si uapi/crypt.h */
+#define SYS_INPUTCTL    252     /* inputctl(op, arg): captura input pentru compozitor; vezi uapi/yinput.h */
+#define SYS_RT_STATS    253     /* rt_stats(struct yk_rt_stats*): incarcarea RT; vezi uapi/rtstats.h */
+#define SYS_SHM_OPEN    254     /* shm_open(nume, flags, mode): memorie partajata cu nume (ipc/shm.h) */
+#define SYS_SHM_UNLINK  255     /* shm_unlink(nume) */
+#define SYS_FTRUNCATE   77
+#define SYS_SOCKETPAIR  53
 #define SYS_FCNTL       72
 #define SYS_GETCWD      79
 #define SYS_CHDIR       80

@@ -1,4 +1,5 @@
 #include "ipc/pipe.h"
+#include "sync/pollwait.h"
 #include "uapi/syscall_nr.h"
 #include "uapi/net.h"
 #include "sync/spinlock.h"
@@ -45,6 +46,7 @@ int64_t pipe_read(File* f, void* dst, uint64_t len, bool nonblock){
     p->head = (p->head + n) % PIPE_SIZE;
     p->count -= n;
     p->writable.wake_all();
+    poll_notify();
     p->lock.unlock_irqrestore(flags);
     return (int64_t)n;
 }
@@ -78,6 +80,7 @@ int64_t pipe_write(File* f, const void* src, uint64_t len, bool nonblock){
         p->count += n;
         done += n;
         p->readable.wake_all();
+        poll_notify();
     }
     p->lock.unlock_irqrestore(flags);
     return (int64_t)done;
@@ -113,9 +116,11 @@ void close_end(Pipe* p, bool reader){
     if(reader){
         p->readers--;
         p->writable.wake_all();
+        poll_notify();
     } else {
         p->writers--;
         p->readable.wake_all();
+        poll_notify();
     }
     bool last = p->readers == 0 && p->writers == 0;
     p->lock.unlock_irqrestore(flags);
