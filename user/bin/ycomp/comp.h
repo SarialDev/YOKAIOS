@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "ygfx.h"
 #include "ywin_proto.h"
+#include "wm/wmtypes.h"
 
 #define MAX_CLIENTS   16
 #define MAX_WINDOWS   32
@@ -19,7 +20,8 @@ typedef struct Window {
     uint32_t id;
     int client;             /* indexul clientului, -1 dupa deconectare (fereastra se stinge) */
     int x, y;               /* coltul ferestrei (cu decoratiuni) pe ecran */
-    int w, h;               /* continutul */
+    int w, h;               /* continutul (cat da loc cadrul; il hotaraste managerul de ferestre) */
+    int bw, bh;             /* dimensiunea buferului atasat (poate ramane in urma lui w x h pana raspunde clientul) */
     char title[32];
     uint32_t *pixels;       /* buferul shm mapat (NULL pana la YW_ATTACH) */
     void *map;              /* inceputul maparii (pixels = map + offset) */
@@ -30,6 +32,7 @@ typedef struct Window {
     uint8_t opacity;        /* 255 = opac */
     int pending_frame;      /* are damage compus in cadrul urmator: trimite YW_FRAME dupa */
     uint32_t damage_msgs, frames_sent;
+    WmWin wm;               /* T10.3 */
 } Window;
 
 typedef struct {
@@ -85,6 +88,7 @@ typedef struct {
     uint32_t frames, wakeups;
     uint64_t pixels;
     int quiet;
+    WmState wm;             /* T10.3 */
 } Comp;
 
 extern Comp C;
@@ -115,5 +119,8 @@ void raise_window(int idx);
 void send_event(int widx, uint32_t type, int v0, int v1, int v2, int v3, int v4);
 void window_remove(int idx);                /* fara animatie */
 void request_frame(void);                   /* exista ceva de compus: se programeaza urmatorul cadru */
+void input_update_hover(void);
+
+#include "wm/wm.h"
 
 #endif

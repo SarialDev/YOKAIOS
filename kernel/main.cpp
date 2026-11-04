@@ -71,6 +71,7 @@
 #include "tests/test_coreutils.h"
 #include "tests/test_ygfx.h"
 #include "tests/test_comp.h"
+#include "tests/test_wm.h"
 #include "tests/test_perm.h"
 #include "tests/test_caps.h"
 #include "tests/test_aslr.h"
@@ -446,6 +447,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "comp")){
         test_comp_run();
+    }
+    if(test_named(test, "wm")){
+        test_wm_run();
     }
     if(test_named(test, "vm")){
         test_vm_run();

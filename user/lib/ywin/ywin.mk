@@ -12,7 +12,7 @@ YWIN_STAMP   := $(SYSROOT)/.ywin
 YCOMP_DIR    := user/bin/ycomp
 YWIN_CFLAGS  := -O2 -Wall -Wextra -Werror
 
-BIN_ELFS += $(BUILD)/ubin/ycomp.elf $(BUILD)/ubin/ywdemo.elf $(BUILD)/ubin/comptest.elf
+BIN_ELFS += $(BUILD)/ubin/ycomp.elf $(BUILD)/ubin/ywdemo.elf $(BUILD)/ubin/comptest.elf $(BUILD)/ubin/wmtest.elf
 
 $(BUILD)/ywin/%.o: $(YWIN_DIR)/%.c $(YWIN_HDRS) $(YGFX_STAMP)
 	@mkdir -p $(dir $@)
@@ -27,9 +27,13 @@ $(YWIN_STAMP): $(YWIN_LIB) $(YWIN_HDRS) $(YGFX_STAMP)
 	cp $(YWIN_HDRS) $(SYSROOT)/include/
 	touch $@
 
-$(BUILD)/ubin/ycomp.elf: $(wildcard $(YCOMP_DIR)/*.c) $(wildcard $(YCOMP_DIR)/*.h) $(YWIN_STAMP)
+# T10.3: managerul de ferestre sta in user/bin/ycomp/wm/ (compilat in acelasi executabil)
+YCOMP_SRCS := $(wildcard $(YCOMP_DIR)/*.c) $(wildcard $(YCOMP_DIR)/wm/*.c)
+YCOMP_HDRS := $(wildcard $(YCOMP_DIR)/*.h) $(wildcard $(YCOMP_DIR)/wm/*.h)
+
+$(BUILD)/ubin/ycomp.elf: $(YCOMP_SRCS) $(YCOMP_HDRS) $(YWIN_STAMP)
 	@mkdir -p $(dir $@)
-	$(UCC_BIN) $(YWIN_CFLAGS) -I$(YCOMP_DIR) -o $@ $(wildcard $(YCOMP_DIR)/*.c) -lygfx
+	$(UCC_BIN) $(YWIN_CFLAGS) -I$(YCOMP_DIR) -o $@ $(YCOMP_SRCS) -lygfx
 
 $(BUILD)/ubin/ywdemo.elf: $(YWIN_DIR)/demo/ywdemo.c $(YWIN_STAMP)
 	@mkdir -p $(dir $@)
@@ -45,3 +49,15 @@ $(BUILD)/panic-comp.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 
 test-comp: $(BUILD)/panic-comp.iso
 	EXPECT_FILE=tests/expect-comp.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/comp.log
+
+# T10.3: managerul de ferestre (user/bin/ycomp/wm/*), testat de /bin/wmtest (test=wm, `make test-wm`): cinci ferestre,
+# mutare / redimensionare / snap / minimizare / Alt+Tab / tiling / spatii de lucru prin input injectat
+$(BUILD)/ubin/wmtest.elf: $(YWIN_DIR)/test/wmtest.c $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -o $@ $< -lywin -lygfx
+
+$(BUILD)/panic-wm.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+.PHONY: test-wm
+test-wm: $(BUILD)/panic-wm.iso
+	EXPECT_FILE=tests/expect-wm.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/wm.log

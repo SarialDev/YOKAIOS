@@ -122,6 +122,15 @@ int main(int argc, char **argv){
                 break;
             } else if(ev.type == YW_FRAME){
                 waiting_frame = 0;
+            } else if(ev.type == YW_EV_RESIZE){
+                /* managerul de ferestre a schimbat marimea: libywin a facut deja buferul nou */
+                ww = ev.x;
+                wh = ev.y;
+                yg_clear(s, th->surface);
+                if(bx > ww - br) bx = ww - br;
+                if(by > wh - 28 - br) by = wh - 28 - br;
+                draw_typed(w, typed);
+                yw_window_damage_all(w);
             } else if(ev.type == YW_EV_KEY && ev.pressed){
                 size_t n = strlen(typed);
                 if(ev.keycode == YK_KEY_BACKSPACE && n){

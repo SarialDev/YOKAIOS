@@ -89,8 +89,7 @@ YgRect window_title(const Window *w){
 }
 
 YgRect window_close_box(const Window *w){
-    YgRect o = window_outer(w);
-    return yg_rect(o.x + o.w - 6 - CLOSE_SIZE, o.y + (TITLE_H - CLOSE_SIZE) / 2, CLOSE_SIZE, CLOSE_SIZE);
+    return wm_btn_rect(w, Z_CLOSE);
 }
 
 void damage_window(const Window *w){
@@ -155,6 +154,7 @@ int render_init(const char *theme){
     make_cursor();
     C.cx = C.sw / 2;
     C.cy = C.sh / 2;
+    wm_init();
     damage(yg_rect(0, 0, C.sw, C.sh));
     return 0;
 }
@@ -169,11 +169,8 @@ void render_fini(void){
     }
 }
 
-static uint8_t scale(uint8_t a, uint8_t op){
-    return (uint8_t)((a * op + 127) / 255);
-}
-
-/* Continutul clientului (opac), decupat la clip; cu opacitate < 255 se amesteca peste ce e dedesubt */
+/* Continutul clientului (opac), decupat la clip; cu opacitate < 255 se amesteca peste ce e dedesubt. Daca buferul e mai mic
+ * decat cadrul (clientul nu a raspuns inca la YW_EV_RESIZE), restul se umple cu culoarea suprafetei; daca e mai mare, se taie */
 static void draw_content(const Window *w, YgRect clip){
     YgRect cr = window_content(w);
     YgRect r = yg_rect_intersect(cr, clip);
@@ -184,6 +181,10 @@ static void draw_content(const Window *w, YgRect clip){
         yg_fill_rect(C.back, r.x, r.y, r.w, r.h, YG_WITH_ALPHA(C.theme->surface, w->opacity));
         return;
     }
+    if(w->bw < w->w || w->bh < w->h){
+        yg_fill_rect(C.back, r.x, r.y, r.w, r.h, YG_WITH_ALPHA(C.theme->surface, w->opacity));
+    }
+    r = yg_rect_intersect(r, yg_rect(cr.x, cr.y, w->bw, w->bh));
     for(int y = r.y; y < r.y + r.h; y++){
         const uint32_t *src = w->pixels + (size_t)(y - cr.y) * w->stride + (r.x - cr.x);
         uint32_t *dst = C.back->pixels + (size_t)y * C.back->stride + r.x;
@@ -200,32 +201,8 @@ static void draw_content(const Window *w, YgRect clip){
 }
 
 static void draw_window(const Window *w, int focused, YgRect clip){
-    const YgTheme *t = C.theme;
-    uint8_t op = w->opacity;
-    YgRect o = window_outer(w);
-    YgRect tb = window_title(w);
-    YgColor bar = focused ? t->accent : t->surface_alt;
-    YgColor fg = focused ? t->accent_text : t->text_muted;
-    YgRect old = yg_set_clip(C.back, yg_rect_intersect(clip, o));
-    yg_fill_rect(C.back, tb.x, tb.y, tb.w, tb.h, YG_WITH_ALPHA(bar, op));
-    YgColor bc = YG_WITH_ALPHA(t->border, scale(YG_A(t->border), op));
-    yg_fill_rect(C.back, o.x, o.y + TITLE_H, BORDER, o.h - TITLE_H, bc);
-    yg_fill_rect(C.back, o.x + o.w - BORDER, o.y + TITLE_H, BORDER, o.h - TITLE_H, bc);
-    yg_fill_rect(C.back, o.x, o.y + o.h - BORDER, o.w, BORDER, bc);
-    YgRect cb = window_close_box(w);
-    yg_fill_rounded_rect(C.back, cb.x, cb.y, cb.w, cb.h, 4, YG_WITH_ALPHA(yg_mix(bar, fg, 60), op));
-    float m = 4.5f;
-    yg_draw_line_aa(C.back, cb.x + m, cb.y + m, cb.x + cb.w - m, cb.y + cb.h - m, 1.6f, YG_WITH_ALPHA(fg, op));
-    yg_draw_line_aa(C.back, cb.x + cb.w - m, cb.y + m, cb.x + m, cb.y + cb.h - m, 1.6f, YG_WITH_ALPHA(fg, op));
-    if(C.font && w->title[0]){
-        YgRect text = yg_rect(tb.x + 10, tb.y, cb.x - tb.x - 16, tb.h);
-        YgRect o2 = yg_set_clip(C.back, yg_rect_intersect(C.back->clip, text));
-        int asc, desc, gap;
-        yg_font_vmetrics(C.font, 14, &asc, &desc, &gap);
-        int base = tb.y + (TITLE_H + asc + desc) / 2;
-        yg_draw_text(C.back, C.font, 14, text.x, base, w->title, YG_WITH_ALPHA(fg, op));
-        yg_set_clip(C.back, o2);
-    }
+    YgRect old = yg_set_clip(C.back, yg_rect_intersect(clip, window_outer(w)));
+    wm_draw_decor(w, focused, C.back->clip);
     draw_content(w, C.back->clip);
     yg_set_clip(C.back, old);
 }
@@ -237,10 +214,12 @@ void compose_and_flip(void){
         yg_blit(C.back, d.x, d.y, C.wall, &d);
         for(int z = 0; z < C.nz; z++){
             const Window *w = &C.win[C.zorder[z]];
-            if(!yg_rect_empty(yg_rect_intersect(window_outer(w), d))){
+            if(wm_visible(w) && !yg_rect_empty(yg_rect_intersect(window_outer(w), d))){
                 draw_window(w, C.zorder[z] == C.focus, d);
             }
         }
+        wm_draw_panel(d);
+        wm_draw_preview(d);
         YgRect cr = cursor_rect();
         if(!yg_rect_empty(yg_rect_intersect(cr, d))){
             yg_blit_alpha(C.back, cr.x, cr.y, C.cursor, NULL, 255);

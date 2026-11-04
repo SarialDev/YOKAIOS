@@ -319,7 +319,7 @@ $(TEST_ISO): $(KERNEL) $(INITRD) boot/grub-test.cfg
 	grub-mkrescue -o $@ $(BUILD)/iso-test 2>/dev/null
 
 # make test = testele de nucleu (un boot) + integrarea stocarii (test-fs)
-test: test-core test-ysh test-fs test-net test-ygfx test-comp
+test: test-core test-ysh test-fs test-net test-ygfx test-comp test-wm
 
 test-core: $(TEST_ISO)
 	SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $(TEST_ISO) $(BUILD)/test.log

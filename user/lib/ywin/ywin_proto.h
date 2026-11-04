@@ -47,6 +47,9 @@ enum {
     YW_EV_LEAVE,            /* win */
     YW_EV_FOCUS,            /* win, v0 = 1 primit / 0 pierdut */
     YW_EV_CLOSE,            /* win: utilizatorul a apasat butonul de inchidere */
+    YW_EV_RESIZE,           /* win, v0 = latime, v1 = inaltime: dimensiunea noua a continutului (T10.3). Clientul face un
+                               bufer nou si il trimite cu YW_ATTACH (libywin o face singura in yw_next_event); pana atunci
+                               compozitorul arata buferul vechi taiat / completat cu culoarea suprafetei */
 };
 
 enum { YW_MOUSE_MOVE = 0, YW_MOUSE_PRESS = 1, YW_MOUSE_RELEASE = 2, YW_MOUSE_WHEEL = 3 };
@@ -59,6 +62,11 @@ enum {
                                v4 = pixeli compusi (mii); v5 = politica de planificare a compozitorului (SCHED_*) */
     YW_Q_WIN,               /* v1 = id: v0 = x, v1 = y (continut), v2 = w, v3 = h, v4 = YW_DAMAGE primite, v5 = YW_FRAME trimise */
     YW_Q_PIXEL,             /* v1 = x, v2 = y: v0 = pixelul din back buffer (0xRRGGBB) */
+    YW_Q_WM,                /* managerul de ferestre (T10.3). v1 = 0: v0 = spatiul curent, v1 = masca modurilor (bit i = tiling pe
+                               spatiul i), v2 = ferestre vizibile, v3 = aranjari facute, v4 = id-ul ferestrei cu focus, v5 =
+                               schimbari de spatiu. v1 = id fereastra: v0 = spatiul, v1 = bit 0 minimizata | snap << 4 (0 niciunul,
+                               1 stanga, 2 dreapta, 3 maxim, 4..7 colturi TL TR BL BR) | vizibila << 8, v2 = YW_EV_RESIZE trimise,
+                               v3, v4 = dimensiunea buferului atasat, v5 = pozitia in z-order (0 = jos); v0 = -1 daca nu exista */
 };
 
 #endif

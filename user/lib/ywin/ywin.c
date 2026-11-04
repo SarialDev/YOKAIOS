@@ -366,6 +366,15 @@ int yw_window_move(YwWindow *w, int x, int y){
     return send_msg(w->c, &m);
 }
 
+void yw_window_size(const YwWindow *w, int *width, int *height){
+    if(width){
+        *width = w->w;
+    }
+    if(height){
+        *height = w->h;
+    }
+}
+
 uint32_t yw_window_frames(const YwWindow *w){
     return w->frames;
 }
@@ -404,6 +413,71 @@ int yw_window_wait_frame(YwWindow *w, int timeout_ms){
     }
 }
 
+/* YW_EV_RESIZE: bufer nou (continutul vechi se pastreaza in colt), atasat compozitorului; la eroare ramane cel vechi */
+static int window_remap(YwWindow *w, int nw, int nh){
+    YwConn *c = w->c;
+    if(nw <= 0 || nh <= 0 || nw > 4096 || nh > 4096){
+        return -1;
+    }
+    if(nw == w->w && nh == w->h){
+        return 0;
+    }
+    size_t len = ((size_t)nw * nh * 4 + 4095) & ~(size_t)4095;
+    char name[32];
+    snprintf(name, sizeof(name), "/ywin-%d-%u", (int)getpid(), ++c->serial);
+    int fd = shm_open(name, O_CREAT | O_EXCL | O_RDWR, 0644);
+    if(fd < 0){
+        return -1;
+    }
+    if(ftruncate(fd, (off_t)len) < 0){
+        goto fail;
+    }
+    uint32_t *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if(p == MAP_FAILED){
+        goto fail;
+    }
+    int cw = nw < w->w ? nw : w->w, chh = nh < w->h ? nh : w->h;
+    for(int y = 0; y < chh; y++){
+        memcpy(p + (size_t)y * nw, w->pixels + (size_t)y * w->w, (size_t)cw * 4);
+    }
+    struct yw_msg m;
+    msg_init(&m, YW_ATTACH, w->id);
+    strncpy(m.s, name, sizeof(m.s) - 1);
+    m.v[0] = nw;
+    m.v[1] = nh;
+    m.v[2] = nw;
+    m.v[3] = 0;
+    if(send_msg(c, &m) < 0 || wait_reply(c, &m) < 0 || m.type != YW_ATTACHED){
+        munmap(p, len);
+        goto fail;
+    }
+    shm_unlink(name);
+    close(fd);
+    munmap(w->pixels, w->len);
+    w->pixels = p;
+    w->len = len;
+    w->w = nw;
+    w->h = nh;
+    yg_surface_wrap(&w->surf, p, nw, nh, nw);
+    return 0;
+
+fail:
+    shm_unlink(name);
+    close(fd);
+    return -1;
+}
+
+static void resize_if_needed(YwConn *c, struct yw_msg *m){
+    if(m->type != YW_EV_RESIZE){
+        return;
+    }
+    YwWindow *w = find_win(c, m->win);
+    if(w && window_remap(w, m->v[0], m->v[1]) < 0){
+        m->v[0] = w->w;                 /* ramane marimea de care dispune clientul de fapt */
+        m->v[1] = w->h;
+    }
+}
+
 static void to_event(YwConn *c, const struct yw_msg *m, YwEvent *ev){
     memset(ev, 0, sizeof(*ev));
     ev->type = (int)m->type;
@@ -433,6 +507,10 @@ static void to_event(YwConn *c, const struct yw_msg *m, YwEvent *ev){
     case YW_FRAME:
         ev->frame = (uint32_t)m->v[0];
         break;
+    case YW_EV_RESIZE:
+        ev->x = m->v[0];
+        ev->y = m->v[1];
+        break;
     default:
         break;
     }
@@ -448,6 +526,7 @@ int yw_next_event(YwConn *c, YwEvent *ev, int timeout_ms){
         m = c->q[c->qh];
         c->qh = (c->qh + 1) % QMAX;
         c->qn--;
+        resize_if_needed(c, &m);
         to_event(c, &m, ev);
         return 1;
     }
@@ -457,6 +536,7 @@ int yw_next_event(YwConn *c, YwEvent *ev, int timeout_ms){
             return r;
         }
         if(!is_reply(m.type)){
+            resize_if_needed(c, &m);
             to_event(c, &m, ev);
             return 1;
         }

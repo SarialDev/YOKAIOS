@@ -6,7 +6,7 @@
 int window_at(int x, int y){
     for(int z = C.nz - 1; z >= 0; z--){
         const Window *w = &C.win[C.zorder[z]];
-        if(w->state != WS_CLOSING && yg_rect_contains(window_outer(w), x, y)){
+        if(wm_visible(w) && w->state != WS_CLOSING && yg_rect_contains(window_outer(w), x, y)){
             return C.zorder[z];
         }
     }
@@ -39,6 +39,7 @@ void focus_window(int idx){
         damage(window_title(&C.win[C.focus]));
     }
     C.focus = idx;
+    wm_note_focus(idx);
     if(idx >= 0){
         send_event(idx, YW_EV_FOCUS, 1, 0, 0, 0, 0);
         damage(window_title(&C.win[idx]));
@@ -55,7 +56,7 @@ static void local(int idx, int *lx, int *ly){
     *ly = C.cy - c.y;
 }
 
-static void update_hover(void){
+void input_update_hover(void){
     int top = window_at(C.cx, C.cy);
     int h = in_content(top, C.cx, C.cy) ? top : -1;
     if(h == C.hover){
@@ -90,37 +91,20 @@ static void mouse(const struct yk_input_event *e){
     uint8_t pressed = (uint8_t)(C.buttons & ~old);
     uint8_t released = (uint8_t)(old & ~C.buttons);
 
-    if(C.drag >= 0 && moved){
-        Window *w = &C.win[C.drag];
-        damage_window(w);
-        w->x = C.cx - C.drag_dx;
-        w->y = C.cy - C.drag_dy;
-        damage_window(w);
+    if(moved){
+        wm_motion();
     }
     if(pressed){
-        int idx = window_at(C.cx, C.cy);
+        int idx = wm_press(pressed);
         if(idx >= 0){
-            raise_window(idx);
-            focus_window(idx);
-            Window *w = &C.win[idx];
-            if((pressed & YK_BTN_LEFT) && yg_rect_contains(window_close_box(w), C.cx, C.cy)){
-                send_event(idx, YW_EV_CLOSE, 0, 0, 0, 0, 0);
-            } else if((pressed & YK_BTN_LEFT) && yg_rect_contains(window_title(w), C.cx, C.cy)){
-                C.drag = idx;
-                C.drag_dx = C.cx - w->x;
-                C.drag_dy = C.cy - w->y;
-            } else if(in_content(idx, C.cx, C.cy)){
-                C.grab = idx;
-                int lx, ly;
-                local(idx, &lx, &ly);
-                send_event(idx, YW_EV_MOUSE, lx, ly, C.buttons, 0, YW_MOUSE_PRESS);
-            }
-        } else {
-            focus_window(-1);
+            C.grab = idx;
+            int lx, ly;
+            local(idx, &lx, &ly);
+            send_event(idx, YW_EV_MOUSE, lx, ly, C.buttons, 0, YW_MOUSE_PRESS);
         }
     }
     int target = C.grab >= 0 ? C.grab : C.hover;
-    if(moved && target >= 0 && C.drag < 0){
+    if(moved && target >= 0 && !wm_busy()){
         int lx, ly;
         local(target, &lx, &ly);
         send_event(target, YW_EV_MOUSE, lx, ly, C.buttons, 0, YW_MOUSE_MOVE);
@@ -138,16 +122,19 @@ static void mouse(const struct yk_input_event *e){
         }
         if(!C.buttons){
             C.grab = -1;
-            C.drag = -1;
         }
+        wm_release(released);
     }
-    update_hover();
+    input_update_hover();
 }
 
 static void key(const struct yk_input_event *e){
     /* Ctrl+Alt+Backspace: iesire din compozitor (ecranul revine consolei) */
     if(e->pressed && e->keycode == YK_KEY_BACKSPACE && (e->modifiers & YK_MOD_CTRL) && (e->modifiers & YK_MOD_ALT)){
         raise(SIGTERM);
+        return;
+    }
+    if(wm_key(e)){
         return;
     }
     if(C.focus >= 0){

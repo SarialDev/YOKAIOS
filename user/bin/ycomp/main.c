@@ -183,17 +183,12 @@ static int any_window_by_id(uint32_t id){
 }
 
 static void focus_top(void){
-    for(int z = C.nz - 1; z >= 0; z--){
-        if(C.win[C.zorder[z]].state != WS_CLOSING){
-            focus_window(C.zorder[z]);
-            return;
-        }
-    }
-    focus_window(-1);
+    focus_window(wm_focus_best());
 }
 
 void window_remove(int idx){
     Window *w = &C.win[idx];
+    wm_window_removed(idx);
     damage_window(w);
     if(w->pixels){
         munmap(w->map, w->map_len);
@@ -213,6 +208,7 @@ void window_remove(int idx){
         C.focus = -1;
         focus_top();
     }
+    wm_after_remove();
 }
 
 /* Fereastra dispare (cu animatie daca sunt pornite) */
@@ -232,6 +228,7 @@ static void window_close(int idx){
     w->state = WS_CLOSING;
     w->anim_start = now_ms();
     focus_top();
+    wm_layout();
     damage_window(w);
 }
 
@@ -266,8 +263,9 @@ static void create_window(int ci, const struct yw_msg *m){
     /* In cascada, cat incape pe ecran */
     int ow = w + 2 * BORDER, oh = h + TITLE_H + BORDER;
     int x = 40 + (count % 8) * 48, y = 40 + (count % 8) * 36;
+    int wa_h = wm_workarea().h;
     if(x + ow > C.sw) x = C.sw - ow > 0 ? C.sw - ow : 0;
-    if(y + oh > C.sh) y = C.sh - oh > 0 ? C.sh - oh : 0;
+    if(y + oh > wa_h) y = wa_h - oh > 0 ? wa_h - oh : 0;
     win->x = x;
     win->y = y;
     win->state = C.anim ? WS_OPENING : WS_NORMAL;
@@ -275,6 +273,7 @@ static void create_window(int ci, const struct yw_msg *m){
     win->anim_start = now_ms();
     C.zorder[C.nz++] = idx;
     damage_window(win);
+    wm_window_added(idx);
     YgRect c = window_content(win);
     reply(ci, YW_CREATED, win->id, c.x, c.y, 0, 0, 0, 0);
     focus_window(idx);
@@ -291,7 +290,7 @@ static void attach(int ci, const struct yw_msg *m){
     char name[33];
     memcpy(name, m->s, 32);
     name[32] = 0;
-    if(bw != w->w || bh != w->h || stride < bw || off < 0 || (off & 3)){
+    if(bw <= 0 || bh <= 0 || bw > 4096 || bh > 4096 || stride < bw || off < 0 || (off & 3)){
         reply(ci, YW_ERROR, m->win, EINVAL, YW_ATTACH, 0, 0, 0, 0);
         return;
     }
@@ -321,6 +320,8 @@ static void attach(int ci, const struct yw_msg *m){
     w->pixels = (uint32_t *)((uint8_t *)p + off);
     w->map_len = len;
     w->stride = stride;
+    w->bw = bw;
+    w->bh = bh;
     damage(window_content(w));
     reply(ci, YW_ATTACHED, w->id, 0, 0, 0, 0, 0, 0);
 }
@@ -364,6 +365,9 @@ static void query(int ci, const struct yw_msg *m){
         v[5] = (int32_t)C.win[idx].frames_sent;
         break;
     }
+    case YW_Q_WM:
+        wm_query(m->v[1], v);
+        break;
     case YW_Q_PIXEL:
         v[0] = (int32_t)back_pixel(m->v[1], m->v[2]);
         break;
@@ -391,6 +395,9 @@ static void handle(int ci, const struct yw_msg *m){
         if(idx >= 0){
             Window *w = &C.win[idx];
             YgRect c = window_content(w);
+            if(w->pixels){
+                c = yg_rect_intersect(c, yg_rect(c.x, c.y, w->bw, w->bh));      /* ce nu e in bufer nu are ce sa fie desenat */
+            }
             YgRect r = yg_rect_intersect(yg_rect(c.x + m->v[0], c.y + m->v[1], m->v[2], m->v[3]), c);
             w->damage_msgs++;
             w->pending_frame = 1;           /* YW_FRAME si pentru o zona goala / acoperita */
@@ -412,10 +419,7 @@ static void handle(int ci, const struct yw_msg *m){
     case YW_MOVE:
         idx = find_window(ci, m->win);
         if(idx >= 0){
-            damage_window(&C.win[idx]);
-            C.win[idx].x = m->v[0];
-            C.win[idx].y = m->v[1];
-            damage_window(&C.win[idx]);
+            wm_client_move(idx, m->v[0], m->v[1]);
         }
         break;
     case YW_DESTROY:

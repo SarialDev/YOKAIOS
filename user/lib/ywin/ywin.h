@@ -19,7 +19,7 @@ typedef struct {
     int type;               /* YW_EV_*, YW_FRAME */
     uint32_t win;
     YwWindow *window;       /* fereastra (NULL daca nu mai exista) */
-    int x, y;               /* mouse / enter: relativ la continut */
+    int x, y;               /* mouse / enter: relativ la continut; YW_EV_RESIZE: dimensiunea noua a continutului */
     int buttons, wheel, kind;   /* mouse: YK_BTN_*, roata, YW_MOUSE_* */
     int keycode, ascii, pressed, modifiers;     /* taste */
     int focus;              /* YW_EV_FOCUS */
@@ -39,6 +39,10 @@ void yw_window_destroy(YwWindow *w);
 uint32_t yw_window_id(const YwWindow *w);
 /* Suprafata ygfx peste bufer (desenul se vede dupa yw_window_damage) */
 YgSurface *yw_window_surface(YwWindow *w);
+/* Dimensiunea buferului (se schimba cand managerul de ferestre redimensioneaza fereastra: YW_EV_RESIZE; yw_next_event
+ * face singura bufer nou, cu vechiul continut in colt, si suprafata de la yw_window_surface ramane aceeasi; aplicatia
+ * redeseneaza si cheama yw_window_damage_all) */
+void yw_window_size(const YwWindow *w, int *width, int *height);
 /* Pozitia continutului pe ecran (la creare / dupa YW_MOVE) */
 void yw_window_position(const YwWindow *w, int *x, int *y);
 int yw_window_damage(YwWindow *w, int x, int y, int width, int height);
