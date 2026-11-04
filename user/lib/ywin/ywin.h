@@ -23,6 +23,7 @@ typedef struct {
     int buttons, wheel, kind;   /* mouse: YK_BTN_*, roata, YW_MOUSE_* */
     int keycode, ascii, pressed, modifiers;     /* taste */
     int focus;              /* YW_EV_FOCUS */
+    int light;              /* YW_EV_THEME: 1 = tema deschisa */
     uint32_t frame;         /* YW_FRAME */
     uint32_t task;          /* YW_EV_TASK: id-ul ferestrei */
     int task_flags, task_ws;    /* YW_TF_*, spatiul de lucru */
@@ -40,6 +41,8 @@ int yw_screen_height(const YwConn *c);
 YwWindow *yw_window_new(YwConn *c, int w, int h, const char *title);
 /* Cu rol (YW_ROLE_*, vezi ywin_proto.h). PANEL: pozitia (jos, x = 0) o hotaraste compozitorul; w = latimea ecranului, h = inaltimea panoului; POPUP: continutul apare la (x, y) pe ecran. Bufferul ramane w x h. */
 YwWindow *yw_window_new_role(YwConn *c, int w, int h, const char *title, int role, int x, int y);
+/* Schimba tema compozitorului (1 = light, 0 = dark); toti clientii primesc YW_EV_THEME (ev.light). 0 sau -1 */
+int yw_set_theme(YwConn *c, int light);
 /* Panoul: actiune asupra unei ferestre din lista de task-uri (YW_TA_*) */
 int yw_task_action(YwConn *c, uint32_t task, int action);
 void yw_window_destroy(YwWindow *w);

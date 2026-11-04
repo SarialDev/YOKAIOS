@@ -8,6 +8,8 @@
 #include "time/clock.h"
 #include "drivers/rtc.h"
 #include "lib/string.h"
+#include "proc/caps.h"
+#include "uapi/caps.h"
 
 namespace {
 
@@ -139,6 +141,43 @@ int64_t sys_gettimeofday(uint64_t tv_user, uint64_t, uint64_t, uint64_t, uint64_
     uint64_t ms = wall_time_ms();
     int64_t tv[2] = {(int64_t)(ms / 1000), (int64_t)(ms % 1000) * 1000};
     return copy_to_user(tv_user, tv, sizeof(tv)) ? 0 : -EFAULT;
+}
+
+// Ora se schimba doar cu CAP_SYS_ADMIN (T10.5); se tine in kernel, CMOS-ul ramane neatins
+int64_t sys_clock_settime(uint64_t clk, uint64_t ts_user, uint64_t, uint64_t, uint64_t, uint64_t){
+    if(clk != CLOCK_REALTIME){
+        return -EINVAL;
+    }
+    if(!capable(CAP_SYS_ADMIN)){
+        return -EPERM;
+    }
+    Timespec ts;
+    if(!copy_from_user(&ts, ts_user, sizeof(ts))){
+        return -EFAULT;
+    }
+    if(ts.sec < 0 || ts.nsec < 0 || ts.nsec >= 1000000000){
+        return -EINVAL;
+    }
+    wall_time_set((uint64_t)ts.sec);
+    return 0;
+}
+
+int64_t sys_settimeofday(uint64_t tv_user, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
+    if(!tv_user){
+        return 0;
+    }
+    if(!capable(CAP_SYS_ADMIN)){
+        return -EPERM;
+    }
+    int64_t tv[2];
+    if(!copy_from_user(tv, tv_user, sizeof(tv))){
+        return -EFAULT;
+    }
+    if(tv[0] < 0 || tv[1] < 0 || tv[1] >= 1000000){
+        return -EINVAL;
+    }
+    wall_time_set((uint64_t)tv[0]);
+    return 0;
 }
 
 int64_t sys_time(uint64_t tloc, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){

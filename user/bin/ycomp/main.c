@@ -559,6 +559,19 @@ static void handle(int ci, const struct yw_msg *m){
     case YW_QUERY:
         query(ci, m);
         break;
+    case YW_SETTHEME: {
+        render_set_theme(m->v[0] ? &yg_theme_light : &yg_theme_dark);
+        struct yw_msg ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = YW_EV_THEME;
+        ev.v[0] = C.theme == &yg_theme_light;
+        for(int k = 0; k < MAX_CLIENTS; k++){
+            if(C.cl[k].fd >= 0){
+                send_to(k, &ev);
+            }
+        }
+        break;
+    }
     case YW_TASK_ACT:
         idx = wm_panel_window();
         if(idx >= 0 && C.win[idx].client == ci){        /* doar panoul */
@@ -790,6 +803,18 @@ int main(int argc, char **argv){
     input_fd = inputctl(INPUTCTL_GRAB, NULL);
     if(input_fd < 0){
         fprintf(stderr, "ycomp: fara input: %s\n", strerror(errno));
+    }
+    char tbuf[16] = "";
+    if(!theme){
+        /* tema salvata de ysettings (cat timp radacina e scriibila); lipsa fisierului = Dark */
+        FILE *tf = fopen("/etc/ycomp.theme", "r");
+        if(tf){
+            if(fgets(tbuf, sizeof(tbuf), tf)){
+                tbuf[strcspn(tbuf, "\r\n")] = 0;
+                theme = tbuf;
+            }
+            fclose(tf);
+        }
     }
     int err = render_init(theme);
     if(err){

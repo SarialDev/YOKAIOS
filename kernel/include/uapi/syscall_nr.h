@@ -55,6 +55,7 @@
 #define SYS_LCHOWN      94
 #define SYS_UMASK       95
 #define SYS_GETTIMEOFDAY 96
+#define SYS_SETTIMEOFDAY 164
 #define SYS_GETUID      102
 #define SYS_GETGID      104
 #define SYS_SETUID      105
@@ -78,6 +79,7 @@
 #define SYS_IOPERM      173
 #define SYS_INIT_MODULE 175     /* init_module(imagine, lungime): modul de kernel semnat; cere CAP_SYS_ADMIN */
 #define SYS_DELETE_MODULE 176   /* delete_module(nume) */
+#define SYS_OPENPTY     249     /* openpty(int *master, int *slave, name, termios, const struct winsize *) (T10.5) */
 #define SYS_SIGVERIFY   250     /* sigverify(op, date, lungime, semnatura): vezi kernel/core/verify.h */
 #define SYS_CRYPTCTL    251     /* cryptctl(op, arg): volume criptate; vezi kernel/block/crypt.h si uapi/crypt.h */
 #define SYS_INPUTCTL    252     /* inputctl(op, arg): captura input pentru compozitor; vezi uapi/yinput.h */
@@ -100,6 +102,7 @@
 #define SYS_GETDENTS64  217
 #define SYS_TIME        201
 #define SYS_CLOCK_GETTIME 228
+#define SYS_CLOCK_SETTIME 227
 
 #define SYS_COUNT       256
 

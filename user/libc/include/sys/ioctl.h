@@ -7,6 +7,7 @@
 #define TIOCGPGRP 0x540F
 #define TIOCSPGRP 0x5410
 #define TIOCGWINSZ 0x5413
+#define TIOCSWINSZ 0x5414
 /* socket-uri / interfete (T9.5), vezi net/if.h si net/route.h */
 #define SIOCADDRT 0x890B
 #define SIOCDELRT 0x890C

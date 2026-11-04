@@ -8,6 +8,7 @@
 #include "mm/kmalloc.h"
 #include "lib/string.h"
 #include "drivers/tty.h"
+#include "drivers/pty.h"
 #include "fs/pseudofs.h"
 #include "net/socket.h"
 #include "syscall/net.h"
@@ -80,7 +81,7 @@ int64_t sys_fstat(uint64_t fd, uint64_t user, uint64_t, uint64_t, uint64_t, uint
     } else {
         // Consola si pipe-uri: fara inode
         memset(&st, 0, sizeof(st));
-        st.st_mode = (f == console_file() ? S_IFCHR : S_IFIFO) | 0600;
+        st.st_mode = (f == console_file() || pty_is(f) ? S_IFCHR : S_IFIFO) | 0600;
         if(shm_is(f)){
             st.st_mode = S_IFREG | 0600;
             st.st_size = shm_size(f);
@@ -102,6 +103,9 @@ int64_t sys_ioctl(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t, uint64_t, u
     }
     if(sock_is(f)){
         return net_ioctl(f, cmd, arg);
+    }
+    if(pty_is(f)){
+        return pty_ioctl(f, cmd, arg);
     }
     if(f != console_file() && !devfs_is_console(f->inode)){
         return f->inode ? devfs_ioctl(f->inode, cmd, arg) : -ENOTTY;

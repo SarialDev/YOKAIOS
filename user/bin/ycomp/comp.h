@@ -105,6 +105,7 @@ long long now_us(void);
 
 /* render.c */
 int render_init(const char *theme);
+void render_set_theme(const YgTheme *t);
 void render_fini(void);
 void damage(YgRect r);
 void damage_window(const Window *w);       /* tot cadrul ferestrei */

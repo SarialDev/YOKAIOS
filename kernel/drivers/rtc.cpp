@@ -141,6 +141,11 @@ uint64_t wall_time_ms(){
     return rtc_ok ? boot_epoch_ms + uptime_ms() : 0;
 }
 
+void wall_time_set(uint64_t epoch){
+    boot_epoch_ms = epoch * 1000 - uptime_ms();
+    rtc_ok = true;
+}
+
 uint64_t wall_time(){
     return wall_time_ms() / 1000;
 }

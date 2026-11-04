@@ -210,6 +210,10 @@ int64_t tty_read(void* buf, uint64_t len, bool nonblock){
             lock.unlock_irqrestore(flags);
             return 0;
         }
+        if(!(term.c_lflag & TTY_ICANON) && term.c_cc[6] == 0){
+            lock.unlock_irqrestore(flags);
+            return 0;                   // VMIN = 0: fara asteptare (yedit)
+        }
         if(nonblock){
             lock.unlock_irqrestore(flags);
             return -EAGAIN;

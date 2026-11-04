@@ -30,5 +30,7 @@ void rtc_init();
 // Ora reala UTC: epoca boot + uptime
 uint64_t wall_time();
 uint64_t wall_time_ms();
+// Muta ceasul de timp real la epoch (secunde UTC); NU scrie CMOS-ul (T10.5, ysettings)
+void wall_time_set(uint64_t epoch);
 // "YYYY-MM-DD HH:MM:SS UTC" in buf (min. 24 octeti)
 void rtc_format(const RtcTime& t, char* buf, int cap);

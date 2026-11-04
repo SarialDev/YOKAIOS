@@ -13,6 +13,8 @@ struct tm {
 };
 time_t time(time_t *t);
 int clock_gettime(clockid_t clk, struct timespec *ts);
+/* CLOCK_REALTIME, cere CAP_SYS_ADMIN (T10.5); nu scrie CMOS-ul */
+int clock_settime(clockid_t clk, const struct timespec *ts);
 int nanosleep(const struct timespec *req, struct timespec *rem);
 clock_t clock(void);
 double difftime(time_t a, time_t b);

@@ -73,6 +73,7 @@
 #include "tests/test_comp.h"
 #include "tests/test_wm.h"
 #include "tests/test_panel.h"
+#include "tests/test_apps.h"
 #include "tests/test_perm.h"
 #include "tests/test_caps.h"
 #include "tests/test_aslr.h"
@@ -455,6 +456,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     if(test_named(test, "panel")){
         test_panel_run();
     }
+    if(test_named(test, "apps")){
+        test_apps_run();
+    }
     if(test_named(test, "vm")){
         test_vm_run();
     }
@@ -504,11 +508,12 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     // Terminalul scrie de aici in jos; lipsa /sbin/init nu e fatala (ecranul ramane cu logo-ul)
     kwrite("\x1b[10;1H", 7);
     tty_activate();
-    // cmdline "login": init porneste /bin/login in loc de ysh
+    // cmdline "login": init porneste /bin/login in loc de ysh; "gui": sesiunea grafica (ycomp -p), vezi init.c
     static const char* const init_argv[] = {"init", nullptr};
     static const char* const init_argv_login[] = {"init", "-l", nullptr};
+    static const char* const init_argv_gui[] = {"init", "-g", nullptr};
     static const char* const init_envp[] = {"PATH=/bin:/sbin", "HOME=/root", "TERM=yokai", nullptr};
-    if(!exec_spawn("/sbin/init", cmdline_has("login") ? init_argv_login : init_argv, init_envp)){
+    if(!exec_spawn("/sbin/init", cmdline_has("login") ? init_argv_login : cmdline_has("gui") ? init_argv_gui : init_argv, init_envp)){
         kprintf("init: /sbin/init nu a pornit\n");
     }
 

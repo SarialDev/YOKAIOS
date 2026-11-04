@@ -1,0 +1,3 @@
+[OK] appstest
+[OK] test_apps
+[OK] boot

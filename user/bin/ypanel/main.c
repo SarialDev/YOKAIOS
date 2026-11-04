@@ -191,6 +191,9 @@ int main(int argc, char **argv){
             if(ev.type == YW_EV_TASK){
                 task_event(&ev);
                 dirty = 1;
+            } else if(ev.type == YW_EV_THEME){
+                P.th = ev.light ? &yg_theme_light : &yg_theme_dark;
+                dirty = 1;
             } else if(ev.type == YW_EV_START){
                 P.events_start++;
                 menu_toggle();

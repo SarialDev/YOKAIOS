@@ -3,7 +3,9 @@
  * cu cate un HOME pentru fiecare utilizator din /etc/passwd cu uid >= 1000), umask 022, pune mediul de baza, porneste ysh pe consola
  * si aduna zombie-ii (wait). Daca ysh iese, il reporneste; cu `init -1` (teste) se opreste odata cu el.
  * Cu `init -l` porneste /bin/login (cere utilizator si parola) in loc de ysh (cmdline "login").
- * Cu `init -t` (modul test, test=userspace) porneste /bin/selftest in loc de ysh si iese cu codul lui. */
+ * Cu `init -t` (modul test, test=userspace) porneste /bin/selftest in loc de ysh si iese cu codul lui.
+ * Cu `init -g` (cmdline "gui") porneste sesiunea grafica, /bin/ycomp -p (compozitor + panou), in loc de ysh; se opreste cu
+ * Ctrl+Alt+Backspace (init o reporneste). Fara /dev/fb0 sau daca ycomp pica imediat, cade pe ysh (T10.5). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +20,7 @@
 #define SHELL "/bin/ysh"
 #define SELFTEST "/bin/selftest"
 #define LOGIN "/bin/login"
+#define COMPOSITOR "/bin/ycomp"
 
 // Linia "<sursa> <tinta> <tip> ..." din /proc/mounts cu tinta data?
 static int is_mounted(const char *target){
@@ -114,8 +117,18 @@ static void read_hostname(void){
     }
 }
 
-static pid_t start_shell(int selftest, int login){
+static pid_t start_shell(int selftest, int login, int gui){
     pid_t pid = fork();
+    if(pid == 0 && gui){
+        const char *home = getenv("HOME");
+        if(!home || chdir(home) < 0){
+            chdir("/");
+        }
+        char *argv[] = {"ycomp", "-p", NULL};
+        execv(COMPOSITOR, argv);
+        printf("init: %s: %s\n", COMPOSITOR, strerror(errno));
+        _exit(127);
+    }
     if(pid == 0 && selftest){
         chdir("/");
         char *argv[] = {"selftest", NULL};
@@ -145,8 +158,16 @@ static pid_t start_shell(int selftest, int login){
 
 int main(int argc, char **argv){
     int selftest = argc > 1 && strcmp(argv[1], "-t") == 0;
-    int login = argc > 1 && strcmp(argv[1], "-l") == 0;
-    int once = selftest || (argc > 1 && strcmp(argv[1], "-1") == 0);
+    int login = 0, gui = 0, once = selftest;
+    for(int i = 1; i < argc; i++){
+        if(strcmp(argv[i], "-l") == 0){
+            login = 1;
+        } else if(strcmp(argv[i], "-g") == 0){
+            gui = 1;
+        } else if(strcmp(argv[i], "-1") == 0){
+            once = 1;
+        }
+    }
 
     // /proc primul: is_mounted() il citeste
     mount_fs("proc", "/proc", "proc", NULL);
@@ -171,9 +192,14 @@ int main(int argc, char **argv){
     setenv("TERM", "yokai", 0);
     read_hostname();
 
+    if(gui && access("/dev/fb0", 0) < 0){
+        printf("init: fara /dev/fb0, pornesc shell-ul\n");
+        gui = 0;
+    }
     int status = 0;
     for(;;){
-        pid_t sh = start_shell(selftest, login);
+        time_t t0 = time(NULL);
+        pid_t sh = start_shell(selftest, login, gui);
         if(sh < 0){
             printf("init: fork: %s\n", strerror(errno));
             sleep(1);
@@ -194,7 +220,13 @@ int main(int argc, char **argv){
         if(once){
             return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
         }
-        printf("init: ysh s-a oprit (status %d), il repornesc\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        if(gui && (!WIFEXITED(status) || WEXITSTATUS(status) != 0) && time(NULL) - t0 < 5){
+            printf("init: sesiunea grafica a picat (status %d), pornesc shell-ul\n", WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+            gui = 0;
+            continue;
+        }
+        printf("init: %s s-a oprit (status %d), il repornesc\n", gui ? "sesiunea grafica" : "ysh",
+               WIFEXITED(status) ? WEXITSTATUS(status) : -1);
         struct timespec ts = {0, 200 * 1000000L};
         nanosleep(&ts, NULL);
     }

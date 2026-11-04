@@ -34,6 +34,7 @@ enum {
     YW_DESTROY,             /* win */
     YW_QUERY,               /* v0 = YW_Q_*, v1, v2                   -> YW_REPLY */
     YW_TASK_ACT,            /* v0 = id-ul ferestrei, v1 = YW_TA_* (doar de la panou, T10.4) */
+    YW_SETTHEME,            /* v0 = 1 tema deschisa (light), 0 intunecata: compozitorul o aplica si trimite YW_EV_THEME tuturor (T10.5) */
 
     /* compozitor -> client */
     YW_WELCOME = 64,        /* v0 = latime ecran, v1 = inaltime, v2 = id client */
@@ -54,6 +55,7 @@ enum {
     YW_EV_TASK,             /* doar panoul (T10.4): v0 = id-ul ferestrei, v1 = YW_TF_* (0 = a disparut), v2 = spatiul de lucru, s = titlu.
                                v0 = 0: starea spatiilor de lucru, v1 = masca modurilor (bit i = tiling pe spatiul i), v2 = spatiul curent */
     YW_EV_START,            /* doar panoul: tasta Win apasata si eliberata singura (deschide / inchide meniul Start) */
+    YW_EV_THEME,            /* v0 = 1 tema deschisa / 0 intunecata: trimis tuturor conexiunilor la YW_SETTHEME (T10.5); win = 0 */
 };
 
 /* Rolul unei ferestre (YW_CREATE v2). Fereastra normala are bara de titlu, chenar si e aranjata de managerul de ferestre.

@@ -169,6 +169,16 @@ int render_init(const char *theme){
     return 0;
 }
 
+/* Tema se schimba din mers (YW_SETTHEME): fundalul se redeseneaza, decoratiile citesc C.theme la fiecare cadru */
+void render_set_theme(const YgTheme *t){
+    if(!t || t == C.theme){
+        return;
+    }
+    C.theme = t;
+    draw_wallpaper();
+    damage(yg_rect(0, 0, C.sw, C.sh));
+}
+
 void render_fini(void){
     yg_fb_close(&C.fb);
     yg_surface_free(C.back);

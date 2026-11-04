@@ -90,3 +90,34 @@ test-panel: $(BUILD)/panic-panel.iso
 	EXPECT_FILE=tests/expect-panel.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/panel.log
 
 test: test-panel
+
+# T10.5: aplicatii GUI (yterm cu vt.c peste pty, yfiles, ysettings) + yui.h (ajutoare de desen) si testul appstest (test=apps)
+BIN_DIRS := $(filter-out user/bin/yfiles user/bin/ysettings,$(BIN_DIRS))
+BIN_ELFS := $(filter-out $(BUILD)/ubin/yfiles.elf $(BUILD)/ubin/ysettings.elf,$(BIN_ELFS))
+BIN_ELFS += $(BUILD)/ubin/yfiles.elf $(BUILD)/ubin/ysettings.elf $(BUILD)/ubin/appstest.elf
+YTERM_HDRS  := $(wildcard user/bin/yterm/*.h)
+YFILES_SRCS := $(wildcard user/bin/yfiles/*.c)
+YSET_SRCS   := $(wildcard user/bin/ysettings/*.c)
+YSET_HDRS   := $(wildcard user/bin/ysettings/*.h)
+
+$(BUILD)/ubin/yterm.elf: $(YTERM_HDRS)
+
+$(BUILD)/ubin/yfiles.elf: $(YFILES_SRCS) $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -o $@ $(YFILES_SRCS) -lywin -lygfx
+
+$(BUILD)/ubin/ysettings.elf: $(YSET_SRCS) $(YSET_HDRS) $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -Iuser/bin/ysettings -o $@ $(YSET_SRCS) -lywin -lygfx
+
+$(BUILD)/ubin/appstest.elf: $(YWIN_DIR)/test/appstest.c $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -o $@ $< -lywin -lygfx
+
+$(BUILD)/panic-apps.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+.PHONY: test-apps
+test-apps: $(BUILD)/panic-apps.iso
+	EXPECT_FILE=tests/expect-apps.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/apps.log
+
+test: test-apps

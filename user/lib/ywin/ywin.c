@@ -226,6 +226,13 @@ YwWindow *yw_window_new(YwConn *c, int w, int h, const char *title){
     return yw_window_new_role(c, w, h, title, YW_ROLE_NORMAL, 0, 0);
 }
 
+int yw_set_theme(YwConn *c, int light){
+    struct yw_msg m;
+    msg_init(&m, YW_SETTHEME, 0);
+    m.v[0] = light != 0;
+    return send_msg(c, &m);
+}
+
 int yw_task_action(YwConn *c, uint32_t task, int action){
     struct yw_msg m;
     msg_init(&m, YW_TASK_ACT, 0);
@@ -518,6 +525,9 @@ static void to_event(YwConn *c, const struct yw_msg *m, YwEvent *ev){
         break;
     case YW_EV_FOCUS:
         ev->focus = m->v[0];
+        break;
+    case YW_EV_THEME:
+        ev->light = m->v[0];
         break;
     case YW_FRAME:
         ev->frame = (uint32_t)m->v[0];

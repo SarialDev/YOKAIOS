@@ -10,6 +10,7 @@
 #include "uapi/syscall_nr.h"
 #include "proc/process.h"
 #include "ipc/pipe.h"
+#include "drivers/pty.h"
 #include "exec/elf.h"
 #include "sched/sched.h"
 #include "mm/kmalloc.h"
@@ -93,6 +94,39 @@ int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t len, uint64_t, uint64_t, u
 int64_t sys_close(uint64_t fd, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
     Process* p = process_current();
     return p ? fd_close(p->fds, (int64_t)fd) : -EBADF;
+}
+
+// openpty(int *master, int *slave, name, termios, const struct winsize *): perechea de fd-uri (T10.5)
+int64_t sys_openpty(uint64_t m_user, uint64_t s_user, uint64_t, uint64_t, uint64_t ws_user, uint64_t){
+    Process* p = process_current();
+    if(!p){
+        return -EINVAL;
+    }
+    if(!user_access_ok(m_user, sizeof(int), true) || !user_access_ok(s_user, sizeof(int), true)){
+        return -EFAULT;
+    }
+    KWinsize ws;
+    bool have_ws = ws_user && copy_from_user(&ws, ws_user, sizeof(ws));
+    File* m;
+    File* s;
+    int err = pty_create(m, s, have_ws ? &ws : nullptr);
+    if(err){
+        return err;
+    }
+    int mfd = fd_install(p->fds, m);
+    int sfd = mfd >= 0 ? fd_install(p->fds, s) : -1;
+    if(sfd < 0){
+        if(mfd >= 0){
+            fd_close(p->fds, mfd);
+        } else {
+            file_put(m);
+        }
+        file_put(s);
+        return -EMFILE;
+    }
+    copy_to_user(m_user, &mfd, sizeof(mfd));
+    copy_to_user(s_user, &sfd, sizeof(sfd));
+    return 0;
 }
 
 int64_t sys_pipe(uint64_t fds_user, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t){
@@ -258,6 +292,9 @@ constexpr Table make_table(){
     t.fn[SYS_NANOSLEEP] = sys_nanosleep;
     t.fn[SYS_CLOCK_GETTIME] = sys_clock_gettime;
     t.fn[SYS_GETTIMEOFDAY] = sys_gettimeofday;
+    t.fn[SYS_SETTIMEOFDAY] = sys_settimeofday;
+    t.fn[SYS_CLOCK_SETTIME] = sys_clock_settime;
+    t.fn[SYS_OPENPTY] = sys_openpty;
     t.fn[SYS_TIME] = sys_time;
     t.fn[SYS_KILL] = sys_kill;
     t.fn[SYS_UNAME] = sys_uname;
