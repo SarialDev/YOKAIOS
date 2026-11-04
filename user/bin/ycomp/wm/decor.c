@@ -72,7 +72,7 @@ void wm_draw_decor(const Window *w, int focused, YgRect clip){
 /* ---- panoul de jos ---- */
 
 YgRect wm_panel_rect(void){
-    return yg_rect(0, C.sh - WM_PANEL_H, C.sw, WM_PANEL_H);
+    return yg_rect(0, C.sh - wm_panel_h(), C.sw, wm_panel_h());
 }
 
 YgRect wm_tab_rect(int ws){
@@ -85,7 +85,7 @@ YgRect wm_mode_rect(void){
 
 void wm_draw_panel(YgRect clip){
     YgRect p = wm_panel_rect();
-    if(yg_rect_empty(yg_rect_intersect(p, clip))){
+    if(C.panel_h || yg_rect_empty(yg_rect_intersect(p, clip))){      /* cu ypanel, panoul il deseneaza el */
         return;
     }
     const YgTheme *t = C.theme;

@@ -49,6 +49,11 @@ YgRect wm_snap_rect(int snap);               /* dreptunghiul exterior pentru un 
 int wm_ws_count(int ws);                     /* ferestre pe spatiul ws */
 void wm_damage_panel(void);
 void wm_query(int32_t id, int32_t v[6]);
+int wm_panel_h(void);                        /* inaltimea panoului de jos (ypanel sau cel simplu al WM) */
+int wm_panel_window(void);                   /* fereastra ypanel sau -1 */
+void wm_start_request(void);
+int wm_task_focus(void);
+void wm_task_activate(int idx, int toggle);
 
 /* decor.c */
 YgRect wm_btn_rect(const Window *w, int zone);   /* Z_CLOSE / Z_MAX / Z_MIN */

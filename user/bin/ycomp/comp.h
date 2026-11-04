@@ -22,6 +22,10 @@ typedef struct Window {
     int x, y;               /* coltul ferestrei (cu decoratiuni) pe ecran */
     int w, h;               /* continutul (cat da loc cadrul; il hotaraste managerul de ferestre) */
     int bw, bh;             /* dimensiunea buferului atasat (poate ramane in urma lui w x h pana raspunde clientul) */
+    int role;               /* YW_ROLE_*: panou / popup n-au decoratii: x, y, w, h sunt chiar continutul (T10.4) */
+    int tsent;              /* panoul a primit YW_EV_TASK pentru fereastra asta */
+    int tflags;             /* ... cu aceste YW_TF_* */
+    uint32_t thash;         /* ... si cu titlul cu aceasta suma */
     char title[32];
     uint32_t *pixels;       /* buferul shm mapat (NULL pana la YW_ATTACH) */
     void *map;              /* inceputul maparii (pixels = map + offset) */
@@ -89,6 +93,9 @@ typedef struct {
     uint64_t pixels;
     int quiet;
     WmState wm;             /* T10.3 */
+    int panel_h;            /* inaltimea panoului ypanel (0 = fara; atunci apare panoul simplu al WM) */
+    int last_nfocus;        /* ultima fereastra normala cu focus (panoul o arata activa si cat un meniu are focusul) */
+    uint32_t task_msgs, start_msgs;
 } Comp;
 
 extern Comp C;
@@ -114,6 +121,7 @@ void input_event(const void *ev);           /* struct yk_input_event */
 int window_at(int x, int y);                /* fereastra de sus care contine punctul (cadrul intreg) sau -1 */
 void focus_window(int idx);
 void raise_window(int idx);
+void keep_special_on_top(void);
 
 /* main.c */
 void send_event(int widx, uint32_t type, int v0, int v1, int v2, int v3, int v4);

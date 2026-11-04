@@ -49,6 +49,7 @@ typedef struct WmState {
     uint32_t layouts, switches;
 
     int win_down;                   /* bit 0 = Win stanga, bit 1 = Win dreapta */
+    int win_alone;                  /* Win apasat fara nicio alta tasta pana acum (T10.4: la eliberare deschide meniul Start) */
     uint8_t consumed[16];           /* tastele a caror apasare a luat-o WM (si eliberarea) */
     int cycling;                    /* Alt+Tab in curs */
     int cyc_list[32];

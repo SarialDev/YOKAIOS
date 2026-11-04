@@ -24,6 +24,9 @@ typedef struct {
     int keycode, ascii, pressed, modifiers;     /* taste */
     int focus;              /* YW_EV_FOCUS */
     uint32_t frame;         /* YW_FRAME */
+    uint32_t task;          /* YW_EV_TASK: id-ul ferestrei */
+    int task_flags, task_ws;    /* YW_TF_*, spatiul de lucru */
+    char title[32];         /* YW_EV_TASK: titlul */
 } YwEvent;
 
 /* NULL = YW_SOCK_PATH. NULL la eroare (errno) */
@@ -35,6 +38,10 @@ int yw_screen_height(const YwConn *c);
 
 /* Fereastra noua cu continut w x h (bufer zero = negru) si titlu; NULL la eroare (errno) */
 YwWindow *yw_window_new(YwConn *c, int w, int h, const char *title);
+/* Cu rol (YW_ROLE_*, vezi ywin_proto.h). PANEL: pozitia (jos, x = 0) o hotaraste compozitorul; w = latimea ecranului, h = inaltimea panoului; POPUP: continutul apare la (x, y) pe ecran. Bufferul ramane w x h. */
+YwWindow *yw_window_new_role(YwConn *c, int w, int h, const char *title, int role, int x, int y);
+/* Panoul: actiune asupra unei ferestre din lista de task-uri (YW_TA_*) */
+int yw_task_action(YwConn *c, uint32_t task, int action);
 void yw_window_destroy(YwWindow *w);
 uint32_t yw_window_id(const YwWindow *w);
 /* Suprafata ygfx peste bufer (desenul se vede dupa yw_window_damage) */

@@ -26,13 +26,14 @@ struct yw_msg {
 /* client -> compozitor */
 enum {
     YW_HELLO = 1,           /* v0 = versiune                         -> YW_WELCOME */
-    YW_CREATE,              /* v0 = w, v1 = h, s = titlu             -> YW_CREATED sau YW_ERROR */
+    YW_CREATE,              /* v0 = w, v1 = h, v2 = YW_ROLE_*, v3, v4 = x, y continut (popup), s = titlu -> YW_CREATED sau YW_ERROR */
     YW_ATTACH,              /* win, s = nume shm, v0 = w, v1 = h, v2 = stride (pixeli), v3 = offset (octeti) -> YW_ATTACHED / YW_ERROR */
     YW_DAMAGE,              /* win, v0..v3 = x, y, w, h              -> (dupa compunere) YW_FRAME */
     YW_TITLE,               /* win, s */
     YW_MOVE,                /* win, v0 = x, v1 = y (coltul ferestrei pe ecran) */
     YW_DESTROY,             /* win */
     YW_QUERY,               /* v0 = YW_Q_*, v1, v2                   -> YW_REPLY */
+    YW_TASK_ACT,            /* v0 = id-ul ferestrei, v1 = YW_TA_* (doar de la panou, T10.4) */
 
     /* compozitor -> client */
     YW_WELCOME = 64,        /* v0 = latime ecran, v1 = inaltime, v2 = id client */
@@ -50,6 +51,25 @@ enum {
     YW_EV_RESIZE,           /* win, v0 = latime, v1 = inaltime: dimensiunea noua a continutului (T10.3). Clientul face un
                                bufer nou si il trimite cu YW_ATTACH (libywin o face singura in yw_next_event); pana atunci
                                compozitorul arata buferul vechi taiat / completat cu culoarea suprafetei */
+    YW_EV_TASK,             /* doar panoul (T10.4): v0 = id-ul ferestrei, v1 = YW_TF_* (0 = a disparut), v2 = spatiul de lucru, s = titlu.
+                               v0 = 0: starea spatiilor de lucru, v1 = masca modurilor (bit i = tiling pe spatiul i), v2 = spatiul curent */
+    YW_EV_START,            /* doar panoul: tasta Win apasata si eliberata singura (deschide / inchide meniul Start) */
+};
+
+/* Rolul unei ferestre (YW_CREATE v2). Fereastra normala are bara de titlu, chenar si e aranjata de managerul de ferestre.
+ * PANEL: bara de jos a ecranului (una singura; fara decoratii, lipita de marginea de jos, latime = ecranul, inaltimea ceruta
+ * rezerva zona de lucru; nu ia focus la clic; primeste YW_EV_TASK / YW_EV_START si poate trimite YW_TASK_ACT). POPUP:
+ * fara decoratii, la (x, y) ceruti, deasupra ferestrelor normale, ia focus (meniuri); nu apare in lista de task-uri. Ambele
+ * sunt pe toate spatiile de lucru si ocolite de Alt+Tab / tiling. */
+enum { YW_ROLE_NORMAL = 0, YW_ROLE_PANEL = 1, YW_ROLE_POPUP = 2 };
+
+/* YW_EV_TASK v1: starea unei ferestre normale */
+enum { YW_TF_EXISTS = 1, YW_TF_MINIMIZED = 2, YW_TF_FOCUSED = 4, YW_TF_OTHER_WS = 8 };
+
+/* YW_TASK_ACT v1 */
+enum {
+    YW_TA_TOGGLE = 1,       /* clic pe buton: pe alt spatiu -> mergi acolo si ia focus; minimizata -> readusa; cu focus -> minimizata; altfel focus */
+    YW_TA_CLOSE = 2,        /* cere inchiderea (YW_EV_CLOSE catre fereastra) */
 };
 
 enum { YW_MOUSE_MOVE = 0, YW_MOUSE_PRESS = 1, YW_MOUSE_RELEASE = 2, YW_MOUSE_WHEEL = 3 };
@@ -67,6 +87,9 @@ enum {
                                schimbari de spatiu. v1 = id fereastra: v0 = spatiul, v1 = bit 0 minimizata | snap << 4 (0 niciunul,
                                1 stanga, 2 dreapta, 3 maxim, 4..7 colturi TL TR BL BR) | vizibila << 8, v2 = YW_EV_RESIZE trimise,
                                v3, v4 = dimensiunea buferului atasat, v5 = pozitia in z-order (0 = jos); v0 = -1 daca nu exista */
+    YW_Q_THEME,             /* v0 = 1 daca tema compozitorului e cea deschisa (light), 0 intunecata (T10.4) */
+    YW_Q_PANEL,             /* panoul (T10.4): v0 = inaltimea rezervata (0 = niciun panou), v1 = id-ul ferestrei panou, v2 = YW_EV_TASK trimise,
+                               v3 = YW_EV_START trimise, v4 = id-ul ultimului popup (0 = niciunul), v5 = ferestre normale */
 };
 
 #endif

@@ -61,3 +61,32 @@ $(BUILD)/panic-wm.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
 .PHONY: test-wm
 test-wm: $(BUILD)/panic-wm.iso
 	EXPECT_FILE=tests/expect-wm.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/wm.log
+
+# T10.4: bara de task-uri + meniul Start (user/bin/ypanel/*.c) si terminalul minimal (user/bin/yterm/*.c); ambele cu -lywin -lygfx,
+# deci scoase din regula generica a directoarelor din user/bin. test=panel (/bin/paneltest, `make test-panel`)
+BIN_DIRS := $(filter-out user/bin/ypanel user/bin/yterm,$(BIN_DIRS))
+BIN_ELFS := $(filter-out $(BUILD)/ubin/ypanel.elf $(BUILD)/ubin/yterm.elf,$(BIN_ELFS))
+BIN_ELFS += $(BUILD)/ubin/ypanel.elf $(BUILD)/ubin/yterm.elf $(BUILD)/ubin/paneltest.elf
+YPANEL_SRCS := $(wildcard user/bin/ypanel/*.c)
+YPANEL_HDRS := $(wildcard user/bin/ypanel/*.h)
+YTERM_SRCS  := $(wildcard user/bin/yterm/*.c)
+
+$(BUILD)/ubin/ypanel.elf: $(YPANEL_SRCS) $(YPANEL_HDRS) $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -Iuser/bin/ypanel -o $@ $(YPANEL_SRCS) -lywin -lygfx
+
+$(BUILD)/ubin/yterm.elf: $(YTERM_SRCS) $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -o $@ $(YTERM_SRCS) -lywin -lygfx
+
+$(BUILD)/ubin/paneltest.elf: $(YWIN_DIR)/test/paneltest.c $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -o $@ $< -lywin -lygfx
+
+$(BUILD)/panic-panel.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+.PHONY: test-panel
+test-panel: $(BUILD)/panic-panel.iso
+	EXPECT_FILE=tests/expect-panel.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/panel.log
+
+test: test-panel

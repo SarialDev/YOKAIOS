@@ -1,10 +1,11 @@
 /* ycomp (T10.2): compozitor de ferestre pe /dev/fb0.
- *   ycomp [-s socket] [-t dark|light] [-f fps] [-q] [-d] [-e "comanda"]...
+ *   ycomp [-s socket] [-t dark|light] [-f fps] [-q] [-d] [-p] [-e "comanda"]...
  * Clientii se conecteaza pe un socket AF_UNIX (implicit /run/ycomp.sock, protocolul din ywin_proto.h), au
  * buferele in memorie partajata (shm_open) si anunta zonele schimbate. Compozitorul aduna dreptunghiurile murdare,
  * le compune intr-un back buffer si le copiaza pe ecran la granitele unui ceas de 60 FPS; fara schimbari doarme in
  * poll(-1) (zero treziri). Cand rt_stats() arata incarcare RT mare trece la 30 FPS si opreste animatiile.
- * -d porneste doua ferestre demo, -e o comanda (prin ysh -c) dupa ce socket-ul e gata. Ctrl+Alt+Backspace iese. */
+ * -d porneste doua ferestre demo, -p panoul /bin/ypanel (taskbar + Start), -e o comanda (prin ysh -c) dupa ce socket-ul e gata.
+ * Ctrl+Alt+Backspace iese. */
 #include "comp.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -164,6 +165,73 @@ void send_event(int widx, uint32_t type, int v0, int v1, int v2, int v3, int v4)
     reply(w->client, type, w->id, v0, v1, v2, v3, v4, 0);
 }
 
+/* ---- lista de task-uri pentru panou (T10.4) ---- */
+
+static void send_task(int ci, uint32_t id, int flags, int ws, const char *title){
+    struct yw_msg m;
+    memset(&m, 0, sizeof(m));
+    m.type = YW_EV_TASK;
+    m.v[0] = (int32_t)id;
+    m.v[1] = flags;
+    m.v[2] = ws;
+    if(title){
+        memcpy(m.s, title, sizeof(m.s) - 1);
+    }
+    C.task_msgs++;
+    send_to(ci, &m);
+}
+
+static uint32_t title_hash(const char *t){
+    uint32_t h = 2166136261u;
+    for(; *t; t++){
+        h = (h ^ (uint8_t)*t) * 16777619u;
+    }
+    return h;
+}
+
+/* Trimite panoului ce s-a schimbat de la ultima trimitere (fereastra noua, titlu, focus, minimizare, spatiu, disparitie) */
+static void tasks_flush(void){
+    int p = wm_panel_window();
+    if(p < 0 || C.win[p].client < 0){
+        return;
+    }
+    int ci = C.win[p].client;
+    int foc = wm_task_focus();
+    /* id 0 = starea spatiilor de lucru: v1 = masca modurilor (bit i = tiling), v2 = spatiul curent */
+    int mask = 0;
+    for(int i = 0; i < WM_NWS; i++){
+        mask |= (C.wm.mode[i] == WM_TILE) << i;
+    }
+    int sig = C.wm.cur | (mask << 4);
+    if(!C.win[p].tsent || C.win[p].tflags != sig){
+        C.win[p].tsent = 1;
+        C.win[p].tflags = sig;
+        send_task(ci, 0, mask, C.wm.cur, NULL);
+    }
+    for(int i = 0; i < MAX_WINDOWS; i++){
+        Window *w = &C.win[i];
+        if(!w->used || w->role != YW_ROLE_NORMAL){
+            continue;
+        }
+        if(w->state == WS_CLOSING){
+            if(w->tsent){
+                w->tsent = 0;
+                send_task(ci, w->id, 0, 0, NULL);
+            }
+            continue;
+        }
+        int flags = YW_TF_EXISTS | (w->wm.minimized ? YW_TF_MINIMIZED : 0) | (i == foc ? YW_TF_FOCUSED : 0)
+                    | (w->wm.ws != C.wm.cur ? YW_TF_OTHER_WS : 0);
+        uint32_t h = title_hash(w->title);
+        if(!w->tsent || flags != w->tflags || h != w->thash){
+            w->tsent = 1;
+            w->tflags = flags;
+            w->thash = h;
+            send_task(ci, w->id, flags, w->wm.ws, w->title);
+        }
+    }
+}
+
 static int find_window(int ci, uint32_t id){
     for(int i = 0; i < MAX_WINDOWS; i++){
         if(C.win[i].used && C.win[i].id == id && C.win[i].client == ci && C.win[i].state != WS_CLOSING){
@@ -188,6 +256,19 @@ static void focus_top(void){
 
 void window_remove(int idx){
     Window *w = &C.win[idx];
+    if(w->tsent && w->role == YW_ROLE_NORMAL){
+        int p = wm_panel_window();
+        if(p >= 0 && C.win[p].client >= 0){
+            send_task(C.win[p].client, w->id, 0, 0, NULL);
+        }
+    }
+    if(w->role == YW_ROLE_PANEL){
+        C.panel_h = 0;
+        damage(yg_rect(0, 0, C.sw, C.sh));
+    }
+    if(C.last_nfocus == idx){
+        C.last_nfocus = -1;
+    }
     wm_window_removed(idx);
     damage_window(w);
     if(w->pixels){
@@ -214,6 +295,10 @@ void window_remove(int idx){
 /* Fereastra dispare (cu animatie daca sunt pornite) */
 static void window_close(int idx){
     Window *w = &C.win[idx];
+    if(w->role == YW_ROLE_PANEL){
+        C.panel_h = 0;              /* zona de lucru revine la intreg; panoul simplu al WM apare */
+        damage(yg_rect(0, 0, C.sw, C.sh));
+    }
     if(C.focus == idx){
         C.focus = -1;
     }
@@ -233,9 +318,13 @@ static void window_close(int idx){
 }
 
 static void create_window(int ci, const struct yw_msg *m){
-    int w = m->v[0], h = m->v[1];
-    if(w <= 0 || h <= 0 || w > 4096 || h > 4096){
+    int w = m->v[0], h = m->v[1], role = m->v[2];
+    if(w <= 0 || h <= 0 || w > 4096 || h > 4096 || role < YW_ROLE_NORMAL || role > YW_ROLE_POPUP){
         reply(ci, YW_ERROR, 0, EINVAL, YW_CREATE, 0, 0, 0, 0);
+        return;
+    }
+    if(role == YW_ROLE_PANEL && (wm_panel_window() >= 0 || h > C.sh / 2)){
+        reply(ci, YW_ERROR, 0, wm_panel_window() >= 0 ? EBUSY : EINVAL, YW_CREATE, 0, 0, 0, 0);
         return;
     }
     int idx = -1;
@@ -243,7 +332,7 @@ static void create_window(int ci, const struct yw_msg *m){
     for(int i = 0; i < MAX_WINDOWS; i++){
         if(!C.win[i].used){
             if(idx < 0) idx = i;
-        } else {
+        } else if(C.win[i].role == YW_ROLE_NORMAL){
             count++;
         }
     }
@@ -258,6 +347,7 @@ static void create_window(int ci, const struct yw_msg *m){
     win->client = ci;
     win->w = w;
     win->h = h;
+    win->role = role;
     memcpy(win->title, m->s, sizeof(win->title));
     win->title[sizeof(win->title) - 1] = 0;
     /* In cascada, cat incape pe ecran */
@@ -266,17 +356,38 @@ static void create_window(int ci, const struct yw_msg *m){
     int wa_h = wm_workarea().h;
     if(x + ow > C.sw) x = C.sw - ow > 0 ? C.sw - ow : 0;
     if(y + oh > wa_h) y = wa_h - oh > 0 ? wa_h - oh : 0;
+    if(role == YW_ROLE_PANEL){
+        x = 0;
+        y = C.sh - h;
+    } else if(role == YW_ROLE_POPUP){
+        x = m->v[3];
+        y = m->v[4];
+        if(x + w > C.sw) x = C.sw - w;
+        if(y + h > C.sh) y = C.sh - h;
+        if(x < 0) x = 0;
+        if(y < 0) y = 0;
+    }
     win->x = x;
     win->y = y;
     win->state = C.anim ? WS_OPENING : WS_NORMAL;
     win->opacity = C.anim ? 0 : 255;
     win->anim_start = now_ms();
     C.zorder[C.nz++] = idx;
+    keep_special_on_top();
+    if(role == YW_ROLE_PANEL){
+        C.panel_h = h;
+        for(int i = 0; i < MAX_WINDOWS; i++){
+            C.win[i].tsent = 0;     /* panoul nou afla de toate ferestrele */
+        }
+        damage(yg_rect(0, 0, C.sw, C.sh));
+    }
     damage_window(win);
     wm_window_added(idx);
     YgRect c = window_content(win);
     reply(ci, YW_CREATED, win->id, c.x, c.y, 0, 0, 0, 0);
-    focus_window(idx);
+    if(role != YW_ROLE_PANEL){
+        focus_window(idx);
+    }
 }
 
 static void attach(int ci, const struct yw_msg *m){
@@ -371,6 +482,23 @@ static void query(int ci, const struct yw_msg *m){
     case YW_Q_PIXEL:
         v[0] = (int32_t)back_pixel(m->v[1], m->v[2]);
         break;
+    case YW_Q_THEME:
+        v[0] = C.theme == &yg_theme_light;
+        break;
+    case YW_Q_PANEL: {
+        int p = wm_panel_window();
+        v[0] = C.panel_h;
+        v[1] = p >= 0 ? (int32_t)C.win[p].id : 0;
+        v[2] = (int32_t)C.task_msgs;
+        v[3] = (int32_t)C.start_msgs;
+        for(int i = 0; i < MAX_WINDOWS; i++){
+            if(C.win[i].used){
+                if(C.win[i].role == YW_ROLE_POPUP) v[4] = (int32_t)C.win[i].id;
+                if(C.win[i].role == YW_ROLE_NORMAL) v[5]++;
+            }
+        }
+        break;
+    }
     default:
         reply(ci, YW_ERROR, 0, EINVAL, YW_QUERY, 0, 0, 0, 0);
         return;
@@ -430,6 +558,19 @@ static void handle(int ci, const struct yw_msg *m){
         break;
     case YW_QUERY:
         query(ci, m);
+        break;
+    case YW_TASK_ACT:
+        idx = wm_panel_window();
+        if(idx >= 0 && C.win[idx].client == ci){        /* doar panoul */
+            int t = any_window_by_id((uint32_t)m->v[0]);
+            if(t >= 0 && C.win[t].role == YW_ROLE_NORMAL){
+                if(m->v[1] == YW_TA_TOGGLE){
+                    wm_task_activate(t, 1);
+                } else if(m->v[1] == YW_TA_CLOSE){
+                    wm_close(t);
+                }
+            }
+        }
         break;
     default:
         reply(ci, YW_ERROR, m->win, EINVAL, m->type, 0, 0, 0, 0);
@@ -581,7 +722,7 @@ static void spawn(const char *cmd){
 }
 
 static int usage(void){
-    printf("uz: ycomp [-s socket] [-t dark|light] [-f fps] [-q] [-d] [-e comanda]...\n");
+    printf("uz: ycomp [-s socket] [-t dark|light] [-f fps] [-q] [-d] [-p] [-e comanda]...\n");
     return 2;
 }
 
@@ -609,6 +750,8 @@ int main(int argc, char **argv){
         } else if(!strcmp(argv[i], "-d") && ncmds + 2 <= 8){
             cmds[ncmds++] = "ywdemo -m clock -t Ceas";
             cmds[ncmds++] = "ywdemo -m balls -t Bile -p 16";
+        } else if(!strcmp(argv[i], "-p") && ncmds < 8){
+            cmds[ncmds++] = "/bin/ypanel";          /* bara de task-uri + meniul Start (T10.4) */
         } else if(!strcmp(argv[i], "-e") && i + 1 < argc && ncmds < 8){
             cmds[ncmds++] = argv[++i];
         } else {
@@ -639,7 +782,7 @@ int main(int argc, char **argv){
     for(int i = 0; i < MAX_CLIENTS; i++){
         C.cl[i].fd = -1;
     }
-    C.focus = C.hover = C.grab = C.drag = -1;
+    C.focus = C.hover = C.grab = C.drag = C.last_nfocus = -1;
     C.fps = C.fps_max;
     C.anim = 1;
     C.epoch_us = now_us();
@@ -711,6 +854,7 @@ int main(int argc, char **argv){
         if(C.frame_scheduled && now_us() >= C.next_frame_us){
             frame();
         }
+        tasks_flush();
         if(spawned){
             while(waitpid(-1, NULL, WNOHANG) > 0){
                 spawned--;

@@ -223,6 +223,18 @@ int yw_screen_height(const YwConn *c){
 }
 
 YwWindow *yw_window_new(YwConn *c, int w, int h, const char *title){
+    return yw_window_new_role(c, w, h, title, YW_ROLE_NORMAL, 0, 0);
+}
+
+int yw_task_action(YwConn *c, uint32_t task, int action){
+    struct yw_msg m;
+    msg_init(&m, YW_TASK_ACT, 0);
+    m.v[0] = (int32_t)task;
+    m.v[1] = action;
+    return send_msg(c, &m);
+}
+
+YwWindow *yw_window_new_role(YwConn *c, int w, int h, const char *title, int role, int x, int y){
     if(w <= 0 || h <= 0 || w > 4096 || h > 4096){
         errno = EINVAL;
         return NULL;
@@ -231,6 +243,9 @@ YwWindow *yw_window_new(YwConn *c, int w, int h, const char *title){
     msg_init(&m, YW_CREATE, 0);
     m.v[0] = w;
     m.v[1] = h;
+    m.v[2] = role;
+    m.v[3] = x;
+    m.v[4] = y;
     strncpy(m.s, title ? title : "", sizeof(m.s) - 1);
     if(send_msg(c, &m) < 0 || wait_reply(c, &m) < 0){
         return NULL;
@@ -510,6 +525,13 @@ static void to_event(YwConn *c, const struct yw_msg *m, YwEvent *ev){
     case YW_EV_RESIZE:
         ev->x = m->v[0];
         ev->y = m->v[1];
+        break;
+    case YW_EV_TASK:
+        ev->task = (uint32_t)m->v[0];
+        ev->task_flags = m->v[1];
+        ev->task_ws = m->v[2];
+        memcpy(ev->title, m->s, sizeof(ev->title));
+        ev->title[sizeof(ev->title) - 1] = 0;
         break;
     default:
         break;

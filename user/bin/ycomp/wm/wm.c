@@ -14,12 +14,17 @@ void wm_init(void){
     C.wm.click_win = -1;
 }
 
-YgRect wm_workarea(void){
-    return yg_rect(0, 0, C.sw, C.sh - WM_PANEL_H);
+int wm_panel_h(void){
+    return C.panel_h ? C.panel_h : WM_PANEL_H;
 }
 
+YgRect wm_workarea(void){
+    return yg_rect(0, 0, C.sw, C.sh - wm_panel_h());
+}
+
+/* Panoul si popup-urile (T10.4) se vad pe toate spatiile de lucru */
 int wm_visible(const Window *w){
-    return w->used && w->wm.ws == C.wm.cur && !w->wm.minimized;
+    return w->used && (w->role != YW_ROLE_NORMAL || w->wm.ws == C.wm.cur) && !w->wm.minimized;
 }
 
 int wm_mode(void){
@@ -29,7 +34,7 @@ int wm_mode(void){
 int wm_ws_count(int ws){
     int n = 0;
     for(int i = 0; i < MAX_WINDOWS; i++){
-        if(C.win[i].used && C.win[i].state != WS_CLOSING && C.win[i].wm.ws == ws){
+        if(C.win[i].used && C.win[i].role == YW_ROLE_NORMAL && C.win[i].state != WS_CLOSING && C.win[i].wm.ws == ws){
             n++;
         }
     }
@@ -113,7 +118,7 @@ static int collect(int *out){
     int n = 0;
     for(int i = 0; i < MAX_WINDOWS; i++){
         const Window *w = &C.win[i];
-        if(wm_visible(w) && w->state != WS_CLOSING){
+        if(wm_visible(w) && w->role == YW_ROLE_NORMAL && w->state != WS_CLOSING){
             out[n++] = i;
         }
     }
@@ -178,6 +183,12 @@ void wm_layout(void){
 void wm_window_added(int idx){
     Window *w = &C.win[idx];
     w->wm.ws = C.wm.cur;
+    if(w->role != YW_ROLE_NORMAL){
+        w->wm.sent_w = w->w;
+        w->wm.sent_h = w->h;
+        wm_layout();                /* panoul schimba zona de lucru */
+        return;
+    }
     w->wm.snap = SNAP_NONE;
     w->wm.fx = w->x;
     w->wm.fy = w->y;
@@ -214,7 +225,7 @@ int wm_focus_best(void){
     int best = -1;
     for(int i = 0; i < MAX_WINDOWS; i++){
         const Window *w = &C.win[i];
-        if(wm_visible(w) && w->state != WS_CLOSING && (best < 0 || w->wm.fseq > C.win[best].wm.fseq)){
+        if(wm_visible(w) && w->role == YW_ROLE_NORMAL && w->state != WS_CLOSING && (best < 0 || w->wm.fseq > C.win[best].wm.fseq)){
             best = i;
         }
     }
@@ -229,6 +240,15 @@ void wm_note_focus(int idx){
 
 void wm_client_move(int idx, int x, int y){
     Window *w = &C.win[idx];
+    if(w->role == YW_ROLE_POPUP){
+        x = clampi(x, 0, C.sw - w->w > 0 ? C.sw - w->w : 0);
+        y = clampi(y, 0, C.sh - w->h > 0 ? C.sh - w->h : 0);
+        wm_set_frame(idx, x, y, w->w, w->h);
+        return;
+    }
+    if(w->role != YW_ROLE_NORMAL){
+        return;                     /* panoul sta lipit de marginea de jos */
+    }
     w->wm.fx = x;
     w->wm.fy = y;
     if(wm_visible(w) && C.wm.mode[w->wm.ws] == WM_FLOAT && w->wm.snap == SNAP_NONE){
@@ -379,7 +399,7 @@ void wm_cycle(int dir){
         int n = 0;
         for(int i = 0; i < MAX_WINDOWS && n < 32; i++){
             const Window *w = &C.win[i];
-            if(w->used && w->state != WS_CLOSING && w->wm.ws == C.wm.cur){
+            if(w->used && w->role == YW_ROLE_NORMAL && w->state != WS_CLOSING && w->wm.ws == C.wm.cur){
                 C.wm.cyc_list[n++] = i;
             }
         }
@@ -420,7 +440,7 @@ void wm_query(int32_t id, int32_t v[6]){
         }
         int vis = 0;
         for(int i = 0; i < MAX_WINDOWS; i++){
-            vis += wm_visible(&C.win[i]) && C.win[i].state != WS_CLOSING;
+            vis += wm_visible(&C.win[i]) && C.win[i].role == YW_ROLE_NORMAL && C.win[i].state != WS_CLOSING;
         }
         v[0] = C.wm.cur;
         v[1] = tiles;
@@ -449,4 +469,63 @@ void wm_query(int32_t id, int32_t v[6]){
         }
     }
     v[0] = -1;
+}
+
+/* ---- panoul ypanel (T10.4) ---- */
+
+/* Fereastra panou (sau -1) */
+int wm_panel_window(void){
+    for(int i = 0; i < MAX_WINDOWS; i++){
+        if(C.win[i].used && C.win[i].role == YW_ROLE_PANEL && C.win[i].state != WS_CLOSING){
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Tasta Win apasata si eliberata singura: panoul deschide / inchide meniul Start */
+void wm_start_request(void){
+    int p = wm_panel_window();
+    if(p >= 0){
+        C.start_msgs++;
+        send_event(p, YW_EV_START, 0, 0, 0, 0, 0);
+    }
+}
+
+/* Fereastra normala pe care panoul o arata activa: cea cu focus, iar cat un meniu are focusul, ultima cu focus */
+int wm_task_focus(void){
+    if(C.focus < 0){
+        return -1;
+    }
+    if(C.win[C.focus].role == YW_ROLE_NORMAL){
+        return C.focus;
+    }
+    int l = C.last_nfocus;
+    return l >= 0 && C.win[l].used && C.win[l].role == YW_ROLE_NORMAL && wm_visible(&C.win[l]) ? l : -1;
+}
+
+/* Clic pe butonul unei ferestre din bara de task-uri */
+void wm_task_activate(int idx, int toggle){
+    Window *w = &C.win[idx];
+    if(!w->used || w->role != YW_ROLE_NORMAL || w->state == WS_CLOSING){
+        return;
+    }
+    int was_focused = wm_task_focus() == idx && C.focus == idx;
+    if(w->wm.ws != C.wm.cur){
+        wm_switch(w->wm.ws);
+        was_focused = 0;
+    }
+    if(w->wm.minimized){
+        w->wm.minimized = 0;
+        wm_layout();
+        damage_window(w);
+        was_focused = 0;
+    } else if(toggle && was_focused){
+        wm_minimize(idx);
+        return;
+    }
+    raise_window(idx);
+    damage_window(w);
+    focus_window(idx);
+    input_update_hover();
 }

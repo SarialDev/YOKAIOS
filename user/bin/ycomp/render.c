@@ -76,15 +76,25 @@ void damage(YgRect r){
     request_frame();
 }
 
+/* Panoul si popup-urile (T10.4) nu au decoratii: cadrul e chiar continutul, bara de titlu e goala */
 YgRect window_outer(const Window *w){
+    if(w->role != YW_ROLE_NORMAL){
+        return yg_rect(w->x, w->y, w->w, w->h);
+    }
     return yg_rect(w->x, w->y, w->w + 2 * BORDER, w->h + TITLE_H + BORDER);
 }
 
 YgRect window_content(const Window *w){
+    if(w->role != YW_ROLE_NORMAL){
+        return yg_rect(w->x, w->y, w->w, w->h);
+    }
     return yg_rect(w->x + BORDER, w->y + TITLE_H, w->w, w->h);
 }
 
 YgRect window_title(const Window *w){
+    if(w->role != YW_ROLE_NORMAL){
+        return yg_rect(w->x, w->y, 0, 0);
+    }
     return yg_rect(w->x, w->y, w->w + 2 * BORDER, TITLE_H);
 }
 
@@ -202,7 +212,9 @@ static void draw_content(const Window *w, YgRect clip){
 
 static void draw_window(const Window *w, int focused, YgRect clip){
     YgRect old = yg_set_clip(C.back, yg_rect_intersect(clip, window_outer(w)));
-    wm_draw_decor(w, focused, C.back->clip);
+    if(w->role == YW_ROLE_NORMAL){
+        wm_draw_decor(w, focused, C.back->clip);
+    }
     draw_content(w, C.back->clip);
     yg_set_clip(C.back, old);
 }

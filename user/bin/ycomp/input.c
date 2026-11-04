@@ -2,6 +2,7 @@
 #include "comp.h"
 #include <sys/yinput.h>
 #include <signal.h>
+#include <string.h>
 
 int window_at(int x, int y){
     for(int z = C.nz - 1; z >= 0; z--){
@@ -11,6 +12,22 @@ int window_at(int x, int y){
         }
     }
     return -1;
+}
+
+/* Panoul si popup-urile raman deasupra ferestrelor normale (partitie stabila a z-order-ului) */
+void keep_special_on_top(void){
+    int tmp[MAX_WINDOWS], n = 0;
+    for(int z = 0; z < C.nz; z++){
+        if(C.win[C.zorder[z]].role == YW_ROLE_NORMAL){
+            tmp[n++] = C.zorder[z];
+        }
+    }
+    for(int z = 0; z < C.nz; z++){
+        if(C.win[C.zorder[z]].role != YW_ROLE_NORMAL){
+            tmp[n++] = C.zorder[z];
+        }
+    }
+    memcpy(C.zorder, tmp, (size_t)n * sizeof(int));
 }
 
 void raise_window(int idx){
@@ -27,6 +44,7 @@ void raise_window(int idx){
         C.zorder[z] = C.zorder[z + 1];
     }
     C.zorder[C.nz - 1] = idx;
+    keep_special_on_top();
     damage_window(&C.win[idx]);
 }
 
@@ -39,6 +57,9 @@ void focus_window(int idx){
         damage(window_title(&C.win[C.focus]));
     }
     C.focus = idx;
+    if(idx >= 0 && C.win[idx].role == YW_ROLE_NORMAL){
+        C.last_nfocus = idx;
+    }
     wm_note_focus(idx);
     if(idx >= 0){
         send_event(idx, YW_EV_FOCUS, 1, 0, 0, 0, 0);

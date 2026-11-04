@@ -94,9 +94,16 @@ int wm_key(const struct yk_input_event *e){
     if(code == K_LWIN || code == K_RWIN){
         int b = code == K_LWIN ? 1 : 2;
         if(e->pressed){
+            if(!C.wm.win_down){
+                C.wm.win_alone = 1;
+            }
             C.wm.win_down |= b;
         } else {
             C.wm.win_down &= ~b;
+            if(!C.wm.win_down && C.wm.win_alone){
+                C.wm.win_alone = 0;
+                wm_start_request();         /* Win singura = meniul Start */
+            }
         }
         return 1;                   /* Win nu ajunge la clienti */
     }
@@ -111,6 +118,7 @@ int wm_key(const struct yk_input_event *e){
         return 0;
     }
     if(C.wm.win_down){
+        C.wm.win_alone = 0;
         win_binding(e);
         bit_set(code, 1);           /* orice tasta cu Win apasat ramane la WM, si eliberarea ei */
         return 1;
@@ -155,7 +163,7 @@ void wm_hit(int x, int y, WmHit *h){
     h->win = -1;
     h->zone = Z_NONE;
     h->edges = 0;
-    if(y >= C.sh - WM_PANEL_H){
+    if(!C.panel_h && y >= C.sh - WM_PANEL_H){
         h->zone = Z_PANEL;
         return;
     }
@@ -166,6 +174,14 @@ void wm_hit(int x, int y, WmHit *h){
             continue;
         }
         YgRect o = window_outer(w);
+        if(w->role != YW_ROLE_NORMAL){          /* panou / popup: doar continut */
+            if(yg_rect_contains(o, x, y)){
+                h->win = idx;
+                h->zone = Z_CONTENT;
+                return;
+            }
+            continue;
+        }
         if(!yg_rect_contains(o, x, y)){
             if(!is_resizable(w)){
                 continue;
@@ -287,6 +303,13 @@ int wm_press(uint8_t pressed){
     }
     int idx = h.win;
     Window *w = &C.win[idx];
+    if(w->role == YW_ROLE_PANEL){
+        return idx;                 /* panoul primeste clicul fara sa ia focusul: bara de task-uri stie cine e activ */
+    }
+    if(w->role == YW_ROLE_POPUP){
+        focus_window(idx);
+        return idx;
+    }
     raise_window(idx);
     focus_window(idx);
     switch(h.zone){
