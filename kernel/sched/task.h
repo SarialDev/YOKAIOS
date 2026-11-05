@@ -48,6 +48,7 @@ struct Task {
     alignas(16) uint8_t fpu[512];   // stare FXSAVE, salvata la comutare (arch/x86_64/fpu.h)
     uint8_t* iomap;             // bitmap de I/O al procesului (ioperm, IOMAP_BYTES octeti, bit 0 = permis), altfel nullptr
     volatile bool on_cpu;       // ales de scheduler si contextul inca nesalvat (de la alegere pana dupa switch_to)
+    uint64_t cpu_ticks;         // tick-uri de timer in care a rulat (T10.6: /proc/<pid>/status CpuMs, masurarea compozitorului)
 };
 
 typedef void (*TaskFn)(void* arg);
@@ -82,6 +83,7 @@ struct TaskInfo {
     uint32_t gid, egid, sgid;
     uint64_t cap_perm, cap_eff;     // capabilitati (proc/caps.h); toate pentru thread-urile de kernel
     uint64_t stack_top;             // varful stivei user (ASLR), 0 = USER_STACK_TOP
+    uint64_t cpu_ms;                // timp CPU (tick-uri de timer, rezolutie 1 ms la 1000 Hz)
 };
 // Task-ul cu tid-ul dat (fara idle); false daca nu exista
 bool task_info(uint64_t tid, TaskInfo& out);

@@ -1,6 +1,7 @@
 #include "fs/pseudofs.h"
 #include "fs/vfs/vfs.h"
 #include "drivers/fb/fb.h"
+#include "drivers/gpu/virtio_gpu.h"
 #include "hal/hal.h"
 #include "hal/console.h"
 #include "hal/block.h"
@@ -9,6 +10,7 @@
 #include "lib/string.h"
 #include "uapi/syscall_nr.h"
 #include "uapi/fb.h"
+#include "uapi/gpu.h"
 #include "syscall/syscall.h"
 #include "arch/x86_64/paging.h"
 
@@ -16,7 +18,7 @@ namespace {
 
 // Nodurile sunt derivate din HAL la fiecare lookup/readdir: ce e inregistrat apare singur (fara udev).
 // Blocurile iau numele cu care driverul le-a inregistrat (sda, nvme0n1)
-enum class Kind : uint8_t { Null, Zero, Random, Urandom, Console, Serial, Fb, Block };
+enum class Kind : uint8_t { Null, Zero, Random, Urandom, Console, Serial, Fb, Block, Gpu };
 
 struct DevDesc {
     const char* name;
@@ -80,7 +82,7 @@ int fb_index(){
     return -1;
 }
 
-// Intrarea numarul idx din /dev (null, zero, random, urandom, console, ttyS0, fb0, apoi blocurile)
+// Intrarea numarul idx din /dev (null, zero, random, urandom, console, ttyS0, fb0, gpu0, apoi blocurile)
 bool entry_at(uint64_t idx, DevDesc& d){
     static const struct { const char* name; Kind kind; int idx; } fixed[] = {
         {"null", Kind::Null, 0}, {"zero", Kind::Zero, 0}, {"random", Kind::Random, 0}, {"urandom", Kind::Urandom, 0},
@@ -104,6 +106,13 @@ bool entry_at(uint64_t idx, DevDesc& d){
     if(fb >= 0){
         if(idx == 0){
             d = DevDesc{hal_name(HalKind::Framebuffer, fb), Kind::Fb, fb};
+            return true;
+        }
+        idx--;
+    }
+    if(virtio_gpu_ready()){
+        if(idx == 0){
+            d = DevDesc{"gpu0", Kind::Gpu, 0};
             return true;
         }
         idx--;
@@ -274,6 +283,8 @@ int64_t dev_read(Inode* i, uint64_t pos, void* buf, uint64_t len){
         return (int64_t)len;
     case Kind::Fb:
         return fb_rw(pos, buf, nullptr, len);
+    case Kind::Gpu:
+        return -EINVAL;                 // doar mmap + ioctl
     case Kind::Block: {
         BlockDevice* b = hal_block(n->idx);
         return b ? block_rw(b, pos, buf, nullptr, len) : -EIO;
@@ -301,6 +312,8 @@ int64_t dev_write(Inode* i, uint64_t pos, const void* buf, uint64_t len){
     }
     case Kind::Fb:
         return fb_rw(pos, nullptr, buf, len);
+    case Kind::Gpu:
+        return -EINVAL;
     case Kind::Block: {
         BlockDevice* b = hal_block(n->idx);
         return b ? block_rw(b, pos, nullptr, buf, len) : -EIO;
@@ -322,7 +335,9 @@ DevNode* node_get(SuperBlock* sb, const DevDesc& d){
     }
     uint32_t mode = S_IFCHR | 0666;
     uint64_t size = 0;
-    if(d.kind == Kind::Fb){
+    if(d.kind == Kind::Gpu){
+        mode = S_IFCHR | 0660;
+    } else if(d.kind == Kind::Fb){
         mode = S_IFCHR | 0660;
         size = (uint64_t)fb_width() * fb_height() * 4;
     } else if(d.kind == Kind::Block){
@@ -448,6 +463,37 @@ const DevNode* fb_node(const Inode* i){
     return n->kind == Kind::Fb ? n : nullptr;
 }
 
+const DevNode* gpu_node(const Inode* i){
+    if(!i || i->ops != &dev_ops || !virtio_gpu_ready()){
+        return nullptr;
+    }
+    const DevNode* n = (const DevNode*)i->priv;
+    return n->kind == Kind::Gpu ? n : nullptr;
+}
+
+int64_t gpu_ioctl(uint64_t cmd, uint64_t arg){
+    switch(cmd){
+    case YGPU_IOC_INFO: {
+        yk_gpu_info info;
+        if(!virtio_gpu_info(info)){
+            return -ENODEV;
+        }
+        return user_access_ok(arg, sizeof(info), true) && copy_to_user(arg, &info, sizeof(info)) ? 0 : -EFAULT;
+    }
+    case YGPU_IOC_FLUSH: {
+        yk_gpu_flush f;
+        if(!user_access_ok(arg, sizeof(f), false) || !copy_from_user(&f, arg, sizeof(f))){
+            return -EFAULT;
+        }
+        return virtio_gpu_flush(f);
+    }
+    case YGPU_IOC_SYNC:
+        return virtio_gpu_sync();
+    default:
+        return -EINVAL;
+    }
+}
+
 uint64_t fb_map_len(){
     uint64_t first = fb_phys_addr() & ~(PAGE_4K - 1);
     uint64_t end = fb_phys_addr() + (uint64_t)fb_pitch() * fb_height();
@@ -457,10 +503,17 @@ uint64_t fb_map_len(){
 }
 
 uint64_t devfs_mmap_len(const Inode* i){
+    if(gpu_node(i)){
+        return virtio_gpu_map_len();
+    }
     return fb_node(i) ? fb_map_len() : 0;
 }
 
 int64_t devfs_mmap_phys(const Inode* i, uint64_t off, uint64_t& pte_cache){
+    if(gpu_node(i)){
+        pte_cache = 0;                  // RAM obisnuit (resursa virtio-gpu): cache write-back
+        return virtio_gpu_map_phys(off);
+    }
     if(!fb_node(i)){
         return -ENODEV;
     }
@@ -473,6 +526,14 @@ int64_t devfs_mmap_phys(const Inode* i, uint64_t off, uint64_t& pte_cache){
 }
 
 void devfs_mmap_ref(const Inode* i, bool get){
+    if(gpu_node(i)){
+        if(get){
+            virtio_gpu_user_get();
+        } else {
+            virtio_gpu_user_put();
+        }
+        return;
+    }
     if(fb_node(i)){
         if(get){
             fb_user_get();
@@ -483,6 +544,9 @@ void devfs_mmap_ref(const Inode* i, bool get){
 }
 
 int64_t devfs_ioctl(Inode* i, uint64_t cmd, uint64_t arg){
+    if(gpu_node(i)){
+        return gpu_ioctl(cmd, arg);
+    }
     if(!fb_node(i)){
         return -ENOTTY;
     }

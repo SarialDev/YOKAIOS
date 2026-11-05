@@ -1,5 +1,6 @@
-/* ycomp (T10.2): compozitor de ferestre pe /dev/fb0.
- *   ycomp [-s socket] [-t dark|light] [-f fps] [-q] [-d] [-p] [-e "comanda"]...
+/* ycomp (T10.2): compozitor de ferestre pe /dev/fb0 sau, cu virtio-gpu, pe /dev/gpu0 (T10.6, backend_virtio.c).
+ *   ycomp [-s socket] [-t dark|light] [-f fps] [-b auto|gpu|fb] [-q] [-d] [-p] [-e "comanda"]...
+ * -b alege afisarea: auto (implicit) = /dev/gpu0 daca exista, altfel /dev/fb0.
  * Clientii se conecteaza pe un socket AF_UNIX (implicit /run/ycomp.sock, protocolul din ywin_proto.h), au
  * buferele in memorie partajata (shm_open) si anunta zonele schimbate. Compozitorul aduna dreptunghiurile murdare,
  * le compune intr-un back buffer si le copiaza pe ecran la granitele unui ceas de 60 FPS; fara schimbari doarme in
@@ -735,7 +736,7 @@ static void spawn(const char *cmd){
 }
 
 static int usage(void){
-    printf("uz: ycomp [-s socket] [-t dark|light] [-f fps] [-q] [-d] [-p] [-e comanda]...\n");
+    printf("uz: ycomp [-s socket] [-t dark|light] [-f fps] [-b auto|gpu|fb] [-q] [-d] [-p] [-e comanda]...\n");
     return 2;
 }
 
@@ -744,6 +745,7 @@ int main(int argc, char **argv){
     const char *theme = NULL;
     const char *cmds[8];
     int ncmds = 0;
+    int backend = BK_AUTO;
     C.fps_max = 60;
     for(int i = 1; i < argc; i++){
         if(!strcmp(argv[i], "--help")){
@@ -756,6 +758,17 @@ int main(int argc, char **argv){
         } else if(!strcmp(argv[i], "-f") && i + 1 < argc){
             C.fps_max = atoi(argv[++i]);
             if(C.fps_max < 1 || C.fps_max > 240){
+                return usage();
+            }
+        } else if(!strcmp(argv[i], "-b") && i + 1 < argc){
+            const char *b = argv[++i];
+            if(!strcmp(b, "gpu")){
+                backend = BK_GPU;
+            } else if(!strcmp(b, "fb")){
+                backend = BK_FB;
+            } else if(!strcmp(b, "auto")){
+                backend = BK_AUTO;
+            } else {
                 return usage();
             }
         } else if(!strcmp(argv[i], "-q")){
@@ -816,16 +829,16 @@ int main(int argc, char **argv){
             fclose(tf);
         }
     }
-    int err = render_init(theme);
+    int err = render_init(theme, backend);
     if(err){
-        fprintf(stderr, "ycomp: /dev/fb0: %s\n", strerror(-err));
+        fprintf(stderr, "ycomp: %s: %s\n", backend == BK_GPU ? "/dev/gpu0" : "/dev/fb0", strerror(-err));
         return 1;
     }
     for(int i = 0; i < ncmds; i++){
         spawn(cmds[i]);
     }
     if(!C.quiet){
-        fprintf(stderr, "ycomp: %dx%d, %s, %d FPS\n", C.sw, C.sh, path, C.fps);
+        fprintf(stderr, "ycomp: %dx%d, %s, %d FPS, backend %s\n", C.sw, C.sh, path, C.fps, backend_name());
     }
 
     while(!stop_flag){
@@ -903,7 +916,8 @@ int main(int argc, char **argv){
     }
     close(listen_fd);
     if(!C.quiet){
-        fprintf(stderr, "ycomp: gata (%u cadre)\n", C.frames);
+        fprintf(stderr, "ycomp: gata (%u cadre, backend %s, flip %llu us)\n", C.frames, backend_name(),
+                (unsigned long long)C.flip_us);
     }
     return 0;
 }

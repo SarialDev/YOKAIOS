@@ -554,6 +554,9 @@ void sched_tick(uint64_t now){
     }
     Task* cur = c->current;
     const RunQueue& rq = rqs[c->id];
+    if(cur != c->idle){
+        cur->cpu_ticks++;
+    }
     if(cur == c->idle){
         // Pull la idle: si cand coada proprie e goala, dar altele au task-uri READY
         if(rq.ready || unpinned_ready){

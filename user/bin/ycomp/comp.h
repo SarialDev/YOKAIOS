@@ -48,9 +48,12 @@ typedef struct {
     uint32_t dropped;       /* evenimente pierdute: clientul nu citea */
 } Client;
 
+enum Backend { BK_AUTO, BK_FB, BK_GPU };
+
 typedef struct {
     YgFb fb;
-    YgSurface *back;        /* back buffer: aici se compune, apoi se copiaza pe ecran (flip) */
+    int backend;            /* BK_FB (/dev/fb0) sau BK_GPU (/dev/gpu0, virtio-gpu 2D, T10.6) */
+    YgSurface *back;        /* fb: back buffer in RAM, copiat pe ecran la flip; gpu: chiar pixelii resursei virtio-gpu */
     YgSurface *wall;        /* fundalul, desenat o data */
     YgSurface *cursor;      /* sageata (cu alfa) */
     YgFont *font;
@@ -90,6 +93,7 @@ typedef struct {
 
     /* statistici */
     uint32_t frames, wakeups;
+    uint64_t flip_us;       /* timp petrecut in flip (copiere pe fb0 / ioctl FLUSH) */
     uint64_t pixels;
     int quiet;
     WmState wm;             /* T10.3 */
@@ -103,8 +107,9 @@ extern Comp C;
 long long now_ms(void);
 long long now_us(void);
 
-/* render.c */
-int render_init(const char *theme);
+/* render.c; backend = BK_AUTO incearca /dev/gpu0, apoi /dev/fb0 */
+int render_init(const char *theme, int backend);
+const char *backend_name(void);
 void render_set_theme(const YgTheme *t);
 void render_fini(void);
 void damage(YgRect r);
@@ -116,6 +121,11 @@ YgRect window_title(const Window *w);
 YgRect window_close_box(const Window *w);
 void compose_and_flip(void);                /* compune zonele murdare in back buffer si le copiaza pe ecran */
 uint32_t back_pixel(int x, int y);
+
+/* backend_virtio.c (T10.6) */
+int vgpu_open(void);                        /* mapeaza resursa, seteaza C.back / C.sw / C.sh; 0 sau -errno */
+void vgpu_flush(const YgRect *r, int n);
+void vgpu_close(void);
 
 /* input.c */
 void input_event(const void *ev);           /* struct yk_input_event */

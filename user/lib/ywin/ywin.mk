@@ -121,3 +121,19 @@ test-apps: $(BUILD)/panic-apps.iso
 	EXPECT_FILE=tests/expect-apps.txt SMP=$(SMP) QEMU_EXTRA="$(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/apps.log
 
 test: test-apps
+
+# T10.6: virtio-gpu 2D (kernel/drivers/gpu/virtio_gpu.*, /dev/gpu0) + backend-ul ycomp user/bin/ycomp/backend_virtio.c (intra
+# singur in YCOMP_SRCS). test=gpu: /bin/gputest; QEMU primeste -device virtio-gpu-pci pe langa VGA-ul de boot (GRUB / fbcon)
+BIN_ELFS += $(BUILD)/ubin/gputest.elf
+
+$(BUILD)/ubin/gputest.elf: $(YWIN_DIR)/test/gputest.c $(YWIN_STAMP)
+	@mkdir -p $(dir $@)
+	$(UCC_BIN) $(YWIN_CFLAGS) -o $@ $< -lywin -lygfx
+
+$(BUILD)/panic-gpu.iso: $(KERNEL) $(INITRD) boot/grub-test.cfg
+
+.PHONY: test-gpu
+test-gpu: $(BUILD)/panic-gpu.iso
+	EXPECT_FILE=tests/expect-gpu.txt SMP=$(SMP) QEMU_EXTRA="-device virtio-gpu-pci $(QEMU_EXTRA)" sh tests/run_qemu.sh $< $(BUILD)/gpu.log
+
+test: test-gpu

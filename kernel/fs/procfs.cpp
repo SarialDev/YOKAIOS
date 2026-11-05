@@ -495,6 +495,8 @@ void gen_status(Buf& b, const TaskInfo& t, const Maps* m){
     put(b, t.cls == TaskClass::RT ? "rt" : "normal");
     put(b, "\nPrio:\t");
     put_dec(b, t.prio);
+    put(b, "\nCpuMs:\t");
+    put_dec(b, t.cpu_ms);
     put_c(b, '\n');
 }
 

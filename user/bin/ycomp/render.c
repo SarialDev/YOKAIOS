@@ -1,4 +1,5 @@
-/* ycomp: compunerea cu dreptunghiuri murdare intr-un back buffer din RAM, apoi copierea lor pe /dev/fb0 */
+/* ycomp: compunerea cu dreptunghiuri murdare intr-un back buffer din RAM, apoi copierea lor pe /dev/fb0;
+ * cu backend-ul virtio-gpu (T10.6) se compune direct in resursa 2D si flip-ul e un ioctl (backend_virtio.c) */
 #include "comp.h"
 #include <stdio.h>
 #include <string.h>
@@ -142,18 +143,36 @@ static void make_cursor(void){
     }
 }
 
-int render_init(const char *theme){
-    int err = yg_fb_open(&C.fb, NULL);
-    if(err){
-        return err;
+const char *backend_name(void){
+    return C.backend == BK_GPU ? "virtio-gpu" : "fb0";
+}
+
+int render_init(const char *theme, int backend){
+    int err = -19;
+    if(backend != BK_FB){
+        err = vgpu_open();
+        if(!err){
+            C.backend = BK_GPU;
+        } else if(backend == BK_GPU){
+            return err;
+        }
     }
-    C.sw = C.fb.width;
-    C.sh = C.fb.height;
+    if(err){
+        err = yg_fb_open(&C.fb, NULL);
+        if(err){
+            return err;
+        }
+        C.backend = BK_FB;
+        C.sw = C.fb.width;
+        C.sh = C.fb.height;
+    }
     C.theme = theme ? yg_theme_by_name(theme) : NULL;
     if(!C.theme){
         C.theme = &yg_theme_dark;
     }
-    C.back = yg_surface_new(C.sw, C.sh);
+    if(C.backend == BK_FB){
+        C.back = yg_surface_new(C.sw, C.sh);
+    }
     C.wall = yg_surface_new(C.sw, C.sh);
     C.cursor = yg_surface_new(CUR_W, CUR_H);
     if(!C.back || !C.wall || !C.cursor){
@@ -180,8 +199,13 @@ void render_set_theme(const YgTheme *t){
 }
 
 void render_fini(void){
-    yg_fb_close(&C.fb);
-    yg_surface_free(C.back);
+    if(C.backend == BK_GPU){
+        vgpu_close();               /* C.back era maparea resursei */
+    } else {
+        yg_fb_close(&C.fb);
+        yg_surface_free(C.back);
+    }
+    C.back = NULL;
     yg_surface_free(C.wall);
     yg_surface_free(C.cursor);
     if(C.font){
@@ -249,10 +273,16 @@ void compose_and_flip(void){
         C.pixels += (uint64_t)d.w * d.h;
     }
     yg_reset_clip(C.back);
-    /* "Flip": doar zonele schimbate trec in memoria video */
-    for(int i = 0; i < C.ndirty; i++){
-        yg_fb_present(&C.fb, C.back, &C.dirty[i]);
+    /* "Flip": doar zonele schimbate trec in memoria video (fb0) / la gazda (virtio-gpu) */
+    long long t0 = now_us();
+    if(C.backend == BK_GPU){
+        vgpu_flush(C.dirty, C.ndirty);
+    } else {
+        for(int i = 0; i < C.ndirty; i++){
+            yg_fb_present(&C.fb, C.back, &C.dirty[i]);
+        }
     }
+    C.flip_us += (uint64_t)(now_us() - t0);
     C.ndirty = 0;
     C.frames++;
 }

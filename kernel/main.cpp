@@ -74,6 +74,7 @@
 #include "tests/test_wm.h"
 #include "tests/test_panel.h"
 #include "tests/test_apps.h"
+#include "tests/test_gpu.h"
 #include "tests/test_perm.h"
 #include "tests/test_caps.h"
 #include "tests/test_aslr.h"
@@ -88,6 +89,7 @@
 #include "drivers/nvme/nvme.h"
 #include "drivers/net/e1000.h"
 #include "drivers/net/rtl8139.h"
+#include "drivers/gpu/virtio_gpu.h"
 #include "net/lwip_port.h"
 #include "fs/iso9660.h"
 #include "tests/test_nvme.h"
@@ -273,6 +275,7 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     nvme_init();
     e1000_init();
     rtl8139_init();
+    virtio_gpu_init();
     // lwIP (T9.2): doar cu "ip=" in cmdline; thread-ul tcpip creeaza interfata pe prima placa
     net_init();
     hal_list();
@@ -458,6 +461,9 @@ extern "C" void kernel_main(uint32_t magic, uint64_t mbi_phys){
     }
     if(test_named(test, "apps")){
         test_apps_run();
+    }
+    if(test_named(test, "gpu")){
+        test_gpu_run();
     }
     if(test_named(test, "vm")){
         test_vm_run();

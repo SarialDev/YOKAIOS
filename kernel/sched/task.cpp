@@ -13,6 +13,7 @@
 #include "lib/string.h"
 #include "init.h"
 #include "arch/x86_64/fpu.h"
+#include "time/clock.h"
 
 extern "C" char stack_bottom[];
 
@@ -56,6 +57,7 @@ Task* new_task(const char* name, uint8_t prio){
     t->as = &kernel_as;
     t->slice_left = 0;
     t->wake_ns = 0;
+    t->cpu_ticks = 0;
     t->rt = nullptr;
     t->iomap = nullptr;
     t->proc = nullptr;
@@ -210,6 +212,7 @@ void fill_info(const Task* t, TaskInfo& out){
     out.uid = out.euid = out.suid = out.gid = out.egid = out.sgid = 0;
     out.cap_perm = out.cap_eff = CAP_ALL;
     out.stack_top = 0;
+    out.cpu_ms = t->cpu_ticks * 1000 / TIMER_HZ;
     memcpy(out.name, t->name, TASK_NAME_LEN);
     if(t->proc){
         Process* p = t->proc;

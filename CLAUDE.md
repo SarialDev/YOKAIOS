@@ -347,3 +347,12 @@ OS hobby hibrid: x86-64 acum, ARM64 (dronă) mai târziu.
 - `init -g` (cmdline `gui`, intrarea implicita GRUB): porneste `ycomp -p`; cade pe ysh fara /dev/fb0. Intrari GRUB: YokaiOS (gui), (text), (login).
 - Test: `make test-apps` (`appstest`: pty + ora + sesiune GUI conduse prin input injectat; `/etc/appshold` asteapta la capturi). Face parte din `make test`.
 - yedit vine din branch-ul feature/T7.4-yedit.
+
+## Accelerare GPU: virtio-gpu 2D (T10.6)
+
+- Detalii si pasii spre Vulkan (Venus) in `docs/GPU.md`.
+- Kernel `kernel/drivers/gpu/virtio_gpu.{h,cpp}`: PCI 1af4:1050 (virtio-gpu-pci, virtio-vga), transport virtio 1.x (capabilitati vendor), doar `VERSION_1` negociat; `controlq` cu 16 sloturi, **fara intreruperi** (polling pe inelul used, spin cu limita si in iteratii sub lock irqsave). Raporteaza VIRGL/EDID/UUID/BLOB/CONTEXT_INIT + capset-uri (GET_CAPSET_INFO), modul gazdei (GET_DISPLAY_INFO). Resursa 2D id 1, B8G8R8X8, geometria fb-ului de boot; creata la prima mapare (pagini 4K separate, ATTACH_BACKING pe alergari, SET_SCANOUT 0), distrusa la ultima.
+- `/dev/gpu0` (devfs `Kind::Gpu`, dupa fb0): `uapi/gpu.h` = `<sys/ygpu.h>`; ioctl `YGPU_IOC_INFO/FLUSH/SYNC`, mmap = RAM WB (`PTE_DEV`), read/write = EINVAL. FLUSH = TRANSFER_TO_HOST_2D pe 1..8 dreptunghiuri + RESOURCE_FLUSH pe reuniune, o notificare, asincron.
+- ycomp `-b auto|gpu|fb` (implicit auto = gpu daca exista): `backend_virtio.c` compune direct in resursa (fara back buffer, flip = ioctl). `C.backend`, `C.flip_us`; mesajele de pornire/iesire arata backend-ul.
+- `Task::cpu_ticks` (sched_tick, fara idle) -> `CpuMs:` in `/proc/<pid>/status`.
+- Test: `make test-gpu` (test=gpu, in `make test` prin `ywin.mk`; QEMU_EXTRA primeste `-device virtio-gpu-pci`): `/bin/gputest` (51 verificari) testeaza /dev/gpu0 direct, apoi ycomp pe gpu si pe fb cu fereastra 800x520 redesenata la fiecare cadru; cere CPU/cadru gpu < fb (TCG: ~9 ms vs ~15 ms; flip 10 ms vs 1.3 s pe 150 cadre). `/etc/gpuhold` = pauza 3 s la capturi. Vizual: `-vga none -device virtio-vga`.

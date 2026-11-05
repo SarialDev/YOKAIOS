@@ -19,7 +19,7 @@ struct Inode;
 // true = nodul /dev/console sau /dev/tty (terminalul): ioctl-urile tty merg numai pe el
 bool devfs_is_console(const Inode* i);
 
-// /dev/fb0 (T10.1). Lungimea mapabila cu mmap (0 = nodul nu se poate mapa)
+// /dev/fb0 (T10.1) si /dev/gpu0 (T10.6, virtio-gpu). Lungimea mapabila cu mmap (0 = nodul nu se poate mapa)
 uint64_t devfs_mmap_len(const Inode* i);
 // Adresa fizica a paginii de la off (aliniat la pagina) si bitii de cache ai PTE-ului; -ENODEV / -ENXIO
 int64_t devfs_mmap_phys(const Inode* i, uint64_t off, uint64_t& pte_cache);
